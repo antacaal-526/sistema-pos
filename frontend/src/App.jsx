@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ShoppingCart, Package, BarChart3, AlertTriangle, LogOut, Trash2, Users, Printer, QrCode, Clock, FileText, CheckCircle2 } from 'lucide-react';
 
-const API_URL = `http://${window.location.hostname}:3001/api`;
+const API_URL = 'https://terra-pos-backend-526.onrender.com/api';
 
 // Función para peticiones seguras que evita el error Unexpected token '<'
 const safeFetch = async (url, options = {}) => {
