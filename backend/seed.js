@@ -243,6 +243,41 @@ const productos = [
 ];
 
 db.serialize(() => {
+  // 1. Crear tabla de usuarios si no existe y asegurar la cuenta Admin
+  db.run(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT,
+      usuario TEXT UNIQUE,
+      password TEXT,
+      rol TEXT
+    )
+  `);
+
+  db.run(`
+    INSERT INTO usuarios (nombre, usuario, password, rol)
+    VALUES ('Administrador', 'admin', '0526', 'admin')
+    ON CONFLICT(usuario) DO UPDATE SET password = '0526', rol = 'admin'
+  `, (err) => {
+    if (err) console.error("Error al configurar admin:", err.message);
+    else console.log("✓ Usuario Administrador restablecido (Usuario: admin | Clave: 0526)");
+  });
+
+  // 2. Crear tabla de productos y realizar la inserción masiva
+  db.run(`
+    CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      barcode TEXT UNIQUE,
+      internal_code TEXT,
+      name TEXT,
+      category TEXT,
+      cost_price REAL,
+      sale_price REAL,
+      stock INTEGER,
+      min_stock INTEGER
+    )
+  `);
+
   const stmt = db.prepare(`
     INSERT INTO products (barcode, internal_code, name, category, cost_price, sale_price, stock, min_stock)
     VALUES (?, ?, ?, 'General', 0, 1000, ?, 5)
@@ -254,7 +289,7 @@ db.serialize(() => {
   });
 
   stmt.finalize((err) => {
-    if (err) console.error("Error al insertar:", err.message);
-    else console.log(`¡Éxito! Se registraron/actualizaron ${productos.length} productos en la base de datos.`);
+    if (err) console.error("Error al insertar productos:", err.message);
+    else console.log(`✓ ¡Éxito! Se registraron/actualizaron ${productos.length} productos en la base de datos.`);
   });
 });
