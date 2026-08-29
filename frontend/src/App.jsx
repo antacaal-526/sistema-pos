@@ -27,11 +27,13 @@ export default function App() {
     barcode: '',
     nombre: '',
     precio: '',
-    stock: ''
+    stock: '',
+    min_stock: '5'
   });
 
-  // Estado para la edición directa de stock/precio en la tabla de inventario
+  // Estado para la edición de inventario y casillas de entrada
   const [edicionStock, setEdicionStock] = useState({});
+  const [entradas, setEntradas] = useState({});
 
   // Control de Medio de Pago
   const [medioPago, setMedioPago] = useState('efectivo');
@@ -104,12 +106,19 @@ export default function App() {
         const data = await res.json();
         setProductos(data);
 
-        // Inicializar estado local de edición para cada producto
+        // Inicializar mapas locales de edición y entradas
         const mapaEdicion = {};
+        const mapaEntradas = {};
         data.forEach((p) => {
-          mapaEdicion[p.id] = { stock: p.stock, precio: p.precio };
+          mapaEdicion[p.id] = {
+            stock: p.stock,
+            precio: p.precio,
+            min_stock: p.min_stock || 5
+          };
+          mapaEntradas[p.id] = '';
         });
         setEdicionStock(mapaEdicion);
+        setEntradas(mapaEntradas);
       }
     } catch (err) {
       console.error('Error cargando productos:', err);
@@ -152,7 +161,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         alert('¡Producto creado exitosamente!');
-        setNuevoProducto({ barcode: '', nombre: '', precio: '', stock: '' });
+        setNuevoProducto({ barcode: '', nombre: '', precio: '', stock: '', min_stock: '5' });
         cargarProductos();
       } else {
         alert(data.error || 'Error al crear producto');
@@ -162,23 +171,29 @@ export default function App() {
     }
   };
 
-  // ACTUALIZAR STOCK / ENTRADA DE PRODUCTO
+  // ACTUALIZAR STOCK CON ENTRADA SUMATORIA
   const handleGuardarCambiosStock = async (id) => {
     const itemEditado = edicionStock[id];
     if (!itemEditado) return;
+
+    const entradaValor = Number(entradas[id]) || 0;
+    const stockActualBase = Number(itemEditado.stock) || 0;
+    const stockCalculadoFinal = stockActualBase + entradaValor;
 
     try {
       const res = await fetch(`${API_URL}/productos/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          stock: itemEditado.stock,
-          precio: itemEditado.precio
+          stock: stockCalculadoFinal,
+          precio: itemEditado.precio,
+          min_stock: itemEditado.min_stock
         })
       });
 
       if (res.ok) {
-        alert('Stock y precio actualizados correctamente');
+        alert(`¡Actualizado! Nuevo Stock Total: ${stockCalculadoFinal}`);
+        setEntradas((prev) => ({ ...prev, [id]: '' }));
         cargarProductos();
       } else {
         alert('Error al actualizar el producto');
@@ -356,7 +371,7 @@ export default function App() {
     return coincideNombre || coincideCodigo;
   });
 
-  const productosAgotados = productos.filter((p) => p.stock <= 0);
+  const productosAgotados = productos.filter((p) => p.stock <= (p.min_stock || 5));
 
   // LOGIN
   if (!usuarioLogueado) {
@@ -372,9 +387,7 @@ export default function App() {
               type="text"
               required
               value={loginInput.usuario}
-              onChange={(e) =>
-                setLoginInput({ ...loginInput, usuario: e.target.value })
-              }
+              onChange={(e) => setLoginInput({ ...loginInput, usuario: e.target.value })}
               style={styles.input}
             />
           </div>
@@ -384,9 +397,7 @@ export default function App() {
               type="password"
               required
               value={loginInput.password}
-              onChange={(e) =>
-                setLoginInput({ ...loginInput, password: e.target.value })
-              }
+              onChange={(e) => setLoginInput({ ...loginInput, password: e.target.value })}
               style={styles.input}
             />
           </div>
@@ -626,7 +637,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 2: INVENTARIO (CREACIÓN Y ENTRADA/MODIFICACIÓN DE STOCK) */}
+        {/* VISTA 2: INVENTARIO (CREACIÓN, ENTRADA SUMATORIA Y STOCK MÍNIMO) */}
         {vistaActual === 'inventario' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>📦 Inventario de Productos</h2>
@@ -639,7 +650,7 @@ export default function App() {
                   <label style={styles.labelSmall}>Código / Código de Barras:</label>
                   <input
                     type="text"
-                    placeholder="Ej. 434 o escanea"
+                    placeholder="Ej. 243"
                     value={nuevoProducto.barcode}
                     onChange={(e) => setNuevoProducto({ ...nuevoProducto, barcode: e.target.value })}
                     style={styles.input}
@@ -657,10 +668,10 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label style={styles.labelSmall}>Precio de Venta ($):*</label>
+                  <label style={styles.labelSmall}>Precio ($):*</label>
                   <input
                     type="number"
-                    placeholder="Ej: 1500"
+                    placeholder="Ej: 1000"
                     required
                     value={nuevoProducto.precio}
                     onChange={(e) => setNuevoProducto({ ...nuevoProducto, precio: e.target.value })}
@@ -678,6 +689,16 @@ export default function App() {
                     style={styles.input}
                   />
                 </div>
+                <div>
+                  <label style={styles.labelSmall}>Stock Mínimo:</label>
+                  <input
+                    type="number"
+                    placeholder="Mínimo"
+                    value={nuevoProducto.min_stock}
+                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, min_stock: e.target.value })}
+                    style={styles.input}
+                  />
+                </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                   <button type="submit" style={styles.btnPrimary}>
                     💾 Crear Producto
@@ -686,11 +707,11 @@ export default function App() {
               </div>
             </form>
 
-            {/* BUSCADOR Y ENTRADA / EDICIÓN DE STOCK */}
+            {/* LISTADO Y ENTRADAS */}
             <h3>Listado y Entrada de Mercancía</h3>
             <input
               type="text"
-              placeholder="🔍 Buscar por código o nombre para ajustar stock..."
+              placeholder="🔍 Buscar por código o nombre para registrar entradas..."
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               style={styles.inputSearch}
@@ -703,76 +724,121 @@ export default function App() {
                   <th style={styles.th}>Producto</th>
                   <th style={styles.th}>Precio ($)</th>
                   <th style={styles.th}>Stock Actual</th>
+                  <th style={styles.th}>➕ Entrada (Suma)</th>
+                  <th style={styles.th}>⚠️ Stock Mínimo</th>
                   <th style={styles.th}>Acciones / Guardar</th>
                 </tr>
               </thead>
               <tbody>
-                {productosFiltrados.map((p) => (
-                  <tr key={p.id} style={styles.tr}>
-                    <td style={styles.td}><b>{p.barcode || p.id}</b></td>
-                    <td style={styles.td}>{p.nombre}</td>
-                    <td style={styles.td}>
-                      <input
-                        type="number"
-                        value={edicionStock[p.id]?.precio ?? p.precio}
-                        onChange={(e) =>
-                          setEdicionStock({
-                            ...edicionStock,
-                            [p.id]: {
-                              ...edicionStock[p.id],
-                              precio: e.target.value
-                            }
-                          })
-                        }
-                        style={styles.inputTableNumber}
-                      />
-                    </td>
-                    <td style={styles.td}>
-                      <input
-                        type="number"
-                        value={edicionStock[p.id]?.stock ?? p.stock}
-                        onChange={(e) =>
-                          setEdicionStock({
-                            ...edicionStock,
-                            [p.id]: {
-                              ...edicionStock[p.id],
-                              stock: e.target.value
-                            }
-                          })
-                        }
-                        style={{
-                          ...styles.inputTableNumber,
-                          borderColor: (edicionStock[p.id]?.stock ?? p.stock) <= 0 ? '#dc2626' : '#2563eb',
-                          fontWeight: 'bold'
-                        }}
-                      />
-                    </td>
-                    <td style={styles.td}>
-                      <button
-                        onClick={() => handleGuardarCambiosStock(p.id)}
-                        style={styles.btnSaveInline}
-                      >
-                        💾 Actualizar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {productosFiltrados.map((p) => {
+                  const entradaVal = Number(entradas[p.id]) || 0;
+                  const stockBase = Number(edicionStock[p.id]?.stock ?? p.stock);
+                  const nuevoTotalCalculado = stockBase + entradaVal;
+
+                  return (
+                    <tr key={p.id} style={styles.tr}>
+                      <td style={styles.td}><b>{p.barcode || p.id}</b></td>
+                      <td style={styles.td}>{p.nombre}</td>
+                      <td style={styles.td}>
+                        <input
+                          type="number"
+                          value={edicionStock[p.id]?.precio ?? p.precio}
+                          onChange={(e) =>
+                            setEdicionStock({
+                              ...edicionStock,
+                              [p.id]: {
+                                ...edicionStock[p.id],
+                                precio: e.target.value
+                              }
+                            })
+                          }
+                          style={styles.inputTableNumber}
+                        />
+                      </td>
+                      <td style={styles.td}>
+                        <input
+                          type="number"
+                          value={edicionStock[p.id]?.stock ?? p.stock}
+                          onChange={(e) =>
+                            setEdicionStock({
+                              ...edicionStock,
+                              [p.id]: {
+                                ...edicionStock[p.id],
+                                stock: e.target.value
+                              }
+                            })
+                          }
+                          style={{
+                            ...styles.inputTableNumber,
+                            borderColor: stockBase <= (edicionStock[p.id]?.min_stock || 5) ? '#dc2626' : '#2563eb',
+                            color: stockBase <= (edicionStock[p.id]?.min_stock || 5) ? '#dc2626' : '#000',
+                            fontWeight: 'bold'
+                          }}
+                        />
+                      </td>
+                      {/* COLUMNA ENTRADA (SUMATORIA AUTOMÁTICA) */}
+                      <td style={styles.td}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="+ Entrada"
+                            value={entradas[p.id] || ''}
+                            onChange={(e) => setEntradas({ ...entradas, [p.id]: e.target.value })}
+                            style={styles.inputEntrada}
+                          />
+                          {entradaVal > 0 && (
+                            <span style={{ fontSize: '12px', color: '#16a34a', fontWeight: 'bold' }}>
+                              (= {nuevoTotalCalculado})
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      {/* COLUMNA STOCK MÍNIMO */}
+                      <td style={styles.td}>
+                        <input
+                          type="number"
+                          value={edicionStock[p.id]?.min_stock ?? (p.min_stock || 5)}
+                          onChange={(e) =>
+                            setEdicionStock({
+                              ...edicionStock,
+                              [p.id]: {
+                                ...edicionStock[p.id],
+                                min_stock: e.target.value
+                              }
+                            })
+                          }
+                          style={styles.inputTableNumber}
+                        />
+                      </td>
+                      <td style={styles.td}>
+                        <button
+                          onClick={() => handleGuardarCambiosStock(p.id)}
+                          style={styles.btnSaveInline}
+                        >
+                          💾 Actualizar
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
 
-        {/* VISTA 3: AGOTADOS */}
+        {/* VISTA 3: AGOTADOS (SEGUN STOCK MINIMO) */}
         {vistaActual === 'agotados' && usuarioLogueado.rol === 'admin' && (
           <div>
-            <h2>⚠️ Productos Agotados</h2>
+            <h2>⚠️ Productos Agotados o Bajo Stock Mínimo</h2>
             <table style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>Código</th>
                   <th style={styles.th}>Producto</th>
                   <th style={styles.th}>Precio</th>
-                  <th style={styles.th}>Stock</th>
+                  <th style={styles.th}>Stock Actual</th>
+                  <th style={styles.th}>Stock Mínimo</th>
                 </tr>
               </thead>
               <tbody>
@@ -784,6 +850,7 @@ export default function App() {
                     <td style={{ ...styles.td, color: 'red', fontWeight: 'bold' }}>
                       {p.stock}
                     </td>
+                    <td style={styles.td}>{p.min_stock || 5}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1037,7 +1104,8 @@ const styles = {
   input: { width: '100%', padding: '10px', marginTop: '5px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
   searchBarBox: { display: 'flex', gap: '10px', marginBottom: '15px' },
   inputSearch: { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
-  inputTableNumber: { width: '90px', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', textAlign: 'center' },
+  inputTableNumber: { width: '80px', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', textAlign: 'center' },
+  inputEntrada: { width: '80px', padding: '6px', borderRadius: '4px', border: '2px solid #16a34a', backgroundColor: '#f0fdf4', textAlign: 'center', fontWeight: 'bold' },
   selectPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #3b82f6', fontSize: '15px', fontWeight: 'bold', backgroundColor: '#eff6ff', boxSizing: 'border-box' },
   inputPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #2563eb', fontSize: '16px', fontWeight: 'bold', boxSizing: 'border-box' },
   infoTransfer: { backgroundColor: '#dcfce7', color: '#15803d', padding: '10px', borderRadius: '6px', textAlign: 'center', fontSize: '14px', fontWeight: 'bold', margin: '12px 0' },
@@ -1065,7 +1133,7 @@ const styles = {
   tr: { borderBottom: '1px solid #e2e8f0' },
   formInline: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '20px' },
   formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
-  formRowProduct: { display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
+  formRowProduct: { display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
   ticketBox: { backgroundColor: '#fff', width: '300px', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' },
   ticketDivider: { textAlign: 'center', margin: '8px 0', fontSize: '12px' },

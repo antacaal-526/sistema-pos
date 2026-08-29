@@ -46,7 +46,7 @@ db.serialize(() => {
     )
   `);
 
-  // Tabla de Ventas (Con columna para Medio de Pago)
+  // Tabla de Ventas
   db.run(`
     CREATE TABLE IF NOT EXISTS ventas (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,11 +59,8 @@ db.serialize(() => {
 });
 
 // --- RUTAS DE AUTENTICACIÓN ---
-
-// Login (Tolera mayúsculas y minúsculas)
 app.post('/api/login', (req, res) => {
   const { usuario, password } = req.body;
-
   if (!usuario || !password) {
     return res.status(400).json({ error: 'Ingrese usuario y contraseña' });
   }
@@ -72,12 +69,8 @@ app.post('/api/login', (req, res) => {
     'SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(?)',
     [usuario.trim()],
     (err, userRow) => {
-      if (err) {
-        return res.status(500).json({ error: 'Error en el servidor' });
-      }
-      if (!userRow) {
-        return res.status(404).json({ error: 'Usuario no encontrado' });
-      }
+      if (err) return res.status(500).json({ error: 'Error en el servidor' });
+      if (!userRow) return res.status(404).json({ error: 'Usuario no encontrado' });
       if (userRow.password !== password.trim()) {
         return res.status(401).json({ error: 'Contraseña incorrecta' });
       }
@@ -96,8 +89,6 @@ app.post('/api/login', (req, res) => {
 });
 
 // --- RUTAS DE GESTIÓN DE USUARIOS ---
-
-// Obtener todos los usuarios
 app.get('/api/usuarios', (req, res) => {
   db.all('SELECT id, nombre, usuario, rol FROM usuarios', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -105,7 +96,6 @@ app.get('/api/usuarios', (req, res) => {
   });
 });
 
-// Crear nuevo usuario (Cajero o Admin)
 app.post('/api/usuarios', (req, res) => {
   const { nombre, usuario, password, rol } = req.body;
   db.run(
@@ -123,39 +113,34 @@ app.post('/api/usuarios', (req, res) => {
   );
 });
 
-// Eliminar usuario
 app.delete('/api/usuarios/:id', (req, res) => {
   const { id } = req.params;
   db.run('DELETE FROM usuarios WHERE id = ?', [id], function (err) {
-    if (err) {
-      return res.status(500).json({ error: 'Error al eliminar el usuario' });
-    }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
+    if (err) return res.status(500).json({ error: 'Error al eliminar usuario' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
     res.json({ message: 'Usuario eliminado con éxito' });
   });
 });
 
 // --- RUTAS DE PRODUCTOS E INVENTARIO ---
 
-// 1. Obtener lista completa de productos
+// 1. Obtener lista completa de productos incluyendo Stock Mínimo
 app.get('/api/productos', (req, res) => {
-  db.all('SELECT id, barcode, name AS nombre, sale_price AS precio, stock FROM products', [], (err, rows) => {
+  db.all('SELECT id, barcode, name AS nombre, sale_price AS precio, stock, COALESCE(min_stock, 5) AS min_stock FROM products', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-// 2. Crear Nuevo Producto en Inventario
+// 2. Crear Nuevo Producto con Stock Mínimo
 app.post('/api/productos', (req, res) => {
-  const { barcode, nombre, precio, stock } = req.body;
+  const { barcode, nombre, precio, stock, min_stock } = req.body;
   const codigoFinal = barcode ? barcode.trim() : Date.now().toString();
 
   db.run(
     `INSERT INTO products (barcode, internal_code, name, category, cost_price, sale_price, stock, min_stock)
-     VALUES (?, ?, ?, 'General', 0, ?, ?, 5)`,
-    [codigoFinal, codigoFinal, nombre, Number(precio), Number(stock)],
+     VALUES (?, ?, ?, 'General', 0, ?, ?, ?)`,
+    [codigoFinal, codigoFinal, nombre, Number(precio), Number(stock), Number(min_stock) || 5],
     function (err) {
       if (err) {
         if (err.message.includes('UNIQUE')) {
@@ -168,25 +153,23 @@ app.post('/api/productos', (req, res) => {
   );
 });
 
-// 3. Modificar Stock y Precio (Entrada de mercancía)
+// 3. Modificar Stock, Precio y Stock Mínimo
 app.put('/api/productos/:id', (req, res) => {
   const { id } = req.params;
-  const { stock, precio } = req.body;
+  const { stock, precio, min_stock } = req.body;
 
   db.run(
-    `UPDATE products SET stock = ?, sale_price = ? WHERE id = ?`,
-    [Number(stock), Number(precio), id],
+    `UPDATE products SET stock = ?, sale_price = ?, min_stock = ? WHERE id = ?`,
+    [Number(stock), Number(precio), Number(min_stock) || 5, id],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       if (this.changes === 0) return res.status(404).json({ error: 'Producto no encontrado' });
-      res.json({ message: 'Stock y producto actualizados correctamente' });
+      res.json({ message: 'Producto actualizado correctamente' });
     }
   );
 });
 
-// --- RUTAS DE VENTAS Y REPORTES ---
-
-// Registrar una nueva venta, guardar medio de pago y descontar inventario
+// --- RUTAS DE VENTAS ---
 app.post('/api/ventas', (req, res) => {
   const { items, total, usuario_id, medio_pago } = req.body;
 
@@ -197,8 +180,6 @@ app.post('/api/ventas', (req, res) => {
       if (err) return res.status(500).json({ error: err.message });
 
       const ventaId = this.lastID;
-
-      // Descontar la cantidad vendida del stock de cada producto
       const stmt = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
       items.forEach((item) => {
         stmt.run(item.cantidad, item.id);
@@ -210,7 +191,6 @@ app.post('/api/ventas', (req, res) => {
   );
 });
 
-// Obtener historial de ventas
 app.get('/api/ventas', (req, res) => {
   db.all('SELECT * FROM ventas ORDER BY fecha DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -218,7 +198,6 @@ app.get('/api/ventas', (req, res) => {
   });
 });
 
-// --- INICIAR SERVIDOR ---
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor Terra Frutos Secos corriendo en el puerto ${PORT}`);
 });
