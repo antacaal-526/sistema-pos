@@ -46,16 +46,22 @@ db.serialize(() => {
     )
   `);
 
-  // Tabla de Ventas
+  // Tabla de Ventas (Con columna para items en formato JSON)
   db.run(`
     CREATE TABLE IF NOT EXISTS ventas (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       total REAL,
       usuario_id INTEGER,
       medio_pago TEXT,
-      fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+      fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+      items_json TEXT
     )
   `);
+
+  // Asegurar columna items_json en bases de datos existentes
+  db.run(`ALTER TABLE ventas ADD COLUMN items_json TEXT`, (err) => {
+    // Si la columna ya existe, SQLite ignorará la instrucción de forma segura
+  });
 
   // Tabla de Control de Turnos / Arqueo de Caja
   db.run(`
@@ -184,10 +190,11 @@ app.put('/api/productos/:id', (req, res) => {
 // --- RUTAS DE VENTAS ---
 app.post('/api/ventas', (req, res) => {
   const { items, total, usuario_id, medio_pago } = req.body;
+  const itemsJson = JSON.stringify(items || []);
 
   db.run(
-    'INSERT INTO ventas (total, usuario_id, medio_pago) VALUES (?, ?, ?)',
-    [total, usuario_id, medio_pago || 'efectivo'],
+    'INSERT INTO ventas (total, usuario_id, medio_pago, items_json) VALUES (?, ?, ?, ?)',
+    [total, usuario_id, medio_pago || 'efectivo', itemsJson],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -204,15 +211,42 @@ app.post('/api/ventas', (req, res) => {
 });
 
 app.get('/api/ventas', (req, res) => {
-  db.all('SELECT * FROM ventas ORDER BY fecha DESC', [], (err, rows) => {
+  db.all('SELECT * FROM ventas ORDER BY id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-// --- RUTAS DE GESTIÓN DE TURNOS Y CIERRES DE CAJA ---
+// Eliminar venta y revertir unidades al inventario
+app.delete('/api/ventas/:id', (req, res) => {
+  const { id } = req.params;
 
-// Obtener turno activo del cajero en sesión
+  db.get('SELECT items_json FROM ventas WHERE id = ?', [id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    // Si existen items guardados, devolvemos el stock al inventario
+    if (row.items_json) {
+      try {
+        const items = JSON.parse(row.items_json);
+        const stmt = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
+        items.forEach((item) => {
+          stmt.run(item.cantidad, item.id);
+        });
+        stmt.finalize();
+      } catch (e) {
+        console.error('Error devolviendo stock:', e);
+      }
+    }
+
+    db.run('DELETE FROM ventas WHERE id = ?', [id], function (errDelete) {
+      if (errDelete) return res.status(500).json({ error: errDelete.message });
+      res.json({ message: 'Venta eliminada y stock devuelto exitosamente' });
+    });
+  });
+});
+
+// --- RUTAS DE GESTIÓN DE TURNOS Y CIERRES DE CAJA ---
 app.get('/api/turnos/activo/:usuario_id', (req, res) => {
   const { usuario_id } = req.params;
   db.get(
@@ -225,7 +259,6 @@ app.get('/api/turnos/activo/:usuario_id', (req, res) => {
   );
 });
 
-// Iniciar Turno
 app.post('/api/turnos/abrir', (req, res) => {
   const { usuario_id, nombre_cajero, base_inicial } = req.body;
   const ahora = new Date();
@@ -252,7 +285,6 @@ app.post('/api/turnos/abrir', (req, res) => {
   );
 });
 
-// Cerrar Turno
 app.post('/api/turnos/cerrar', (req, res) => {
   const { turno_id } = req.body;
   const ahora = new Date();
@@ -306,7 +338,6 @@ app.post('/api/turnos/cerrar', (req, res) => {
   });
 });
 
-// Historial de Cierres de Turno para Reportes
 app.get('/api/turnos', (req, res) => {
   db.all('SELECT * FROM turnos ORDER BY id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });

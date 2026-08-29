@@ -234,6 +234,27 @@ export default function App() {
     }
   };
 
+  // ELIMINAR VENTA MAL REGISTRADA
+  const handleEliminarVenta = async (ventaId) => {
+    if (window.confirm(`¿Estás seguro de eliminar la Venta #${ventaId}? Se devolverán los productos vendidos al inventario.`)) {
+      try {
+        const res = await fetch(`${API_URL}/ventas/${ventaId}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          alert(`¡Venta #${ventaId} eliminada correctamente y stock restaurado!`);
+          cargarVentas();
+          cargarProductos();
+          cargarHistorialTurnos();
+        } else {
+          alert('Error al eliminar la venta');
+        }
+      } catch (err) {
+        alert('Error de conexión al intentar eliminar la venta');
+      }
+    }
+  };
+
   // CREAR UN NUEVO PRODUCTO
   const handleCrearProducto = async (e) => {
     e.preventDefault();
@@ -465,7 +486,6 @@ export default function App() {
     return coincideNombre || coincideCodigo;
   });
 
-  // FILTRAR Y ORDENAR PRODUCTOS DE 0 A MAYOR EN VISTA DE AGOTADOS
   const productosAgotados = productos
     .filter((p) => Number(p.stock) <= Number(p.min_stock || 5))
     .sort((a, b) => Number(a.stock) - Number(b.stock));
@@ -961,7 +981,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 3: AGOTADOS Y CRÍTICOS (ORDENADOS DE 0 A MAYOR) */}
+        {/* VISTA 3: AGOTADOS */}
         {vistaActual === 'agotados' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>⚠️ Productos Agotados o Bajo Stock Mínimo</h2>
@@ -1114,7 +1134,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 5: REPORTES */}
+        {/* VISTA 5: REPORTES CON DETALLE INDIVIDUAL Y ELIMINACIÓN DE VENTAS */}
         {vistaActual === 'reportes' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>📊 Reportes de Cierre de Turnos y Ventas</h2>
@@ -1166,26 +1186,72 @@ export default function App() {
               </tbody>
             </table>
 
-            {/* HISTORIAL GENERAL DE VENTAS */}
+            {/* HISTORIAL GENERAL DE VENTAS INDIVIDUALES */}
             <h3 style={{ marginTop: '30px' }}>📄 Historial Individual de Ventas</h3>
             <table style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>ID Venta</th>
-                  <th style={styles.th}>Fecha</th>
-                  <th style={styles.th}>Medio Pago</th>
-                  <th style={styles.th}>Total</th>
+                  <th style={styles.th}>Fecha y Hora</th>
+                  <th style={styles.th}>Descripción de Productos Vendidos</th>
+                  <th style={styles.th}>Medio de Pago</th>
+                  <th style={styles.th}>Total de la Venta</th>
+                  <th style={styles.th}>Acción</th>
                 </tr>
               </thead>
               <tbody>
-                {ventas.map((v) => (
-                  <tr key={v.id} style={styles.tr}>
-                    <td style={styles.td}>#{v.id}</td>
-                    <td style={styles.td}>{v.fecha || 'Reciente'}</td>
-                    <td style={styles.td}>{v.medio_pago || 'Efectivo'}</td>
-                    <td style={styles.td}>${Number(v.total).toLocaleString()}</td>
-                  </tr>
-                ))}
+                {ventas.map((v) => {
+                  let descripcionProductos = 'Sin detalle disponible';
+                  if (v.items_json) {
+                    try {
+                      const itemsArr = JSON.parse(v.items_json);
+                      descripcionProductos = itemsArr
+                        .map((item) => `${item.cantidad}x ${item.nombre}`)
+                        .join(' | ');
+                    } catch (e) {
+                      descripcionProductos = 'Error leyendo productos';
+                    }
+                  }
+
+                  return (
+                    <tr key={v.id} style={styles.tr}>
+                      <td style={styles.td}><b>#{v.id}</b></td>
+                      <td style={styles.td}>{v.fecha || 'Reciente'}</td>
+                      <td style={{ ...styles.td, color: '#334155', fontSize: '13px' }}>
+                        {descripcionProductos}
+                      </td>
+                      <td style={styles.td}>
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            backgroundColor: v.medio_pago?.toLowerCase().includes('transferencia')
+                              ? '#eff6ff'
+                              : '#f0fdf4',
+                            color: v.medio_pago?.toLowerCase().includes('transferencia')
+                              ? '#1d4ed8'
+                              : '#15803d',
+                            fontWeight: 'bold',
+                            textTransform: 'capitalize'
+                          }}
+                        >
+                          {v.medio_pago || 'Efectivo'}
+                        </span>
+                      </td>
+                      <td style={{ ...styles.td, color: '#16a34a', fontWeight: 'bold' }}>
+                        ${Number(v.total).toLocaleString()}
+                      </td>
+                      <td style={styles.td}>
+                        <button
+                          onClick={() => handleEliminarVenta(v.id)}
+                          style={styles.btnDangerTable}
+                        >
+                          🗑️ Eliminar Venta
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1367,6 +1433,7 @@ const styles = {
   btnPrimary: { width: '100%', padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
   btnSuccess: { width: '100%', padding: '15px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold', marginTop: '10px' },
   btnDanger: { width: '100%', padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
+  btnDangerTable: { backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' },
   btnSaveInline: { backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold' },
   btnDeleteCart: { backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '24px', height: '24px', fontWeight: 'bold' },
   posGrid: { display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: '20px' },
