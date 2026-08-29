@@ -282,7 +282,6 @@ app.post('/api/turnos/abrir', (req, res) => {
   );
 });
 
-// Cierre de turno: Asocia el stock actual de cada producto a los ítems del historial de ventas
 app.post('/api/turnos/cerrar', (req, res) => {
   const { turno_id } = req.body;
   const ahora = new Date();
@@ -357,6 +356,76 @@ app.post('/api/turnos/cerrar', (req, res) => {
               });
             }
           );
+        });
+      }
+    );
+  });
+});
+
+// Endpoint para consultar el reporte individual de cualquier turno registrado
+app.get('/api/turnos/:id/reporte', (req, res) => {
+  const { id } = req.params;
+  db.get('SELECT * FROM turnos WHERE id = ?', [id], (err, turno) => {
+    if (err || !turno) return res.status(404).json({ error: 'Turno no encontrado' });
+
+    db.all(
+      'SELECT * FROM ventas WHERE usuario_id = ? ORDER BY id DESC',
+      [turno.usuario_id],
+      (errVentas, rowsVentas) => {
+        let totalEfectivo = 0;
+        let totalTransferencia = 0;
+
+        if (rowsVentas && rowsVentas.length > 0) {
+          rowsVentas.forEach((v) => {
+            if (v.medio_pago && v.medio_pago.toLowerCase().includes('transferencia')) {
+              totalTransferencia += Number(v.total) || 0;
+            } else {
+              totalEfectivo += Number(v.total) || 0;
+            }
+          });
+        }
+
+        const totalVentas = totalEfectivo + totalTransferencia;
+
+        db.all('SELECT id, name AS nombre, stock FROM products', [], (errProd, rowsProducts) => {
+          const stockMap = {};
+          if (rowsProducts) {
+            rowsProducts.forEach(p => {
+              stockMap[p.id] = p.stock;
+              stockMap[p.nombre] = p.stock;
+            });
+          }
+
+          const ventasEnriquecidas = (rowsVentas || []).map(v => {
+            let items = [];
+            if (v.items_json) {
+              try {
+                items = JSON.parse(v.items_json).map(item => ({
+                  ...item,
+                  stockActual: stockMap[item.id] !== undefined ? stockMap[item.id] : (stockMap[item.nombre] ?? 0)
+                }));
+              } catch (e) {}
+            }
+            return {
+              ...v,
+              itemsEnriquecidos: items
+            };
+          });
+
+          res.json({
+            resumen: {
+              turnoId: turno.id,
+              cajero: turno.nombre_cajero,
+              baseInicial: turno.base_inicial,
+              fechaInicio: turno.fecha_inicio,
+              fechaCierre: turno.fecha_cierre || 'Turno En Curso',
+              totalEfectivo: turno.total_efectivo || totalEfectivo,
+              totalTransferencia: turno.total_transferencia || totalTransferencia,
+              totalVentas: turno.total_ventas || totalVentas,
+              efectivoEsperadoEnCaja: turno.base_inicial + (turno.total_efectivo || totalEfectivo),
+              ventasDelTurno: ventasEnriquecidas
+            }
+          });
         });
       }
     );

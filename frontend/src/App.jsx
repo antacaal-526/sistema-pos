@@ -78,7 +78,7 @@ export default function App() {
     }
   }, [usuarioLogueado]);
 
-  // Disparar descarga / impresión de PDF automáticamente cuando se cierra el turno
+  // Disparar vista previa / guardado de PDF automáticamente al abrir modal de resumen
   useEffect(() => {
     if (modalResumenTurno) {
       const timer = setTimeout(() => {
@@ -192,6 +192,21 @@ export default function App() {
       }
     } catch (err) {
       alert('Error de conexión al cerrar turno');
+    }
+  };
+
+  // CONSULTAR E IMPRIMIR REPORTE DE CUALQUIER TURNO DESDE LA TABLA
+  const handleImprimirReporteTurno = async (turnoId) => {
+    try {
+      const res = await fetch(`${API_URL}/turnos/${turnoId}/reporte`);
+      if (res.ok) {
+        const data = await res.json();
+        setModalResumenTurno(data.resumen);
+      } else {
+        alert('Error al obtener el reporte del turno');
+      }
+    } catch (err) {
+      alert('Error de conexión al cargar el reporte');
     }
   };
 
@@ -1195,6 +1210,7 @@ export default function App() {
                   <th style={styles.th}>Ventas Transferencia</th>
                   <th style={styles.th}>Total Vendido</th>
                   <th style={styles.th}>Estado</th>
+                  <th style={styles.th}>Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -1222,6 +1238,14 @@ export default function App() {
                       >
                         {t.estado === 'abierto' ? '🟢 En Curso' : '🔒 Cerrado'}
                       </span>
+                    </td>
+                    <td style={styles.td}>
+                      <button
+                        onClick={() => handleImprimirReporteTurno(t.id)}
+                        style={styles.btnSaveInline}
+                      >
+                        📄 Imprimir Reporte
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -1301,7 +1325,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL RESUMEN DE CIERRE DE TURNO (HISTORIAL CON STOCK AL FRENTE + DESCARGA AUTOMÁTICA) */}
+      {/* MODAL RESUMEN DE CIERRE DE TURNO */}
       {modalResumenTurno && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalResumenBox} id="reporte-turno-pdf">
