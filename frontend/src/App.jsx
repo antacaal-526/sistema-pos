@@ -11,6 +11,9 @@ export default function App() {
 
   const [vistaActual, setVistaActual] = useState('caja');
 
+  // Estado para desplegar/ocultar menú lateral automáticamente con el cursor
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+
   // Formulario de login
   const [loginInput, setLoginInput] = useState({ usuario: '', password: '' });
   const [loginError, setLoginError] = useState('');
@@ -22,7 +25,7 @@ export default function App() {
   const [carrito, setCarrito] = useState([]);
 
   // Control de Medio de Pago y Efectivo
-  const [medioPago, setMedioPago] = useState('efectivo'); // 'efectivo' | 'transferencia'
+  const [medioPago, setMedioPago] = useState('efectivo');
   const [pagaCon, setPagaCon] = useState('');
 
   // Modal de Factura POS DIAN
@@ -179,7 +182,7 @@ export default function App() {
     ? Math.max(0, (Number(pagaCon) || 0) - totalCarrito)
     : 0;
 
-  // REGISTRAR VENTA Y GENERAR RECIBO OFICIAL POS
+  // REGISTRAR VENTA Y GENERAR RECIBO POS
   const procesarVenta = async () => {
     if (carrito.length === 0) return alert('El carrito está vacío');
     if (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito) {
@@ -203,7 +206,6 @@ export default function App() {
       const data = await res.json();
 
       if (res.ok) {
-        // Generar datos del recibo con fecha y hora actualizadas automáticamente
         const ahora = new Date();
         const fechaFormateada = ahora.toLocaleDateString('es-CO');
         const horaFormateada = ahora.toLocaleTimeString('es-CO', {
@@ -214,7 +216,7 @@ export default function App() {
         });
 
         const nuevaFactura = {
-          id: data.ventaId || (ventas.length + 1), // Conteo automático según ID de venta
+          id: data.ventaId || (ventas.length + 1),
           fechaHora: `${fechaFormateada}, ${horaFormateada}`,
           cajero: usuarioLogueado.nombre,
           items: [...carrito],
@@ -335,8 +337,23 @@ export default function App() {
 
   return (
     <div style={styles.appLayout}>
-      {/* MENÚ LATERAL */}
-      <aside style={styles.sidebar}>
+      {/* MENÚ LATERAL AUTOPLEGABLE AL PASAR EL CURSOR */}
+      <aside
+        onMouseEnter={() => setSidebarHovered(true)}
+        onMouseLeave={() => setSidebarHovered(false)}
+        style={{
+          ...styles.sidebar,
+          transform: sidebarHovered ? 'translateX(0)' : 'translateX(-222px)',
+          boxShadow: sidebarHovered ? '4px 0 20px rgba(0,0,0,0.5)' : '2px 0 8px rgba(0,0,0,0.2)'
+        }}
+      >
+        {/* Indicador visual en el borde cuando está plegado */}
+        {!sidebarHovered && (
+          <div style={styles.sidebarIndicator}>
+            <span>▶</span>
+          </div>
+        )}
+
         <div style={styles.brand}>
           <h3>🌿 TERRA FRUTOS SECOS</h3>
           <small>
@@ -726,7 +743,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL RECIBO / FACTURA POS TIPO DIAN COLOMBIA 2026 */}
+      {/* MODAL RECIBO POS DIAN COLOMBIA 2026 */}
       {facturaData && (
         <div style={styles.modalOverlay}>
           <div style={styles.ticketBox} id="ticket-factura">
@@ -815,16 +832,40 @@ export default function App() {
   );
 }
 
-// ESTILOS DE LA APLICACIÓN Y TICKET IMPRIMIBLE
+// ESTILOS DE LA APLICACIÓN
 const styles = {
-  appLayout: { display: 'flex', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f4f6f9' },
-  sidebar: { width: '240px', backgroundColor: '#1e293b', color: '#fff', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
+  appLayout: { display: 'flex', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f4f6f9', overflow: 'hidden' },
+  sidebar: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: '240px',
+    backgroundColor: '#1e293b',
+    color: '#fff',
+    padding: '20px',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    zIndex: 999,
+    transition: 'all 0.3s ease-in-out',
+    boxSizing: 'border-box'
+  },
+  sidebarIndicator: {
+    position: 'absolute',
+    right: '4px',
+    top: '50%',
+    color: '#3b82f6',
+    fontSize: '16px',
+    fontWeight: 'bold',
+    pointerEvents: 'none'
+  },
   brand: { borderBottom: '1px solid #334155', paddingBottom: '15px' },
   navMenu: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' },
   navBtn: { padding: '12px', textAlign: 'left', background: 'transparent', border: 'none', color: '#cbd5e1', cursor: 'pointer', borderRadius: '6px', fontSize: '15px' },
   navBtnActive: { padding: '12px', textAlign: 'left', background: '#3b82f6', border: 'none', color: '#fff', cursor: 'pointer', borderRadius: '6px', fontWeight: 'bold', fontSize: '15px' },
   btnLogout: { padding: '10px', background: '#ef4444', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  mainContent: { flex: 1, padding: '25px', overflowY: 'auto' },
+  mainContent: { flex: 1, padding: '25px', overflowY: 'auto', marginLeft: '25px', width: 'calc(100% - 25px)' },
   loginContainer: { height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' },
   loginCard: { backgroundColor: '#fff', padding: '30px', borderRadius: '10px', width: '320px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', textAlign: 'center' },
   errorBox: { backgroundColor: '#fee2e2', color: '#dc2626', padding: '10px', borderRadius: '5px', marginBottom: '15px', fontSize: '14px' },
@@ -858,8 +899,6 @@ const styles = {
   tr: { borderBottom: '1px solid #e2e8f0' },
   formInline: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '20px' },
   formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
-  
-  // MODAL Y TICKET IMPRIMIBLE DIAN
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
   ticketBox: { backgroundColor: '#fff', width: '300px', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' },
   ticketDivider: { textAlign: 'center', margin: '8px 0', fontSize: '12px' },
