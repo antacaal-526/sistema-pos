@@ -21,7 +21,8 @@ export default function App() {
   const [cantidadAñadir, setCantidadAñadir] = useState(1);
   const [carrito, setCarrito] = useState([]);
 
-  // Control de Efectivo y Cambio
+  // Control de Medio de Pago y Efectivo
+  const [medioPago, setMedioPago] = useState('efectivo'); // 'efectivo' | 'transferencia'
   const [pagaCon, setPagaCon] = useState('');
 
   // Modal de Factura POS DIAN
@@ -136,7 +137,7 @@ export default function App() {
     });
   };
 
-  // Permite presionar 'Enter' en el buscador para añadir código de barras directo
+  // Permite presionar 'Enter' en el buscador para añadir por código de barras
   const handleKeyDownBusqueda = (e) => {
     if (e.key === 'Enter' && busqueda.trim() !== '') {
       e.preventDefault();
@@ -156,7 +157,7 @@ export default function App() {
     }
   };
 
-  // Modificar cantidad directamente desde la lista de carrito
+  // Modificar cantidad en el carrito
   const actualizarCantidadCarrito = (id, nuevaCantidad) => {
     const cantNum = Number(nuevaCantidad);
     setCarrito((prev) =>
@@ -176,14 +177,18 @@ export default function App() {
     0
   );
 
-  const cambioCalculado = Math.max(0, (Number(pagaCon) || 0) - totalCarrito);
+  const cambioCalculado = medioPago === 'efectivo'
+    ? Math.max(0, (Number(pagaCon) || 0) - totalCarrito)
+    : 0;
 
   // REGISTRAR VENTA Y MOSTRAR FACTURA POS
   const procesarVenta = async () => {
     if (carrito.length === 0) return alert('El carrito está vacío');
-    if (Number(pagaCon) < totalCarrito) {
-      return alert('El monto pagado es inferior al total de la venta');
+    if (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito) {
+      return alert('El monto recibido en efectivo es inferior al total de la venta');
     }
+
+    const pagaConFinal = medioPago === 'transferencia' ? totalCarrito : Number(pagaCon);
 
     try {
       const res = await fetch(`${API_URL}/ventas`, {
@@ -192,27 +197,29 @@ export default function App() {
         body: JSON.stringify({
           items: carrito,
           total: totalCarrito,
-          usuario_id: usuarioLogueado.id
+          usuario_id: usuarioLogueado.id,
+          medio_pago: medioPago
         })
       });
 
       const data = await res.json();
 
       if (res.ok) {
-        // Generar datos de la factura POS DIAN 2026
         const nuevaFactura = {
           id: data.ventaId || Math.floor(100000 + Math.random() * 900000),
           fecha: new Date().toLocaleString('es-CO'),
           cajero: usuarioLogueado.nombre,
           items: [...carrito],
           total: totalCarrito,
-          pagaCon: Number(pagaCon),
-          cambio: cambioCalculado
+          medioPago: medioPago === 'efectivo' ? 'EFECTIVO' : 'TRANSFERENCIA (ELECTRONICO)',
+          pagaCon: pagaConFinal,
+          cambio: medioPago === 'efectivo' ? cambioCalculado : 0
         };
 
         setFacturaData(nuevaFactura);
         setCarrito([]);
         setPagaCon('');
+        setMedioPago('efectivo');
         cargarProductos();
         cargarVentas();
       } else {
@@ -268,7 +275,7 @@ export default function App() {
     }
   };
 
-  // FILTRADO DE PRODUCTOS (Por Nombre o por Código)
+  // FILTRADO DE PRODUCTOS
   const productosFiltrados = productos.filter((p) => {
     const termino = busqueda.toLowerCase().trim();
     const coincideNombre = p.nombre && p.nombre.toLowerCase().includes(termino);
@@ -380,7 +387,7 @@ export default function App() {
             <div style={styles.posSection}>
               <h2>Módulo de Caja</h2>
               
-              {/* BUSCADOR DUAL: CÓDIGO Y NOMBRE + CANTIDAD */}
+              {/* BUSCADOR DUAL Y CANTIDAD */}
               <div style={styles.searchBarBox}>
                 <div style={{ flex: 1 }}>
                   <label style={styles.labelSmall}>🔍 Buscar por Código o Nombre:</label>
@@ -428,7 +435,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* CARRITO Y CÁLCULO DE CAMBIO */}
+            {/* CARRITO Y MEDIO DE PAGO */}
             <div style={styles.cartSection}>
               <h3>🛒 Carrito Actual</h3>
               <div style={styles.cartList}>
@@ -465,37 +472,69 @@ export default function App() {
                 )}
               </div>
 
-              {/* SECCIÓN DE PAGO Y DEVUETLA / CAMBIO */}
+              {/* SECCIÓN DE MEDIO DE PAGO Y CÁLCULO DE DEVUELTA */}
               <div style={styles.cartFooter}>
                 <div style={styles.totalRow}>
                   <span>Total a Pagar:</span>
                   <span style={{ color: '#2563eb' }}>${totalCarrito.toLocaleString()}</span>
                 </div>
 
-                <div style={{ marginTop: '10px' }}>
-                  <label style={styles.labelSmall}>Paga con (Efectivo):</label>
-                  <input
-                    type="number"
-                    placeholder="Monto recibido $"
-                    value={pagaCon}
-                    onChange={(e) => setPagaCon(e.target.value)}
-                    style={styles.inputPay}
-                  />
+                {/* SELECTOR DE MEDIO DE PAGO */}
+                <div style={{ marginTop: '12px' }}>
+                  <label style={styles.labelSmall}>💳 Seleccionar Medio de Pago:</label>
+                  <select
+                    value={medioPago}
+                    onChange={(e) => {
+                      setMedioPago(e.target.value);
+                      if (e.target.value === 'transferencia') setPagaCon('');
+                    }}
+                    style={styles.selectPay}
+                  >
+                    <option value="efectivo">💵 Efectivo</option>
+                    <option value="transferencia">📲 Transferencia (Nequi / Daviplata / QR)</option>
+                  </select>
                 </div>
 
-                <div style={styles.changeRow}>
-                  <span>Cambio / Devuelta:</span>
-                  <span style={{ color: Number(pagaCon) >= totalCarrito ? '#16a34a' : '#dc2626' }}>
-                    ${cambioCalculado.toLocaleString()}
-                  </span>
-                </div>
+                {/* CASILLA DE EFECTIVO Y DEVUETA SOLO SI ES EFECTIVO */}
+                {medioPago === 'efectivo' ? (
+                  <>
+                    <div style={{ marginTop: '10px' }}>
+                      <label style={styles.labelSmall}>Paga con (Efectivo):</label>
+                      <input
+                        type="number"
+                        placeholder="Monto recibido $"
+                        value={pagaCon}
+                        onChange={(e) => setPagaCon(e.target.value)}
+                        style={styles.inputPay}
+                      />
+                    </div>
+
+                    <div style={styles.changeRow}>
+                      <span>Cambio / Devuelta:</span>
+                      <span style={{ color: Number(pagaCon) >= totalCarrito ? '#16a34a' : '#dc2626' }}>
+                        ${cambioCalculado.toLocaleString()}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div style={styles.infoTransfer}>
+                    ✓ Pago exacto por transferencia digital
+                  </div>
+                )}
 
                 <button
                   onClick={procesarVenta}
-                  disabled={carrito.length === 0 || Number(pagaCon) < totalCarrito}
+                  disabled={
+                    carrito.length === 0 ||
+                    (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
+                  }
                   style={{
                     ...styles.btnSuccess,
-                    opacity: carrito.length === 0 || Number(pagaCon) < totalCarrito ? 0.5 : 1
+                    opacity:
+                      carrito.length === 0 ||
+                      (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
+                        ? 0.5
+                        : 1
                   }}
                 >
                   💳 Registrar e Imprimir Factura
@@ -731,7 +770,11 @@ export default function App() {
                 <b>${facturaData.total.toLocaleString()}</b>
               </div>
               <div style={styles.ticketFlexRow}>
-                <span>RECIBIDO (EFECTIVO):</span>
+                <span>FORMA DE PAGO:</span>
+                <b>{facturaData.medioPago}</b>
+              </div>
+              <div style={styles.ticketFlexRow}>
+                <span>RECIBIDO:</span>
                 <span>${facturaData.pagaCon.toLocaleString()}</span>
               </div>
               <div style={styles.ticketFlexRow}>
@@ -779,7 +822,9 @@ const styles = {
   input: { width: '100%', padding: '10px', marginTop: '5px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
   searchBarBox: { display: 'flex', gap: '10px', marginBottom: '15px' },
   inputSearch: { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
+  selectPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #3b82f6', fontSize: '15px', fontWeight: 'bold', backgroundColor: '#eff6ff', boxSizing: 'border-box' },
   inputPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #2563eb', fontSize: '16px', fontWeight: 'bold', boxSizing: 'border-box' },
+  infoTransfer: { backgroundColor: '#dcfce7', color: '#15803d', padding: '10px', borderRadius: '6px', textAlign: 'center', fontSize: '14px', fontWeight: 'bold', margin: '12px 0' },
   labelSmall: { fontSize: '12px', fontWeight: 'bold', color: '#475569', display: 'block', marginBottom: '4px' },
   btnPrimary: { width: '100%', padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
   btnSuccess: { width: '100%', padding: '15px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold', marginTop: '10px' },
