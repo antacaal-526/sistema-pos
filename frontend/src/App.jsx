@@ -137,7 +137,6 @@ export default function App() {
     });
   };
 
-  // Permite presionar 'Enter' en el buscador para añadir por código de barras
   const handleKeyDownBusqueda = (e) => {
     if (e.key === 'Enter' && busqueda.trim() !== '') {
       e.preventDefault();
@@ -157,7 +156,6 @@ export default function App() {
     }
   };
 
-  // Modificar cantidad en el carrito
   const actualizarCantidadCarrito = (id, nuevaCantidad) => {
     const cantNum = Number(nuevaCantidad);
     setCarrito((prev) =>
@@ -181,7 +179,7 @@ export default function App() {
     ? Math.max(0, (Number(pagaCon) || 0) - totalCarrito)
     : 0;
 
-  // REGISTRAR VENTA Y MOSTRAR FACTURA POS
+  // REGISTRAR VENTA Y GENERAR RECIBO OFICIAL POS
   const procesarVenta = async () => {
     if (carrito.length === 0) return alert('El carrito está vacío');
     if (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito) {
@@ -205,9 +203,19 @@ export default function App() {
       const data = await res.json();
 
       if (res.ok) {
+        // Generar datos del recibo con fecha y hora actualizadas automáticamente
+        const ahora = new Date();
+        const fechaFormateada = ahora.toLocaleDateString('es-CO');
+        const horaFormateada = ahora.toLocaleTimeString('es-CO', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true
+        });
+
         const nuevaFactura = {
-          id: data.ventaId || Math.floor(100000 + Math.random() * 900000),
-          fecha: new Date().toLocaleString('es-CO'),
+          id: data.ventaId || (ventas.length + 1), // Conteo automático según ID de venta
+          fechaHora: `${fechaFormateada}, ${horaFormateada}`,
           cajero: usuarioLogueado.nombre,
           items: [...carrito],
           total: totalCarrito,
@@ -290,7 +298,7 @@ export default function App() {
     return (
       <div style={styles.loginContainer}>
         <form onSubmit={handleLogin} style={styles.loginCard}>
-          <h2>🌿 Terra Frutos Secos</h2>
+          <h2>🌿 TERRA FRUTOS SECOS</h2>
           <p>Sistema POS & Inventario</p>
           {loginError && <div style={styles.errorBox}>{loginError}</div>}
           <div style={styles.inputGroup}>
@@ -330,7 +338,7 @@ export default function App() {
       {/* MENÚ LATERAL */}
       <aside style={styles.sidebar}>
         <div style={styles.brand}>
-          <h3>🌿 Terra Frutos Secos</h3>
+          <h3>🌿 TERRA FRUTOS SECOS</h3>
           <small>
             Usuario: <b>{usuarioLogueado.nombre}</b> ({usuarioLogueado.rol})
           </small>
@@ -387,7 +395,6 @@ export default function App() {
             <div style={styles.posSection}>
               <h2>Módulo de Caja</h2>
               
-              {/* BUSCADOR DUAL Y CANTIDAD */}
               <div style={styles.searchBarBox}>
                 <div style={{ flex: 1 }}>
                   <label style={styles.labelSmall}>🔍 Buscar por Código o Nombre:</label>
@@ -412,7 +419,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* GRILLA DE PRODUCTOS */}
               <div style={styles.productGrid}>
                 {productosFiltrados.map((p) => (
                   <div
@@ -435,7 +441,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* CARRITO Y MEDIO DE PAGO */}
+            {/* CARRITO Y PAGO */}
             <div style={styles.cartSection}>
               <h3>🛒 Carrito Actual</h3>
               <div style={styles.cartList}>
@@ -472,14 +478,12 @@ export default function App() {
                 )}
               </div>
 
-              {/* SECCIÓN DE MEDIO DE PAGO Y CÁLCULO DE DEVUELTA */}
               <div style={styles.cartFooter}>
                 <div style={styles.totalRow}>
                   <span>Total a Pagar:</span>
                   <span style={{ color: '#2563eb' }}>${totalCarrito.toLocaleString()}</span>
                 </div>
 
-                {/* SELECTOR DE MEDIO DE PAGO */}
                 <div style={{ marginTop: '12px' }}>
                   <label style={styles.labelSmall}>💳 Seleccionar Medio de Pago:</label>
                   <select
@@ -495,7 +499,6 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* CASILLA DE EFECTIVO Y DEVUETA SOLO SI ES EFECTIVO */}
                 {medioPago === 'efectivo' ? (
                   <>
                     <div style={{ marginTop: '10px' }}>
@@ -723,19 +726,26 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL IMPRIMIBLE FACTURA TIPO DIAN COLOMBIA 2026 */}
+      {/* MODAL RECIBO / FACTURA POS TIPO DIAN COLOMBIA 2026 */}
       {facturaData && (
         <div style={styles.modalOverlay}>
           <div style={styles.ticketBox} id="ticket-factura">
             <div style={{ textAlign: 'center', fontSize: '12px' }}>
-              <h3 style={{ margin: '0 0 4px 0', fontSize: '16px' }}>TERRA FRUTOS SECOS</h3>
-              <p style={{ margin: 0 }}>NIT: 1049600000-1</p>
-              <p style={{ margin: 0 }}>No Responsable de IVA</p>
-              <p style={{ margin: 0 }}>Tunja, Boyacá - Colombia</p>
+              <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 'bold' }}>
+                TERRA FRUTOS SECOS
+              </h3>
+              <p style={{ margin: 0 }}>NIT: 40044029-8</p>
+              <p style={{ margin: 0 }}>Teléfono: 3183142180</p>
+              <p style={{ margin: 0 }}>Dirección: CRA 7 # 15-63</p>
+              <p style={{ margin: 0 }}>TUNJA, BOYACÁ - COLOMBIA</p>
+              <p style={{ margin: 0, fontStyle: 'italic' }}>No Responsable de IVA</p>
+              
+              <div style={styles.ticketDivider}>----------------------------------------</div>
+              
               <p style={{ margin: '4px 0', fontWeight: 'bold' }}>
                 DOCUMENTO EQUIVALENTE POS N°: {facturaData.id}
               </p>
-              <p style={{ margin: 0 }}>Fecha: {facturaData.fecha}</p>
+              <p style={{ margin: 0 }}>Fecha: {facturaData.fechaHora}</p>
               <p style={{ margin: 0 }}>Cajero: {facturaData.cajero}</p>
             </div>
 
