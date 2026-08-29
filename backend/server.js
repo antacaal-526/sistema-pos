@@ -46,7 +46,7 @@ db.serialize(() => {
     )
   `);
 
-  // Tabla de Ventas (Con columnas para items_json y cliente_cc)
+  // Tabla de Ventas
   db.run(`
     CREATE TABLE IF NOT EXISTS ventas (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +59,6 @@ db.serialize(() => {
     )
   `);
 
-  // Asegurar columnas opcionales en bases de datos existentes
   db.run(`ALTER TABLE ventas ADD COLUMN items_json TEXT`, (err) => {});
   db.run(`ALTER TABLE ventas ADD COLUMN cliente_cc TEXT`, (err) => {});
 
@@ -283,6 +282,7 @@ app.post('/api/turnos/abrir', (req, res) => {
   );
 });
 
+// Cierre de turno: Asocia el stock actual de cada producto a los ítems del historial de ventas
 app.post('/api/turnos/cerrar', (req, res) => {
   const { turno_id } = req.body;
   const ahora = new Date();
@@ -310,7 +310,31 @@ app.post('/api/turnos/cerrar', (req, res) => {
 
         const totalVentas = totalEfectivo + totalTransferencia;
 
-        db.all('SELECT id, barcode, name AS nombre, sale_price AS precio, stock FROM products', [], (errProd, rowsProducts) => {
+        db.all('SELECT id, name AS nombre, stock FROM products', [], (errProd, rowsProducts) => {
+          const stockMap = {};
+          if (rowsProducts) {
+            rowsProducts.forEach(p => {
+              stockMap[p.id] = p.stock;
+              stockMap[p.nombre] = p.stock;
+            });
+          }
+
+          const ventasEnriquecidas = (rowsVentas || []).map(v => {
+            let items = [];
+            if (v.items_json) {
+              try {
+                items = JSON.parse(v.items_json).map(item => ({
+                  ...item,
+                  stockActual: stockMap[item.id] !== undefined ? stockMap[item.id] : (stockMap[item.nombre] ?? 0)
+                }));
+              } catch (e) {}
+            }
+            return {
+              ...v,
+              itemsEnriquecidos: items
+            };
+          });
+
           db.run(
             `UPDATE turnos SET fecha_cierre = ?, total_efectivo = ?, total_transferencia = ?, total_ventas = ?, estado = 'cerrado' WHERE id = ?`,
             [fechaCierre, totalEfectivo, totalTransferencia, totalVentas, turno_id],
@@ -328,8 +352,7 @@ app.post('/api/turnos/cerrar', (req, res) => {
                   totalTransferencia,
                   totalVentas,
                   efectivoEsperadoEnCaja: turno.base_inicial + totalEfectivo,
-                  ventasDelTurno: rowsVentas || [],
-                  inventarioActualizado: rowsProducts || []
+                  ventasDelTurno: ventasEnriquecidas
                 }
               });
             }

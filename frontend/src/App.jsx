@@ -41,7 +41,7 @@ export default function App() {
   const [edicionStock, setEdicionStock] = useState({});
   const [entradas, setEntradas] = useState({});
 
-  // Control de Medio de Pago y Cliente (Cédula/CC Opcional)
+  // Control de Medio de Pago y Cliente
   const [medioPago, setMedioPago] = useState('efectivo');
   const [pagaCon, setPagaCon] = useState('');
   const [clienteCc, setClienteCc] = useState('');
@@ -77,6 +77,16 @@ export default function App() {
       cargarHistorialTurnos();
     }
   }, [usuarioLogueado]);
+
+  // Disparar descarga / impresión de PDF automáticamente cuando se cierra el turno
+  useEffect(() => {
+    if (modalResumenTurno) {
+      const timer = setTimeout(() => {
+        window.print();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [modalResumenTurno]);
 
   // Autenticación
   const handleLogin = async (e) => {
@@ -372,7 +382,6 @@ export default function App() {
     ? Math.max(0, (Number(pagaCon) || 0) - totalCarrito)
     : 0;
 
-  // PROCESAR VENTA (Con o sin modal de recibo)
   const procesarVenta = async (deseaImprimir = true) => {
     if (!turnoActivo) return alert('Debes iniciar turno antes de vender.');
     if (carrito.length === 0) return alert('El carrito está vacío');
@@ -424,7 +433,6 @@ export default function App() {
           alert(`¡Venta #${data.ventaId || ''} registrada exitosamente!`);
         }
 
-        // Limpiar estado
         setCarrito([]);
         setPagaCon('');
         setClienteCc('');
@@ -732,7 +740,6 @@ export default function App() {
                     <span style={{ color: '#2563eb' }}>${totalCarrito.toLocaleString()}</span>
                   </div>
 
-                  {/* CAMPO CC / CÉDULA CLIENTE (OPCIONAL) */}
                   <div style={{ marginTop: '10px' }}>
                     <label style={styles.labelSmall}>🪪 CC / Cédula Cliente (Opcional):</label>
                     <input
@@ -785,7 +792,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* OPCIONES DE ACCIÓN: SOLO REGISTRAR O REGISTRAR E IMPRIMIR */}
                   <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                     <button
                       onClick={() => procesarVenta(false)}
@@ -1295,7 +1301,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL RESUMEN DE CIERRE DE TURNO */}
+      {/* MODAL RESUMEN DE CIERRE DE TURNO (HISTORIAL CON STOCK AL FRENTE + DESCARGA AUTOMÁTICA) */}
       {modalResumenTurno && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalResumenBox} id="reporte-turno-pdf">
@@ -1332,7 +1338,7 @@ export default function App() {
                 </h3>
               </div>
 
-              {/* HISTORIAL DE VENTAS DEL TURNO */}
+              {/* HISTORIAL DE VENTAS CON STOCK ACTUALIZADO AL FRENTE DE CADA PRODUCTO */}
               {modalResumenTurno.ventasDelTurno && modalResumenTurno.ventasDelTurno.length > 0 && (
                 <div style={{ marginTop: '15px' }}>
                   <h4 style={{ margin: '5px 0' }}>📄 HISTORIAL DE VENTAS DEL TURNO:</h4>
@@ -1340,7 +1346,9 @@ export default function App() {
                     <thead>
                       <tr style={{ backgroundColor: '#f1f5f9' }}>
                         <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>#</th>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Detalle Productos</th>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>
+                          Detalle Productos (Cant x Producto [Stock Quedado])
+                        </th>
                         <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Pago</th>
                         <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Total</th>
                       </tr>
@@ -1348,49 +1356,26 @@ export default function App() {
                     <tbody>
                       {modalResumenTurno.ventasDelTurno.map((v) => {
                         let desc = '';
-                        if (v.items_json) {
+                        if (v.itemsEnriquecidos && v.itemsEnriquecidos.length > 0) {
+                          desc = v.itemsEnriquecidos
+                            .map(i => `${i.cantidad}x ${i.nombre} [Stock Actual: ${i.stockActual}]`)
+                            .join(' | ');
+                        } else if (v.items_json) {
                           try {
                             desc = JSON.parse(v.items_json).map(i => `${i.cantidad}x ${i.nombre}`).join(', ');
                           } catch (e) {}
                         }
                         return (
                           <tr key={v.id}>
-                            <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>#{v.id}</td>
+                            <td style={{ border: '1px solid #cbd5e1', padding: '4px', fontWeight: 'bold' }}>#{v.id}</td>
                             <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{desc}</td>
-                            <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{v.medio_pago}</td>
-                            <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'right' }}>${Number(v.total).toLocaleString()}</td>
+                            <td style={{ border: '1px solid #cbd5e1', padding: '4px', textTransform: 'capitalize' }}>{v.medio_pago}</td>
+                            <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'right', fontWeight: 'bold' }}>
+                              ${Number(v.total).toLocaleString()}
+                            </td>
                           </tr>
                         );
                       })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* STOCK ACTUALIZADO POST-VENTAS */}
-              {modalResumenTurno.inventarioActualizado && modalResumenTurno.inventarioActualizado.length > 0 && (
-                <div style={{ marginTop: '15px' }}>
-                  <h4 style={{ margin: '5px 0' }}>📦 INVENTARIO & STOCK FINAL TRAS EL CIERRE:</h4>
-                  <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', border: '1px solid #cbd5e1' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#f1f5f9' }}>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Cód</th>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Producto</th>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Precio</th>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Stock Quedado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {modalResumenTurno.inventarioActualizado.map((prod) => (
-                        <tr key={prod.id}>
-                          <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{prod.barcode || prod.id}</td>
-                          <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{prod.nombre}</td>
-                          <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>${Number(prod.precio).toLocaleString()}</td>
-                          <td style={{ border: '1px solid #cbd5e1', padding: '4px', fontWeight: 'bold', color: prod.stock <= 0 ? 'red' : 'black' }}>
-                            {prod.stock}
-                          </td>
-                        </tr>
-                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -1399,7 +1384,7 @@ export default function App() {
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }} className="no-print">
               <button onClick={() => window.print()} style={styles.btnPrimary}>
-                📄 Imprimir / Descargar PDF Reporte
+                📄 Imprimir / Guardar PDF
               </button>
               <button onClick={() => setModalResumenTurno(null)} style={styles.btnDanger}>
                 Cerrar
@@ -1409,7 +1394,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL RECIBO POS DIAN CON SCROLL INTERNO CORREGIDO */}
+      {/* MODAL RECIBO POS DIAN */}
       {facturaData && (
         <div style={styles.modalOverlay}>
           <div style={styles.ticketBox} id="ticket-factura">
