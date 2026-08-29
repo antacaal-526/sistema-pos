@@ -46,7 +46,7 @@ db.serialize(() => {
     )
   `);
 
-  // Tabla de Ventas (Con columna para items en formato JSON)
+  // Tabla de Ventas
   db.run(`
     CREATE TABLE IF NOT EXISTS ventas (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,10 +58,7 @@ db.serialize(() => {
     )
   `);
 
-  // Asegurar columna items_json en bases de datos existentes
-  db.run(`ALTER TABLE ventas ADD COLUMN items_json TEXT`, (err) => {
-    // Si la columna ya existe, SQLite ignorará la instrucción de forma segura
-  });
+  db.run(`ALTER TABLE ventas ADD COLUMN items_json TEXT`, (err) => {});
 
   // Tabla de Control de Turnos / Arqueo de Caja
   db.run(`
@@ -217,7 +214,6 @@ app.get('/api/ventas', (req, res) => {
   });
 });
 
-// Eliminar venta y revertir unidades al inventario
 app.delete('/api/ventas/:id', (req, res) => {
   const { id } = req.params;
 
@@ -225,7 +221,6 @@ app.delete('/api/ventas/:id', (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!row) return res.status(404).json({ error: 'Venta no encontrada' });
 
-    // Si existen items guardados, devolvemos el stock al inventario
     if (row.items_json) {
       try {
         const items = JSON.parse(row.items_json);
@@ -285,6 +280,7 @@ app.post('/api/turnos/abrir', (req, res) => {
   );
 });
 
+// Cierre de turno con reporte de ventas del turno y stock actualizado
 app.post('/api/turnos/cerrar', (req, res) => {
   const { turno_id } = req.body;
   const ahora = new Date();
@@ -294,7 +290,7 @@ app.post('/api/turnos/cerrar', (req, res) => {
     if (err || !turno) return res.status(404).json({ error: 'Turno no encontrado' });
 
     db.all(
-      'SELECT total, medio_pago FROM ventas WHERE usuario_id = ?',
+      'SELECT * FROM ventas WHERE usuario_id = ? ORDER BY id DESC',
       [turno.usuario_id],
       (errVentas, rowsVentas) => {
         let totalEfectivo = 0;
@@ -312,27 +308,31 @@ app.post('/api/turnos/cerrar', (req, res) => {
 
         const totalVentas = totalEfectivo + totalTransferencia;
 
-        db.run(
-          `UPDATE turnos SET fecha_cierre = ?, total_efectivo = ?, total_transferencia = ?, total_ventas = ?, estado = 'cerrado' WHERE id = ?`,
-          [fechaCierre, totalEfectivo, totalTransferencia, totalVentas, turno_id],
-          function (errUpdate) {
-            if (errUpdate) return res.status(500).json({ error: errUpdate.message });
-            res.json({
-              message: 'Turno cerrado exitosamente',
-              resumen: {
-                turnoId: turno_id,
-                cajero: turno.nombre_cajero,
-                baseInicial: turno.base_inicial,
-                fechaInicio: turno.fecha_inicio,
-                fechaCierre: fechaCierre,
-                totalEfectivo,
-                totalTransferencia,
-                totalVentas,
-                efectivoEsperadoEnCaja: turno.base_inicial + totalEfectivo
-              }
-            });
-          }
-        );
+        db.all('SELECT id, barcode, name AS nombre, sale_price AS precio, stock FROM products', [], (errProd, rowsProducts) => {
+          db.run(
+            `UPDATE turnos SET fecha_cierre = ?, total_efectivo = ?, total_transferencia = ?, total_ventas = ?, estado = 'cerrado' WHERE id = ?`,
+            [fechaCierre, totalEfectivo, totalTransferencia, totalVentas, turno_id],
+            function (errUpdate) {
+              if (errUpdate) return res.status(500).json({ error: errUpdate.message });
+              res.json({
+                message: 'Turno cerrado exitosamente',
+                resumen: {
+                  turnoId: turno_id,
+                  cajero: turno.nombre_cajero,
+                  baseInicial: turno.base_inicial,
+                  fechaInicio: turno.fecha_inicio,
+                  fechaCierre: fechaCierre,
+                  totalEfectivo,
+                  totalTransferencia,
+                  totalVentas,
+                  efectivoEsperadoEnCaja: turno.base_inicial + totalEfectivo,
+                  ventasDelTurno: rowsVentas || [],
+                  inventarioActualizado: rowsProducts || []
+                }
+              });
+            }
+          );
+        });
       }
     );
   });

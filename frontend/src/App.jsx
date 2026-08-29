@@ -234,7 +234,6 @@ export default function App() {
     }
   };
 
-  // ELIMINAR VENTA MAL REGISTRADA
   const handleEliminarVenta = async (ventaId) => {
     if (window.confirm(`¿Estás seguro de eliminar la Venta #${ventaId}? Se devolverán los productos vendidos al inventario.`)) {
       try {
@@ -255,7 +254,6 @@ export default function App() {
     }
   };
 
-  // CREAR UN NUEVO PRODUCTO
   const handleCrearProducto = async (e) => {
     e.preventDefault();
     try {
@@ -277,7 +275,6 @@ export default function App() {
     }
   };
 
-  // ACTUALIZAR STOCK CON ENTRADA SUMATORIA
   const handleGuardarCambiosStock = async (id) => {
     const itemEditado = edicionStock[id];
     if (!itemEditado) return;
@@ -309,7 +306,6 @@ export default function App() {
     }
   };
 
-  // OPERACIONES DE CAJA Y CARRITO
   const agregarAlCarrito = (producto, cant = 1) => {
     if (!turnoActivo) {
       alert('Debes Iniciar Turno con la Base de Caja antes de realizar ventas.');
@@ -375,7 +371,6 @@ export default function App() {
     ? Math.max(0, (Number(pagaCon) || 0) - totalCarrito)
     : 0;
 
-  // PROCESAR VENTA
   const procesarVenta = async () => {
     if (!turnoActivo) return alert('Debes iniciar turno antes de vender.');
     if (carrito.length === 0) return alert('El carrito está vacío');
@@ -434,7 +429,6 @@ export default function App() {
     }
   };
 
-  // GESTIÓN DE EMPLEADOS
   const handleCrearEmpleado = async (e) => {
     e.preventDefault();
     try {
@@ -532,6 +526,7 @@ export default function App() {
       <aside
         onMouseEnter={() => setSidebarHovered(true)}
         onMouseLeave={() => setSidebarHovered(false)}
+        className="no-print"
         style={{
           ...styles.sidebar,
           transform: sidebarHovered ? 'translateX(0)' : 'translateX(-222px)',
@@ -600,7 +595,7 @@ export default function App() {
         {vistaActual === 'caja' && (
           <div>
             {/* BARRA SUPERIOR DE INICIO / CIERRE DE TURNO */}
-            <div style={turnoActivo ? styles.turnoActivoBar : styles.turnoInactivoBar}>
+            <div style={turnoActivo ? styles.turnoActivoBar : styles.turnoInactivoBar} className="no-print">
               {!turnoActivo ? (
                 <div style={styles.turnoFlexRow}>
                   <div>
@@ -798,7 +793,6 @@ export default function App() {
           <div>
             <h2>📦 Inventario de Productos</h2>
 
-            {/* FORMULARIO PARA CREAR NUEVO PRODUCTO */}
             <form onSubmit={handleCrearProducto} style={styles.formInline}>
               <h3>➕ Registrar Nuevo Producto</h3>
               <div style={styles.formRowProduct}>
@@ -863,7 +857,6 @@ export default function App() {
               </div>
             </form>
 
-            {/* LISTADO Y ENTRADAS */}
             <h3>Listado y Entrada de Mercancía</h3>
             <input
               type="text"
@@ -1134,12 +1127,11 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 5: REPORTES CON DETALLE INDIVIDUAL Y ELIMINACIÓN DE VENTAS */}
+        {/* VISTA 5: REPORTES */}
         {vistaActual === 'reportes' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>📊 Reportes de Cierre de Turnos y Ventas</h2>
 
-            {/* TABLA DE REPORTES DE TURNOS / ARQUEOS DE CAJA */}
             <h3>🔒 Arqueos y Cierres de Caja por Turno</h3>
             <table style={styles.table}>
               <thead>
@@ -1186,7 +1178,6 @@ export default function App() {
               </tbody>
             </table>
 
-            {/* HISTORIAL GENERAL DE VENTAS INDIVIDUALES */}
             <h3 style={{ marginTop: '30px' }}>📄 Historial Individual de Ventas</h3>
             <table style={styles.table}>
               <thead>
@@ -1258,38 +1249,116 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL RESUMEN DE CIERRE DE TURNO */}
+      {/* MODAL RESUMEN DE CIERRE DE TURNO Y DESCARGA PDF */}
       {modalResumenTurno && (
         <div style={styles.modalOverlay}>
-          <div style={styles.modalResumenBox}>
-            <h2 style={{ textAlign: 'center', margin: '0 0 10px 0', color: '#1e293b' }}>
-              🔒 RESUMEN DE CIERRE DE TURNO
-            </h2>
-            <div style={{ fontSize: '14px', lineHeight: '1.6' }}>
-              <p><b>Turno ID:</b> #{modalResumenTurno.turnoId}</p>
-              <p><b>Cajero:</b> {modalResumenTurno.cajero}</p>
-              <p><b>Fecha Inicio:</b> {modalResumenTurno.fechaInicio}</p>
-              <p><b>Fecha Cierre:</b> {modalResumenTurno.fechaCierre}</p>
-              <hr />
-              <p><b>Base Inicial de Caja:</b> ${modalResumenTurno.baseInicial.toLocaleString()}</p>
-              <p><b>Ventas en Efectivo:</b> ${modalResumenTurno.totalEfectivo.toLocaleString()}</p>
-              <p><b>Ventas por Transferencia:</b> ${modalResumenTurno.totalTransferencia.toLocaleString()}</p>
-              <h3 style={{ color: '#2563eb', margin: '10px 0' }}>
-                Total Vendido: ${modalResumenTurno.totalVentas.toLocaleString()}
-              </h3>
-              <div style={styles.boxEfectivoEsperado}>
-                <span>💵 EFECTIVO TOTAL ESPERADO EN CAJA (Base + Ventas Efectivo):</span>
-                <h2 style={{ margin: '5px 0', color: '#16a34a' }}>
-                  ${modalResumenTurno.efectivoEsperadoEnCaja.toLocaleString()}
-                </h2>
-              </div>
+          <div style={styles.modalResumenBox} id="reporte-turno-pdf">
+            <div style={{ textAlign: 'center', marginBottom: '15px' }}>
+              <h2 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>🌿 TERRA FRUTOS SECOS</h2>
+              <h3 style={{ margin: 0, color: '#2563eb' }}>REPORTE COMPLETO DE CIERRE DE TURNO</h3>
+              <small style={{ color: '#64748b' }}>NIT: 40044029-8 | CRA 7 # 15-63 TUNJA</small>
             </div>
-            <button
-              onClick={() => setModalResumenTurno(null)}
-              style={{ ...styles.btnPrimary, marginTop: '15px' }}
-            >
-              ✓ Entendido / Aceptar
-            </button>
+
+            <div style={{ fontSize: '13px', lineHeight: '1.5' }}>
+              <div style={styles.ticketFlexRow}>
+                <b>Turno ID: #{modalResumenTurno.turnoId}</b>
+                <span><b>Cajero:</b> {modalResumenTurno.cajero}</span>
+              </div>
+              <div style={styles.ticketFlexRow}>
+                <span><b>Inicio:</b> {modalResumenTurno.fechaInicio}</span>
+                <span><b>Cierre:</b> {modalResumenTurno.fechaCierre}</span>
+              </div>
+              
+              <hr style={{ margin: '10px 0' }} />
+              
+              <h4 style={{ margin: '5px 0', color: '#0f172a' }}>💰 RESUMEN FINANCIERO:</h4>
+              <p style={{ margin: '3px 0' }}>Base Inicial de Caja: <b>${modalResumenTurno.baseInicial.toLocaleString()}</b></p>
+              <p style={{ margin: '3px 0' }}>Ventas en Efectivo: <b>${modalResumenTurno.totalEfectivo.toLocaleString()}</b></p>
+              <p style={{ margin: '3px 0' }}>Ventas por Transferencia: <b>${modalResumenTurno.totalTransferencia.toLocaleString()}</b></p>
+              <p style={{ margin: '3px 0', fontSize: '15px', color: '#2563eb' }}>
+                TOTAL VENDIDO: <b>${modalResumenTurno.totalVentas.toLocaleString()}</b>
+              </p>
+
+              <div style={styles.boxEfectivoEsperado}>
+                <span>💵 EFECTIVO ESPERADO EN CAJA:</span>
+                <h3 style={{ margin: '4px 0', color: '#16a34a' }}>
+                  ${modalResumenTurno.efectivoEsperadoEnCaja.toLocaleString()}
+                </h3>
+              </div>
+
+              {/* HISTORIAL DE VENTAS DEL TURNO */}
+              {modalResumenTurno.ventasDelTurno && modalResumenTurno.ventasDelTurno.length > 0 && (
+                <div style={{ marginTop: '15px' }}>
+                  <h4 style={{ margin: '5px 0' }}>📄 HISTORIAL DE VENTAS DEL TURNO:</h4>
+                  <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', border: '1px solid #cbd5e1' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f1f5f9' }}>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>#</th>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Detalle Productos</th>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Pago</th>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modalResumenTurno.ventasDelTurno.map((v) => {
+                        let desc = '';
+                        if (v.items_json) {
+                          try {
+                            desc = JSON.parse(v.items_json).map(i => `${i.cantidad}x ${i.nombre}`).join(', ');
+                          } catch (e) {}
+                        }
+                        return (
+                          <tr key={v.id}>
+                            <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>#{v.id}</td>
+                            <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{desc}</td>
+                            <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{v.medio_pago}</td>
+                            <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'right' }}>${Number(v.total).toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* STOCK ACTUALIZADO POST-VENTAS */}
+              {modalResumenTurno.inventarioActualizado && modalResumenTurno.inventarioActualizado.length > 0 && (
+                <div style={{ marginTop: '15px' }}>
+                  <h4 style={{ margin: '5px 0' }}>📦 INVENTARIO & STOCK FINAL TRAS EL CIERRE:</h4>
+                  <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', border: '1px solid #cbd5e1' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f1f5f9' }}>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Cód</th>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Producto</th>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Precio</th>
+                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Stock Quedado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modalResumenTurno.inventarioActualizado.map((prod) => (
+                        <tr key={prod.id}>
+                          <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{prod.barcode || prod.id}</td>
+                          <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{prod.nombre}</td>
+                          <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>${Number(prod.precio).toLocaleString()}</td>
+                          <td style={{ border: '1px solid #cbd5e1', padding: '4px', fontWeight: 'bold', color: prod.stock <= 0 ? 'red' : 'black' }}>
+                            {prod.stock}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }} className="no-print">
+              <button onClick={() => window.print()} style={styles.btnPrimary}>
+                📄 Imprimir / Descargar PDF Reporte
+              </button>
+              <button onClick={() => setModalResumenTurno(null)} style={styles.btnDanger}>
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1468,6 +1537,6 @@ const styles = {
   inputBaseShift: { padding: '8px', width: '120px', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 'bold' },
   btnStartShift: { backgroundColor: '#16a34a', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
   btnCloseShift: { backgroundColor: '#dc2626', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  modalResumenBox: { backgroundColor: '#fff', width: '420px', padding: '25px', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)' },
-  boxEfectivoEsperado: { backgroundColor: '#f0fdf4', border: '1px solid #86efac', padding: '12px', borderRadius: '6px', marginTop: '12px', textAlign: 'center' }
+  modalResumenBox: { backgroundColor: '#fff', width: '550px', maxHeight: '85vh', overflowY: 'auto', padding: '25px', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)' },
+  boxEfectivoEsperado: { backgroundColor: '#f0fdf4', border: '1px solid #86efac', padding: '10px', borderRadius: '6px', marginTop: '10px', textAlign: 'center' }
 };
