@@ -16,6 +16,12 @@ export default function App() {
   const [loginInput, setLoginInput] = useState({ usuario: '', password: '' });
   const [loginError, setLoginError] = useState('');
 
+  // Control de Turnos / Arqueo de Caja
+  const [turnoActivo, setTurnoActivo] = useState(null);
+  const [baseInicialInput, setBaseInicialInput] = useState('200000');
+  const [modalResumenTurno, setModalResumenTurno] = useState(null);
+  const [historialTurnos, setHistorialTurnos] = useState([]);
+
   // Estados de inventario y caja
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
@@ -42,7 +48,7 @@ export default function App() {
   // Modal de Factura POS DIAN
   const [facturaData, setFacturaData] = useState(null);
 
-  // Estados de gestión de usuarios
+  // Estados de gestión de usuarios y reportes
   const [empleados, setEmpleados] = useState([]);
   const [nuevoEmpleado, setNuevoEmpleado] = useState({
     nombre: '',
@@ -51,7 +57,6 @@ export default function App() {
     rol: 'cajero'
   });
 
-  // Estado de reportes
   const [ventas, setVentas] = useState([]);
 
   // Bloqueo de navegación según el rol
@@ -67,6 +72,8 @@ export default function App() {
       cargarProductos();
       cargarEmpleados();
       cargarVentas();
+      consultarTurnoActivo();
+      cargarHistorialTurnos();
     }
   }, [usuarioLogueado]);
 
@@ -95,7 +102,86 @@ export default function App() {
 
   const handleLogout = () => {
     setUsuarioLogueado(null);
+    setTurnoActivo(null);
     localStorage.removeItem('usuario_pos');
+  };
+
+  // CONSULTAS Y FUNCIONES DE TURNO
+  const consultarTurnoActivo = async () => {
+    if (!usuarioLogueado) return;
+    try {
+      const res = await fetch(`${API_URL}/turnos/activo/${usuarioLogueado.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTurnoActivo(data);
+      }
+    } catch (err) {
+      console.error('Error al consultar turno activo:', err);
+    }
+  };
+
+  const cargarHistorialTurnos = async () => {
+    try {
+      const res = await fetch(`${API_URL}/turnos`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistorialTurnos(data);
+      }
+    } catch (err) {
+      console.error('Error cargando historial de turnos:', err);
+    }
+  };
+
+  const handleIniciarTurno = async () => {
+    if (!baseInicialInput || Number(baseInicialInput) < 0) {
+      return alert('Ingrese un valor válido para la base inicial de caja');
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/turnos/abrir`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuario_id: usuarioLogueado.id,
+          nombre_cajero: usuarioLogueado.nombre,
+          base_inicial: Number(baseInicialInput)
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTurnoActivo(data.turno);
+        alert(`¡Turno iniciado exitosamente por ${usuarioLogueado.nombre}! Base: $${Number(baseInicialInput).toLocaleString()}`);
+      } else {
+        alert(data.error || 'Error al iniciar turno');
+      }
+    } catch (err) {
+      alert('Error de red al iniciar el turno');
+    }
+  };
+
+  const handleCerrarTurno = async () => {
+    if (!turnoActivo) return;
+    if (!window.confirm(`¿Estás seguro de realizar el Cierre de Turno para ${usuarioLogueado.nombre}?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/turnos/cerrar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turno_id: turnoActivo.id })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setModalResumenTurno(data.resumen);
+        setTurnoActivo(null);
+        cargarHistorialTurnos();
+      } else {
+        alert(data.error || 'Error al cerrar el turno');
+      }
+    } catch (err) {
+      alert('Error de conexión al cerrar turno');
+    }
   };
 
   // Consultas API
@@ -106,7 +192,6 @@ export default function App() {
         const data = await res.json();
         setProductos(data);
 
-        // Inicializar mapas locales de edición y entradas
         const mapaEdicion = {};
         const mapaEntradas = {};
         data.forEach((p) => {
@@ -205,6 +290,10 @@ export default function App() {
 
   // OPERACIONES DE CAJA Y CARRITO
   const agregarAlCarrito = (producto, cant = 1) => {
+    if (!turnoActivo) {
+      alert('Debes Iniciar Turno con la Base de Caja antes de realizar ventas.');
+      return;
+    }
     const cantidadAgregar = Math.max(1, Number(cant));
     setCarrito((prev) => {
       const existe = prev.find((item) => item.id === producto.id);
@@ -222,6 +311,10 @@ export default function App() {
   const handleKeyDownBusqueda = (e) => {
     if (e.key === 'Enter' && busqueda.trim() !== '') {
       e.preventDefault();
+      if (!turnoActivo) {
+        alert('Debes Iniciar Turno con la Base de Caja antes de realizar ventas.');
+        return;
+      }
       const productoEncontrado = productos.find(
         (p) =>
           (p.barcode && p.barcode.toString().toLowerCase() === busqueda.trim().toLowerCase()) ||
@@ -263,6 +356,7 @@ export default function App() {
 
   // PROCESAR VENTA
   const procesarVenta = async () => {
+    if (!turnoActivo) return alert('Debes iniciar turno antes de vender.');
     if (carrito.length === 0) return alert('El carrito está vacío');
     if (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito) {
       return alert('El monto recibido en efectivo es inferior al total');
@@ -481,163 +575,202 @@ export default function App() {
       <main style={styles.mainContent}>
         {/* VISTA 1: POS / CAJA */}
         {vistaActual === 'caja' && (
-          <div style={styles.posGrid}>
-            <div style={styles.posSection}>
-              <h2>Módulo de Caja</h2>
-              
-              <div style={styles.searchBarBox}>
-                <div style={{ flex: 1 }}>
-                  <label style={styles.labelSmall}>🔍 Buscar por Código o Nombre:</label>
-                  <input
-                    type="text"
-                    placeholder="Escriba código o nombre y presione Enter..."
-                    value={busqueda}
-                    onKeyDown={handleKeyDownBusqueda}
-                    onChange={(e) => setBusqueda(e.target.value)}
-                    style={styles.inputSearch}
-                  />
-                </div>
-                <div style={{ width: '100px' }}>
-                  <label style={styles.labelSmall}>Cantidad:</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={cantidadAñadir}
-                    onChange={(e) => setCantidadAñadir(e.target.value)}
-                    style={styles.inputSearch}
-                  />
-                </div>
-              </div>
-
-              <div style={styles.productGrid}>
-                {productosFiltrados.map((p) => (
-                  <div
-                    key={p.id}
-                    onClick={() => p.stock > 0 && agregarAlCarrito(p, cantidadAñadir)}
-                    style={{
-                      ...styles.productCard,
-                      opacity: p.stock <= 0 ? 0.4 : 1,
-                      cursor: p.stock <= 0 ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    <small style={{ color: '#64748b', fontSize: '11px' }}>
-                      Cód: {p.barcode || p.id}
-                    </small>
-                    <h4 style={{ margin: '5px 0' }}>{p.nombre}</h4>
-                    <p style={styles.priceTag}>${Number(p.precio).toLocaleString()}</p>
-                    <small>Stock: {p.stock}</small>
+          <div>
+            {/* BARRA SUPERIOR DE INICIO / CIERRE DE TURNO */}
+            <div style={turnoActivo ? styles.turnoActivoBar : styles.turnoInactivoBar}>
+              {!turnoActivo ? (
+                <div style={styles.turnoFlexRow}>
+                  <div>
+                    <strong style={{ color: '#b91c1c' }}>⚠️ SIN TURNO INICIADO:</strong> Ingrese la base de caja e inicie turno para poder registrar ventas.
                   </div>
-                ))}
-              </div>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Base Inicial ($):</label>
+                    <input
+                      type="number"
+                      value={baseInicialInput}
+                      onChange={(e) => setBaseInicialInput(e.target.value)}
+                      style={styles.inputBaseShift}
+                    />
+                    <button onClick={handleIniciarTurno} style={styles.btnStartShift}>
+                      🚀 INICIAR TURNO
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={styles.turnoFlexRow}>
+                  <div>
+                    <span style={{ fontSize: '15px', fontWeight: 'bold', color: '#15803d' }}>
+                      🟢 TURNO ACTIVO
+                    </span>{' '}
+                    | Cajero: <b>{turnoActivo.nombre_cajero}</b> | Base: <b>${Number(turnoActivo.base_inicial).toLocaleString()}</b> | Inicio: <i>{turnoActivo.fecha_inicio}</i>
+                  </div>
+                  <button onClick={handleCerrarTurno} style={styles.btnCloseShift}>
+                    🔒 CERRAR TURNO
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* CARRITO Y PAGO */}
-            <div style={styles.cartSection}>
-              <h3>🛒 Carrito Actual</h3>
-              <div style={styles.cartList}>
-                {carrito.length === 0 ? (
-                  <p style={{ color: '#888', textAlign: 'center', marginTop: '30px' }}>
-                    Sin productos seleccionados
-                  </p>
-                ) : (
-                  carrito.map((item) => (
-                    <div key={item.id} style={styles.cartItem}>
-                      <div style={{ flex: 1 }}>
-                        <b>{item.nombre}</b>
-                        <div style={{ fontSize: '13px', color: '#16a34a' }}>
-                          ${Number(item.precio).toLocaleString()} c/u
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          min="1"
-                          value={item.cantidad}
-                          onChange={(e) => actualizarCantidadCarrito(item.id, e.target.value)}
-                          style={styles.qtyInput}
-                        />
-                        <button
-                          onClick={() => actualizarCantidadCarrito(item.id, 0)}
-                          style={styles.btnDeleteCart}
-                        >
-                          ✕
-                        </button>
-                      </div>
+            <div style={styles.posGrid}>
+              <div style={styles.posSection}>
+                <h2>Módulo de Caja</h2>
+                
+                <div style={styles.searchBarBox}>
+                  <div style={{ flex: 1 }}>
+                    <label style={styles.labelSmall}>🔍 Buscar por Código o Nombre:</label>
+                    <input
+                      type="text"
+                      placeholder="Escriba código o nombre y presione Enter..."
+                      value={busqueda}
+                      onKeyDown={handleKeyDownBusqueda}
+                      onChange={(e) => setBusqueda(e.target.value)}
+                      style={styles.inputSearch}
+                    />
+                  </div>
+                  <div style={{ width: '100px' }}>
+                    <label style={styles.labelSmall}>Cantidad:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={cantidadAñadir}
+                      onChange={(e) => setCantidadAñadir(e.target.value)}
+                      style={styles.inputSearch}
+                    />
+                  </div>
+                </div>
+
+                <div style={styles.productGrid}>
+                  {productosFiltrados.map((p) => (
+                    <div
+                      key={p.id}
+                      onClick={() => p.stock > 0 && agregarAlCarrito(p, cantidadAñadir)}
+                      style={{
+                        ...styles.productCard,
+                        opacity: p.stock <= 0 ? 0.4 : 1,
+                        cursor: p.stock <= 0 ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      <small style={{ color: '#64748b', fontSize: '11px' }}>
+                        Cód: {p.barcode || p.id}
+                      </small>
+                      <h4 style={{ margin: '5px 0' }}>{p.nombre}</h4>
+                      <p style={styles.priceTag}>${Number(p.precio).toLocaleString()}</p>
+                      <small>Stock: {p.stock}</small>
                     </div>
-                  ))
-                )}
+                  ))}
+                </div>
               </div>
 
-              <div style={styles.cartFooter}>
-                <div style={styles.totalRow}>
-                  <span>Total a Pagar:</span>
-                  <span style={{ color: '#2563eb' }}>${totalCarrito.toLocaleString()}</span>
+              {/* CARRITO Y PAGO */}
+              <div style={styles.cartSection}>
+                <h3>🛒 Carrito Actual</h3>
+                <div style={styles.cartList}>
+                  {carrito.length === 0 ? (
+                    <p style={{ color: '#888', textAlign: 'center', marginTop: '30px' }}>
+                      Sin productos seleccionados
+                    </p>
+                  ) : (
+                    carrito.map((item) => (
+                      <div key={item.id} style={styles.cartItem}>
+                        <div style={{ flex: 1 }}>
+                          <b>{item.nombre}</b>
+                          <div style={{ fontSize: '13px', color: '#16a34a' }}>
+                            ${Number(item.precio).toLocaleString()} c/u
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.cantidad}
+                            onChange={(e) => actualizarCantidadCarrito(item.id, e.target.value)}
+                            style={styles.qtyInput}
+                          />
+                          <button
+                            onClick={() => actualizarCantidadCarrito(item.id, 0)}
+                            style={styles.btnDeleteCart}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
 
-                <div style={{ marginTop: '12px' }}>
-                  <label style={styles.labelSmall}>💳 Seleccionar Medio de Pago:</label>
-                  <select
-                    value={medioPago}
-                    onChange={(e) => {
-                      setMedioPago(e.target.value);
-                      if (e.target.value === 'transferencia') setPagaCon('');
-                    }}
-                    style={styles.selectPay}
-                  >
-                    <option value="efectivo">💵 Efectivo</option>
-                    <option value="transferencia">📲 Transferencia (Nequi / Daviplata / QR)</option>
-                  </select>
-                </div>
-
-                {medioPago === 'efectivo' ? (
-                  <>
-                    <div style={{ marginTop: '10px' }}>
-                      <label style={styles.labelSmall}>Paga con (Efectivo):</label>
-                      <input
-                        type="number"
-                        placeholder="Monto recibido $"
-                        value={pagaCon}
-                        onChange={(e) => setPagaCon(e.target.value)}
-                        style={styles.inputPay}
-                      />
-                    </div>
-
-                    <div style={styles.changeRow}>
-                      <span>Cambio / Devuelta:</span>
-                      <span style={{ color: Number(pagaCon) >= totalCarrito ? '#16a34a' : '#dc2626' }}>
-                        ${cambioCalculado.toLocaleString()}
-                      </span>
-                    </div>
-                  </>
-                ) : (
-                  <div style={styles.infoTransfer}>
-                    ✓ Pago exacto por transferencia digital
+                <div style={styles.cartFooter}>
+                  <div style={styles.totalRow}>
+                    <span>Total a Pagar:</span>
+                    <span style={{ color: '#2563eb' }}>${totalCarrito.toLocaleString()}</span>
                   </div>
-                )}
 
-                <button
-                  onClick={procesarVenta}
-                  disabled={
-                    carrito.length === 0 ||
-                    (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
-                  }
-                  style={{
-                    ...styles.btnSuccess,
-                    opacity:
+                  <div style={{ marginTop: '12px' }}>
+                    <label style={styles.labelSmall}>💳 Seleccionar Medio de Pago:</label>
+                    <select
+                      value={medioPago}
+                      onChange={(e) => {
+                        setMedioPago(e.target.value);
+                        if (e.target.value === 'transferencia') setPagaCon('');
+                      }}
+                      style={styles.selectPay}
+                    >
+                      <option value="efectivo">💵 Efectivo</option>
+                      <option value="transferencia">📲 Transferencia (Nequi / Daviplata / QR)</option>
+                    </select>
+                  </div>
+
+                  {medioPago === 'efectivo' ? (
+                    <>
+                      <div style={{ marginTop: '10px' }}>
+                        <label style={styles.labelSmall}>Paga con (Efectivo):</label>
+                        <input
+                          type="number"
+                          placeholder="Monto recibido $"
+                          value={pagaCon}
+                          onChange={(e) => setPagaCon(e.target.value)}
+                          style={styles.inputPay}
+                        />
+                      </div>
+
+                      <div style={styles.changeRow}>
+                        <span>Cambio / Devuelta:</span>
+                        <span style={{ color: Number(pagaCon) >= totalCarrito ? '#16a34a' : '#dc2626' }}>
+                          ${cambioCalculado.toLocaleString()}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={styles.infoTransfer}>
+                      ✓ Pago exacto por transferencia digital
+                    </div>
+                  )}
+
+                  <button
+                    onClick={procesarVenta}
+                    disabled={
+                      !turnoActivo ||
                       carrito.length === 0 ||
                       (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
-                        ? 0.5
-                        : 1
-                  }}
-                >
-                  💳 Registrar e Imprimir Factura
-                </button>
+                    }
+                    style={{
+                      ...styles.btnSuccess,
+                      opacity:
+                        !turnoActivo ||
+                        carrito.length === 0 ||
+                        (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
+                          ? 0.5
+                          : 1
+                    }}
+                  >
+                    💳 Registrar e Imprimir Factura
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* VISTA 2: INVENTARIO (CREACIÓN, ENTRADA SUMATORIA Y STOCK MÍNIMO) */}
+        {/* VISTA 2: INVENTARIO */}
         {vistaActual === 'inventario' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>📦 Inventario de Productos</h2>
@@ -776,7 +909,6 @@ export default function App() {
                           }}
                         />
                       </td>
-                      {/* COLUMNA ENTRADA (SUMATORIA AUTOMÁTICA) */}
                       <td style={styles.td}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <input
@@ -794,7 +926,6 @@ export default function App() {
                           )}
                         </div>
                       </td>
-                      {/* COLUMNA STOCK MÍNIMO */}
                       <td style={styles.td}>
                         <input
                           type="number"
@@ -827,7 +958,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 3: AGOTADOS (SEGUN STOCK MINIMO) */}
+        {/* VISTA 3: AGOTADOS */}
         {vistaActual === 'agotados' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>⚠️ Productos Agotados o Bajo Stock Mínimo</h2>
@@ -951,12 +1082,63 @@ export default function App() {
         {/* VISTA 5: REPORTES */}
         {vistaActual === 'reportes' && usuarioLogueado.rol === 'admin' && (
           <div>
-            <h2>📊 Historial de Ventas</h2>
+            <h2>📊 Reportes de Cierre de Turnos y Ventas</h2>
+
+            {/* TABLA DE REPORTES DE TURNOS / ARQUEOS DE CAJA */}
+            <h3>🔒 Arqueos y Cierres de Caja por Turno</h3>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Turno #</th>
+                  <th style={styles.th}>Cajero</th>
+                  <th style={styles.th}>Base Inicial</th>
+                  <th style={styles.th}>Inicio</th>
+                  <th style={styles.th}>Cierre</th>
+                  <th style={styles.th}>Ventas Efectivo</th>
+                  <th style={styles.th}>Ventas Transferencia</th>
+                  <th style={styles.th}>Total Vendido</th>
+                  <th style={styles.th}>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historialTurnos.map((t) => (
+                  <tr key={t.id} style={styles.tr}>
+                    <td style={styles.td}><b>#{t.id}</b></td>
+                    <td style={styles.td}>{t.nombre_cajero}</td>
+                    <td style={styles.td}>${Number(t.base_inicial || 0).toLocaleString()}</td>
+                    <td style={styles.td}>{t.fecha_inicio}</td>
+                    <td style={styles.td}>{t.fecha_cierre || 'Turno En Curso'}</td>
+                    <td style={styles.td}>${Number(t.total_efectivo || 0).toLocaleString()}</td>
+                    <td style={styles.td}>${Number(t.total_transferencia || 0).toLocaleString()}</td>
+                    <td style={{ ...styles.td, color: '#16a34a', fontWeight: 'bold' }}>
+                      ${Number(t.total_ventas || 0).toLocaleString()}
+                    </td>
+                    <td style={styles.td}>
+                      <span
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          backgroundColor: t.estado === 'abierto' ? '#dcfce7' : '#e2e8f0',
+                          color: t.estado === 'abierto' ? '#15803d' : '#475569',
+                          fontWeight: 'bold'
+                        }}
+                      >
+                        {t.estado === 'abierto' ? '🟢 En Curso' : '🔒 Cerrado'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* HISTORIAL GENERAL DE VENTAS */}
+            <h3 style={{ marginTop: '30px' }}>📄 Historial Individual de Ventas</h3>
             <table style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>ID Venta</th>
                   <th style={styles.th}>Fecha</th>
+                  <th style={styles.th}>Medio Pago</th>
                   <th style={styles.th}>Total</th>
                 </tr>
               </thead>
@@ -965,6 +1147,7 @@ export default function App() {
                   <tr key={v.id} style={styles.tr}>
                     <td style={styles.td}>#{v.id}</td>
                     <td style={styles.td}>{v.fecha || 'Reciente'}</td>
+                    <td style={styles.td}>{v.medio_pago || 'Efectivo'}</td>
                     <td style={styles.td}>${Number(v.total).toLocaleString()}</td>
                   </tr>
                 ))}
@@ -973,6 +1156,42 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* MODAL RESUMEN DE CIERRE DE TURNO */}
+      {modalResumenTurno && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalResumenBox}>
+            <h2 style={{ textAlign: 'center', margin: '0 0 10px 0', color: '#1e293b' }}>
+              🔒 RESUMEN DE CIERRE DE TURNO
+            </h2>
+            <div style={{ fontSize: '14px', lineHeight: '1.6' }}>
+              <p><b>Turno ID:</b> #{modalResumenTurno.turnoId}</p>
+              <p><b>Cajero:</b> {modalResumenTurno.cajero}</p>
+              <p><b>Fecha Inicio:</b> {modalResumenTurno.fechaInicio}</p>
+              <p><b>Fecha Cierre:</b> {modalResumenTurno.fechaCierre}</p>
+              <hr />
+              <p><b>Base Inicial de Caja:</b> ${modalResumenTurno.baseInicial.toLocaleString()}</p>
+              <p><b>Ventas en Efectivo:</b> ${modalResumenTurno.totalEfectivo.toLocaleString()}</p>
+              <p><b>Ventas por Transferencia:</b> ${modalResumenTurno.totalTransferencia.toLocaleString()}</p>
+              <h3 style={{ color: '#2563eb', margin: '10px 0' }}>
+                Total Vendido: ${modalResumenTurno.totalVentas.toLocaleString()}
+              </h3>
+              <div style={styles.boxEfectivoEsperado}>
+                <span>💵 EFECTIVO TOTAL ESPERADO EN CAJA (Base + Ventas Efectivo):</span>
+                <h2 style={{ margin: '5px 0', color: '#16a34a' }}>
+                  ${modalResumenTurno.efectivoEsperadoEnCaja.toLocaleString()}
+                </h2>
+              </div>
+            </div>
+            <button
+              onClick={() => setModalResumenTurno(null)}
+              style={{ ...styles.btnPrimary, marginTop: '15px' }}
+            >
+              ✓ Entendido / Aceptar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MODAL RECIBO POS DIAN */}
       {facturaData && (
@@ -1138,5 +1357,15 @@ const styles = {
   ticketBox: { backgroundColor: '#fff', width: '300px', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' },
   ticketDivider: { textAlign: 'center', margin: '8px 0', fontSize: '12px' },
   ticketTable: { width: '100%', fontSize: '12px', borderCollapse: 'collapse' },
-  ticketFlexRow: { display: 'flex', justifyContent: 'space-between', margin: '4px 0' }
+  ticketFlexRow: { display: 'flex', justifyContent: 'space-between', margin: '4px 0' },
+  
+  // ESTILOS DE GESTIÓN DE TURNO
+  turnoInactivoBar: { backgroundColor: '#fee2e2', border: '1px solid #fca5a5', padding: '12px 18px', borderRadius: '8px', marginBottom: '15px' },
+  turnoActivoBar: { backgroundColor: '#f0fdf4', border: '1px solid #86efac', padding: '12px 18px', borderRadius: '8px', marginBottom: '15px' },
+  turnoFlexRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' },
+  inputBaseShift: { padding: '8px', width: '120px', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 'bold' },
+  btnStartShift: { backgroundColor: '#16a34a', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
+  btnCloseShift: { backgroundColor: '#dc2626', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
+  modalResumenBox: { backgroundColor: '#fff', width: '420px', padding: '25px', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)' },
+  boxEfectivoEsperado: { backgroundColor: '#f0fdf4', border: '1px solid #86efac', padding: '12px', borderRadius: '6px', marginTop: '12px', textAlign: 'center' }
 };

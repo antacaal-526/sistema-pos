@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// --- INICIALIZACIÓN DE LA BASE DE DATOS Y ADMIN ---
+// --- INICIALIZACIÓN DE TABLAS Y ADMIN ---
 db.serialize(() => {
   // Tabla de Usuarios
   db.run(`
@@ -54,6 +54,22 @@ db.serialize(() => {
       usuario_id INTEGER,
       medio_pago TEXT,
       fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Tabla de Control de Turnos / Arqueo de Caja
+  db.run(`
+    CREATE TABLE IF NOT EXISTS turnos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario_id INTEGER,
+      nombre_cajero TEXT,
+      base_inicial REAL,
+      fecha_inicio TEXT,
+      fecha_cierre TEXT,
+      total_efectivo REAL DEFAULT 0,
+      total_transferencia REAL DEFAULT 0,
+      total_ventas REAL DEFAULT 0,
+      estado TEXT DEFAULT 'abierto'
     )
   `);
 });
@@ -123,8 +139,6 @@ app.delete('/api/usuarios/:id', (req, res) => {
 });
 
 // --- RUTAS DE PRODUCTOS E INVENTARIO ---
-
-// 1. Obtener lista completa de productos incluyendo Stock Mínimo
 app.get('/api/productos', (req, res) => {
   db.all('SELECT id, barcode, name AS nombre, sale_price AS precio, stock, COALESCE(min_stock, 5) AS min_stock FROM products', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -132,7 +146,6 @@ app.get('/api/productos', (req, res) => {
   });
 });
 
-// 2. Crear Nuevo Producto con Stock Mínimo
 app.post('/api/productos', (req, res) => {
   const { barcode, nombre, precio, stock, min_stock } = req.body;
   const codigoFinal = barcode ? barcode.trim() : Date.now().toString();
@@ -153,7 +166,6 @@ app.post('/api/productos', (req, res) => {
   );
 });
 
-// 3. Modificar Stock, Precio y Stock Mínimo
 app.put('/api/productos/:id', (req, res) => {
   const { id } = req.params;
   const { stock, precio, min_stock } = req.body;
@@ -193,6 +205,110 @@ app.post('/api/ventas', (req, res) => {
 
 app.get('/api/ventas', (req, res) => {
   db.all('SELECT * FROM ventas ORDER BY fecha DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// --- RUTAS DE GESTIÓN DE TURNOS Y CIERRES DE CAJA ---
+
+// Obtener turno activo del cajero en sesión
+app.get('/api/turnos/activo/:usuario_id', (req, res) => {
+  const { usuario_id } = req.params;
+  db.get(
+    "SELECT * FROM turnos WHERE usuario_id = ? AND estado = 'abierto' ORDER BY id DESC LIMIT 1",
+    [usuario_id],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(row || null);
+    }
+  );
+});
+
+// Iniciar Turno
+app.post('/api/turnos/abrir', (req, res) => {
+  const { usuario_id, nombre_cajero, base_inicial } = req.body;
+  const ahora = new Date();
+  const fechaInicio = `${ahora.toLocaleDateString('es-CO')} ${ahora.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}`;
+
+  db.run(
+    `INSERT INTO turnos (usuario_id, nombre_cajero, base_inicial, fecha_inicio, estado)
+     VALUES (?, ?, ?, ?, 'abierto')`,
+    [usuario_id, nombre_cajero, Number(base_inicial) || 200000, fechaInicio],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({
+        message: 'Turno iniciado con éxito',
+        turno: {
+          id: this.lastID,
+          usuario_id,
+          nombre_cajero,
+          base_inicial: Number(base_inicial) || 200000,
+          fecha_inicio: fechaInicio,
+          estado: 'abierto'
+        }
+      });
+    }
+  );
+});
+
+// Cerrar Turno
+app.post('/api/turnos/cerrar', (req, res) => {
+  const { turno_id } = req.body;
+  const ahora = new Date();
+  const fechaCierre = `${ahora.toLocaleDateString('es-CO')} ${ahora.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}`;
+
+  db.get('SELECT * FROM turnos WHERE id = ?', [turno_id], (err, turno) => {
+    if (err || !turno) return res.status(404).json({ error: 'Turno no encontrado' });
+
+    db.all(
+      'SELECT total, medio_pago FROM ventas WHERE usuario_id = ?',
+      [turno.usuario_id],
+      (errVentas, rowsVentas) => {
+        let totalEfectivo = 0;
+        let totalTransferencia = 0;
+
+        if (rowsVentas && rowsVentas.length > 0) {
+          rowsVentas.forEach((v) => {
+            if (v.medio_pago && v.medio_pago.toLowerCase().includes('transferencia')) {
+              totalTransferencia += Number(v.total) || 0;
+            } else {
+              totalEfectivo += Number(v.total) || 0;
+            }
+          });
+        }
+
+        const totalVentas = totalEfectivo + totalTransferencia;
+
+        db.run(
+          `UPDATE turnos SET fecha_cierre = ?, total_efectivo = ?, total_transferencia = ?, total_ventas = ?, estado = 'cerrado' WHERE id = ?`,
+          [fechaCierre, totalEfectivo, totalTransferencia, totalVentas, turno_id],
+          function (errUpdate) {
+            if (errUpdate) return res.status(500).json({ error: errUpdate.message });
+            res.json({
+              message: 'Turno cerrado exitosamente',
+              resumen: {
+                turnoId: turno_id,
+                cajero: turno.nombre_cajero,
+                baseInicial: turno.base_inicial,
+                fechaInicio: turno.fecha_inicio,
+                fechaCierre: fechaCierre,
+                totalEfectivo,
+                totalTransferencia,
+                totalVentas,
+                efectivoEsperadoEnCaja: turno.base_inicial + totalEfectivo
+              }
+            });
+          }
+        );
+      }
+    );
+  });
+});
+
+// Historial de Cierres de Turno para Reportes
+app.get('/api/turnos', (req, res) => {
+  db.all('SELECT * FROM turnos ORDER BY id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
