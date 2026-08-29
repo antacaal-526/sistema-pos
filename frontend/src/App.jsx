@@ -10,8 +10,6 @@ export default function App() {
   });
 
   const [vistaActual, setVistaActual] = useState('caja');
-
-  // Estado para desplegar/ocultar menú lateral automáticamente con el cursor
   const [sidebarHovered, setSidebarHovered] = useState(false);
 
   // Formulario de login
@@ -24,14 +22,25 @@ export default function App() {
   const [cantidadAñadir, setCantidadAñadir] = useState(1);
   const [carrito, setCarrito] = useState([]);
 
-  // Control de Medio de Pago y Efectivo
+  // Formulario de Crear Producto
+  const [nuevoProducto, setNuevoProducto] = useState({
+    barcode: '',
+    nombre: '',
+    precio: '',
+    stock: ''
+  });
+
+  // Estado para la edición directa de stock/precio en la tabla de inventario
+  const [edicionStock, setEdicionStock] = useState({});
+
+  // Control de Medio de Pago
   const [medioPago, setMedioPago] = useState('efectivo');
   const [pagaCon, setPagaCon] = useState('');
 
   // Modal de Factura POS DIAN
   const [facturaData, setFacturaData] = useState(null);
 
-  // Estados de gestión de usuarios (Empleados)
+  // Estados de gestión de usuarios
   const [empleados, setEmpleados] = useState([]);
   const [nuevoEmpleado, setNuevoEmpleado] = useState({
     nombre: '',
@@ -94,6 +103,13 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setProductos(data);
+
+        // Inicializar estado local de edición para cada producto
+        const mapaEdicion = {};
+        data.forEach((p) => {
+          mapaEdicion[p.id] = { stock: p.stock, precio: p.precio };
+        });
+        setEdicionStock(mapaEdicion);
       }
     } catch (err) {
       console.error('Error cargando productos:', err);
@@ -124,7 +140,55 @@ export default function App() {
     }
   };
 
-  // BÚSQUEDA Y AGREGAR POR CÓDIGO O NOMBRE
+  // CREAR UN NUEVO PRODUCTO
+  const handleCrearProducto = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_URL}/productos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nuevoProducto)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('¡Producto creado exitosamente!');
+        setNuevoProducto({ barcode: '', nombre: '', precio: '', stock: '' });
+        cargarProductos();
+      } else {
+        alert(data.error || 'Error al crear producto');
+      }
+    } catch (err) {
+      alert('Error de conexión al guardar producto');
+    }
+  };
+
+  // ACTUALIZAR STOCK / ENTRADA DE PRODUCTO
+  const handleGuardarCambiosStock = async (id) => {
+    const itemEditado = edicionStock[id];
+    if (!itemEditado) return;
+
+    try {
+      const res = await fetch(`${API_URL}/productos/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stock: itemEditado.stock,
+          precio: itemEditado.precio
+        })
+      });
+
+      if (res.ok) {
+        alert('Stock y precio actualizados correctamente');
+        cargarProductos();
+      } else {
+        alert('Error al actualizar el producto');
+      }
+    } catch (err) {
+      alert('Error de conexión al actualizar stock');
+    }
+  };
+
+  // OPERACIONES DE CAJA Y CARRITO
   const agregarAlCarrito = (producto, cant = 1) => {
     const cantidadAgregar = Math.max(1, Number(cant));
     setCarrito((prev) => {
@@ -182,11 +246,11 @@ export default function App() {
     ? Math.max(0, (Number(pagaCon) || 0) - totalCarrito)
     : 0;
 
-  // REGISTRAR VENTA Y GENERAR RECIBO POS
+  // PROCESAR VENTA
   const procesarVenta = async () => {
     if (carrito.length === 0) return alert('El carrito está vacío');
     if (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito) {
-      return alert('El monto recibido en efectivo es inferior al total de la venta');
+      return alert('El monto recibido en efectivo es inferior al total');
     }
 
     const pagaConFinal = medioPago === 'transferencia' ? totalCarrito : Number(pagaCon);
@@ -240,7 +304,7 @@ export default function App() {
     }
   };
 
-  // Crear Usuario
+  // GESTIÓN DE EMPLEADOS
   const handleCrearEmpleado = async (e) => {
     e.preventDefault();
     try {
@@ -255,14 +319,13 @@ export default function App() {
         cargarEmpleados();
       } else {
         const err = await res.json();
-        alert(err.error || 'Error al registrar el usuario');
+        alert(err.error || 'Error al registrar usuario');
       }
     } catch (error) {
       alert('Error de red al registrar usuario');
     }
   };
 
-  // Eliminar Usuario
   const handleEliminarEmpleado = async (id, nombre) => {
     if (usuarioLogueado?.id === id) {
       alert('No puedes eliminar tu propia cuenta en sesión.');
@@ -277,7 +340,7 @@ export default function App() {
           alert('Usuario eliminado correctamente');
           cargarEmpleados();
         } else {
-          alert('Error al eliminar el usuario');
+          alert('Error al eliminar usuario');
         }
       } catch (error) {
         alert('Error de conexión al eliminar usuario');
@@ -285,7 +348,7 @@ export default function App() {
     }
   };
 
-  // FILTRADO DE PRODUCTOS
+  // FILTROS
   const productosFiltrados = productos.filter((p) => {
     const termino = busqueda.toLowerCase().trim();
     const coincideNombre = p.nombre && p.nombre.toLowerCase().includes(termino);
@@ -295,7 +358,7 @@ export default function App() {
 
   const productosAgotados = productos.filter((p) => p.stock <= 0);
 
-  // PANTALLA DE LOGIN
+  // LOGIN
   if (!usuarioLogueado) {
     return (
       <div style={styles.loginContainer}>
@@ -337,7 +400,7 @@ export default function App() {
 
   return (
     <div style={styles.appLayout}>
-      {/* MENÚ LATERAL AUTOPLEGABLE AL PASAR EL CURSOR */}
+      {/* MENÚ LATERAL AUTOPLEGABLE */}
       <aside
         onMouseEnter={() => setSidebarHovered(true)}
         onMouseLeave={() => setSidebarHovered(false)}
@@ -347,7 +410,6 @@ export default function App() {
           boxShadow: sidebarHovered ? '4px 0 20px rgba(0,0,0,0.5)' : '2px 0 8px rgba(0,0,0,0.2)'
         }}
       >
-        {/* Indicador visual en el borde cuando está plegado */}
         {!sidebarHovered && (
           <div style={styles.sidebarIndicator}>
             <span>▶</span>
@@ -404,7 +466,7 @@ export default function App() {
         </button>
       </aside>
 
-      {/* ÁREA DE TRABAJO */}
+      {/* ÁREA DE TRABAJO PRINCIPAL */}
       <main style={styles.mainContent}>
         {/* VISTA 1: POS / CAJA */}
         {vistaActual === 'caja' && (
@@ -564,33 +626,135 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 2: INVENTARIO */}
+        {/* VISTA 2: INVENTARIO (CREACIÓN Y ENTRADA/MODIFICACIÓN DE STOCK) */}
         {vistaActual === 'inventario' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>📦 Inventario de Productos</h2>
+
+            {/* FORMULARIO PARA CREAR NUEVO PRODUCTO */}
+            <form onSubmit={handleCrearProducto} style={styles.formInline}>
+              <h3>➕ Registrar Nuevo Producto</h3>
+              <div style={styles.formRowProduct}>
+                <div>
+                  <label style={styles.labelSmall}>Código / Código de Barras:</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. 434 o escanea"
+                    value={nuevoProducto.barcode}
+                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, barcode: e.target.value })}
+                    style={styles.input}
+                  />
+                </div>
+                <div>
+                  <label style={styles.labelSmall}>Nombre del Producto:*</label>
+                  <input
+                    type="text"
+                    placeholder="Nombre y presentación"
+                    required
+                    value={nuevoProducto.nombre}
+                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, nombre: e.target.value })}
+                    style={styles.input}
+                  />
+                </div>
+                <div>
+                  <label style={styles.labelSmall}>Precio de Venta ($):*</label>
+                  <input
+                    type="number"
+                    placeholder="Ej: 1500"
+                    required
+                    value={nuevoProducto.precio}
+                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, precio: e.target.value })}
+                    style={styles.input}
+                  />
+                </div>
+                <div>
+                  <label style={styles.labelSmall}>Stock Inicial:*</label>
+                  <input
+                    type="number"
+                    placeholder="Cantidad"
+                    required
+                    value={nuevoProducto.stock}
+                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, stock: e.target.value })}
+                    style={styles.input}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <button type="submit" style={styles.btnPrimary}>
+                    💾 Crear Producto
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {/* BUSCADOR Y ENTRADA / EDICIÓN DE STOCK */}
+            <h3>Listado y Entrada de Mercancía</h3>
             <input
               type="text"
-              placeholder="🔍 Filtrar por código o nombre..."
+              placeholder="🔍 Buscar por código o nombre para ajustar stock..."
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               style={styles.inputSearch}
             />
+
             <table style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>Código</th>
                   <th style={styles.th}>Producto</th>
-                  <th style={styles.th}>Precio</th>
-                  <th style={styles.th}>Stock</th>
+                  <th style={styles.th}>Precio ($)</th>
+                  <th style={styles.th}>Stock Actual</th>
+                  <th style={styles.th}>Acciones / Guardar</th>
                 </tr>
               </thead>
               <tbody>
                 {productosFiltrados.map((p) => (
                   <tr key={p.id} style={styles.tr}>
-                    <td style={styles.td}>{p.barcode || p.id}</td>
+                    <td style={styles.td}><b>{p.barcode || p.id}</b></td>
                     <td style={styles.td}>{p.nombre}</td>
-                    <td style={styles.td}>${Number(p.precio).toLocaleString()}</td>
-                    <td style={styles.td}>{p.stock}</td>
+                    <td style={styles.td}>
+                      <input
+                        type="number"
+                        value={edicionStock[p.id]?.precio ?? p.precio}
+                        onChange={(e) =>
+                          setEdicionStock({
+                            ...edicionStock,
+                            [p.id]: {
+                              ...edicionStock[p.id],
+                              precio: e.target.value
+                            }
+                          })
+                        }
+                        style={styles.inputTableNumber}
+                      />
+                    </td>
+                    <td style={styles.td}>
+                      <input
+                        type="number"
+                        value={edicionStock[p.id]?.stock ?? p.stock}
+                        onChange={(e) =>
+                          setEdicionStock({
+                            ...edicionStock,
+                            [p.id]: {
+                              ...edicionStock[p.id],
+                              stock: e.target.value
+                            }
+                          })
+                        }
+                        style={{
+                          ...styles.inputTableNumber,
+                          borderColor: (edicionStock[p.id]?.stock ?? p.stock) <= 0 ? '#dc2626' : '#2563eb',
+                          fontWeight: 'bold'
+                        }}
+                      />
+                    </td>
+                    <td style={styles.td}>
+                      <button
+                        onClick={() => handleGuardarCambiosStock(p.id)}
+                        style={styles.btnSaveInline}
+                      >
+                        💾 Actualizar
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -743,7 +907,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL RECIBO POS DIAN COLOMBIA 2026 */}
+      {/* MODAL RECIBO POS DIAN */}
       {facturaData && (
         <div style={styles.modalOverlay}>
           <div style={styles.ticketBox} id="ticket-factura">
@@ -873,6 +1037,7 @@ const styles = {
   input: { width: '100%', padding: '10px', marginTop: '5px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
   searchBarBox: { display: 'flex', gap: '10px', marginBottom: '15px' },
   inputSearch: { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
+  inputTableNumber: { width: '90px', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', textAlign: 'center' },
   selectPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #3b82f6', fontSize: '15px', fontWeight: 'bold', backgroundColor: '#eff6ff', boxSizing: 'border-box' },
   inputPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #2563eb', fontSize: '16px', fontWeight: 'bold', boxSizing: 'border-box' },
   infoTransfer: { backgroundColor: '#dcfce7', color: '#15803d', padding: '10px', borderRadius: '6px', textAlign: 'center', fontSize: '14px', fontWeight: 'bold', margin: '12px 0' },
@@ -880,6 +1045,7 @@ const styles = {
   btnPrimary: { width: '100%', padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
   btnSuccess: { width: '100%', padding: '15px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold', marginTop: '10px' },
   btnDanger: { width: '100%', padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
+  btnSaveInline: { backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold' },
   btnDeleteCart: { backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '24px', height: '24px', fontWeight: 'bold' },
   posGrid: { display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: '20px' },
   posSection: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px' },
@@ -899,6 +1065,7 @@ const styles = {
   tr: { borderBottom: '1px solid #e2e8f0' },
   formInline: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '20px' },
   formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
+  formRowProduct: { display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
   ticketBox: { backgroundColor: '#fff', width: '300px', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' },
   ticketDivider: { textAlign: 'center', margin: '8px 0', fontSize: '12px' },
