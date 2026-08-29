@@ -465,7 +465,10 @@ export default function App() {
     return coincideNombre || coincideCodigo;
   });
 
-  const productosAgotados = productos.filter((p) => p.stock <= (p.min_stock || 5));
+  // FILTRAR Y ORDENAR PRODUCTOS DE 0 A MAYOR EN VISTA DE AGOTADOS
+  const productosAgotados = productos
+    .filter((p) => Number(p.stock) <= Number(p.min_stock || 5))
+    .sort((a, b) => Number(a.stock) - Number(b.stock));
 
   // LOGIN
   if (!usuarioLogueado) {
@@ -958,7 +961,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 3: AGOTADOS */}
+        {/* VISTA 3: AGOTADOS Y CRÍTICOS (ORDENADOS DE 0 A MAYOR) */}
         {vistaActual === 'agotados' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>⚠️ Productos Agotados o Bajo Stock Mínimo</h2>
@@ -970,20 +973,52 @@ export default function App() {
                   <th style={styles.th}>Precio</th>
                   <th style={styles.th}>Stock Actual</th>
                   <th style={styles.th}>Stock Mínimo</th>
+                  <th style={styles.th}>Estado</th>
                 </tr>
               </thead>
               <tbody>
-                {productosAgotados.map((p) => (
-                  <tr key={p.id} style={{ ...styles.tr, backgroundColor: '#fff0f0' }}>
-                    <td style={styles.td}>{p.barcode || p.id}</td>
-                    <td style={styles.td}>{p.nombre}</td>
-                    <td style={styles.td}>${Number(p.precio).toLocaleString()}</td>
-                    <td style={{ ...styles.td, color: 'red', fontWeight: 'bold' }}>
-                      {p.stock}
-                    </td>
-                    <td style={styles.td}>{p.min_stock || 5}</td>
-                  </tr>
-                ))}
+                {productosAgotados.map((p) => {
+                  const esAgotado = Number(p.stock) === 0;
+                  return (
+                    <tr
+                      key={p.id}
+                      style={{
+                        ...styles.tr,
+                        backgroundColor: esAgotado ? '#fef2f2' : '#fffbeb'
+                      }}
+                    >
+                      <td style={styles.td}><b>{p.barcode || p.id}</b></td>
+                      <td style={styles.td}>{p.nombre}</td>
+                      <td style={styles.td}>${Number(p.precio).toLocaleString()}</td>
+                      <td
+                        style={{
+                          ...styles.td,
+                          color: esAgotado ? '#dc2626' : '#d97706',
+                          fontWeight: 'bold',
+                          fontSize: '15px'
+                        }}
+                      >
+                        {p.stock}
+                      </td>
+                      <td style={styles.td}>{p.min_stock || 5}</td>
+                      <td style={styles.td}>
+                        <span
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            backgroundColor: esAgotado ? '#fee2e2' : '#fef3c7',
+                            color: esAgotado ? '#991b1b' : '#92400e',
+                            border: `1px solid ${esAgotado ? '#fca5a5' : '#fcd34d'}`
+                          }}
+                        >
+                          {esAgotado ? '🔴 Agotado' : '🟠 Crítico'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
