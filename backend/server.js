@@ -46,12 +46,13 @@ db.serialize(() => {
     )
   `);
 
-  // Tabla de Ventas
+  // Tabla de Ventas (Con columna para Medio de Pago)
   db.run(`
     CREATE TABLE IF NOT EXISTS ventas (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       total REAL,
       usuario_id INTEGER,
+      medio_pago TEXT,
       fecha DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -138,7 +139,7 @@ app.delete('/api/usuarios/:id', (req, res) => {
 
 // --- RUTAS DE PRODUCTOS E INVENTARIO ---
 
-// Obtener lista completa de productos
+// 1. Obtener lista completa de productos
 app.get('/api/productos', (req, res) => {
   db.all('SELECT id, barcode, name AS nombre, sale_price AS precio, stock FROM products', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -146,26 +147,67 @@ app.get('/api/productos', (req, res) => {
   });
 });
 
+// 2. Crear Nuevo Producto en Inventario
+app.post('/api/productos', (req, res) => {
+  const { barcode, nombre, precio, stock } = req.body;
+  const codigoFinal = barcode ? barcode.trim() : Date.now().toString();
+
+  db.run(
+    `INSERT INTO products (barcode, internal_code, name, category, cost_price, sale_price, stock, min_stock)
+     VALUES (?, ?, ?, 'General', 0, ?, ?, 5)`,
+    [codigoFinal, codigoFinal, nombre, Number(precio), Number(stock)],
+    function (err) {
+      if (err) {
+        if (err.message.includes('UNIQUE')) {
+          return res.status(400).json({ error: 'El código de barras ya pertenece a otro producto' });
+        }
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ message: 'Producto creado exitosamente', id: this.lastID });
+    }
+  );
+});
+
+// 3. Modificar Stock y Precio (Entrada de mercancía)
+app.put('/api/productos/:id', (req, res) => {
+  const { id } = req.params;
+  const { stock, precio } = req.body;
+
+  db.run(
+    `UPDATE products SET stock = ?, sale_price = ? WHERE id = ?`,
+    [Number(stock), Number(precio), id],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Producto no encontrado' });
+      res.json({ message: 'Stock y producto actualizados correctamente' });
+    }
+  );
+});
+
 // --- RUTAS DE VENTAS Y REPORTES ---
 
-// Registrar una nueva venta y descontar inventario
+// Registrar una nueva venta, guardar medio de pago y descontar inventario
 app.post('/api/ventas', (req, res) => {
-  const { items, total, usuario_id } = req.body;
+  const { items, total, usuario_id, medio_pago } = req.body;
 
-  db.run('INSERT INTO ventas (total, usuario_id) VALUES (?, ?)', [total, usuario_id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
+  db.run(
+    'INSERT INTO ventas (total, usuario_id, medio_pago) VALUES (?, ?, ?)',
+    [total, usuario_id, medio_pago || 'efectivo'],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
 
-    const ventaId = this.lastID;
+      const ventaId = this.lastID;
 
-    // Descontar la cantidad vendida del stock de cada producto
-    const stmt = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
-    items.forEach((item) => {
-      stmt.run(item.cantidad, item.id);
-    });
-    stmt.finalize();
+      // Descontar la cantidad vendida del stock de cada producto
+      const stmt = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
+      items.forEach((item) => {
+        stmt.run(item.cantidad, item.id);
+      });
+      stmt.finalize();
 
-    res.json({ message: 'Venta registrada con éxito', ventaId });
-  });
+      res.json({ message: 'Venta registrada con éxito', ventaId });
+    }
+  );
 });
 
 // Obtener historial de ventas
