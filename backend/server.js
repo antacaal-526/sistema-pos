@@ -77,7 +77,45 @@ db.serialize(() => {
       estado TEXT DEFAULT 'abierto'
     )
   `);
+
+  // Tabla de Movimientos Contables (Ingresos Extras y Egresos/Gastos)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS egresos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tipo TEXT DEFAULT 'egreso',
+      monto REAL,
+      descripcion TEXT,
+      categoria TEXT DEFAULT 'General',
+      fecha TEXT,
+      usuario_nombre TEXT
+    )
+  `);
+
+  // Tabla de Cierres de Mes Históricos
+  db.run(`
+    CREATE TABLE IF NOT EXISTS cierres_mes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mes_anio TEXT,
+      fecha_cierre TEXT,
+      saldo_mes_anterior REAL DEFAULT 0,
+      total_ventas REAL DEFAULT 0,
+      total_ingresos_extras REAL DEFAULT 0,
+      total_egresos REAL DEFAULT 0,
+      saldo_inventario REAL DEFAULT 0,
+      saldo_caja REAL DEFAULT 0,
+      balance_neto REAL DEFAULT 0,
+      usuario_nombre TEXT
+    )
+  `);
 });
+
+// Función auxiliar para obtener fecha y hora actual de Colombia (Tunja, Boyacá)
+function getFechaHoraColombia() {
+  const ahora = new Date();
+  const fecha = ahora.toLocaleDateString('es-CO', { timeZone: 'America/Bogota' });
+  const hora = ahora.toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  return `${fecha} ${hora}`;
+}
 
 // --- RUTAS DE AUTENTICACIÓN ---
 app.post('/api/login', (req, res) => {
@@ -243,7 +281,7 @@ app.delete('/api/ventas/:id', (req, res) => {
   });
 });
 
-// --- RUTAS DE GESTIÓN DE TURNOS Y CIERRES DE CAJA ---
+// --- RUTAS DE TURNOS ---
 app.get('/api/turnos/activo/:usuario_id', (req, res) => {
   const { usuario_id } = req.params;
   db.get(
@@ -258,8 +296,7 @@ app.get('/api/turnos/activo/:usuario_id', (req, res) => {
 
 app.post('/api/turnos/abrir', (req, res) => {
   const { usuario_id, nombre_cajero, base_inicial } = req.body;
-  const ahora = new Date();
-  const fechaInicio = `${ahora.toLocaleDateString('es-CO')} ${ahora.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}`;
+  const fechaInicio = getFechaHoraColombia();
 
   db.run(
     `INSERT INTO turnos (usuario_id, nombre_cajero, base_inicial, fecha_inicio, estado)
@@ -284,8 +321,7 @@ app.post('/api/turnos/abrir', (req, res) => {
 
 app.post('/api/turnos/cerrar', (req, res) => {
   const { turno_id } = req.body;
-  const ahora = new Date();
-  const fechaCierre = `${ahora.toLocaleDateString('es-CO')} ${ahora.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}`;
+  const fechaCierre = getFechaHoraColombia();
 
   db.get('SELECT * FROM turnos WHERE id = ?', [turno_id], (err, turno) => {
     if (err || !turno) return res.status(404).json({ error: 'Turno no encontrado' });
@@ -362,7 +398,6 @@ app.post('/api/turnos/cerrar', (req, res) => {
   });
 });
 
-// Endpoint para consultar el reporte individual de cualquier turno registrado
 app.get('/api/turnos/:id/reporte', (req, res) => {
   const { id } = req.params;
   db.get('SELECT * FROM turnos WHERE id = ?', [id], (err, turno) => {
@@ -434,6 +469,187 @@ app.get('/api/turnos/:id/reporte', (req, res) => {
 
 app.get('/api/turnos', (req, res) => {
   db.all('SELECT * FROM turnos ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// --- RUTAS DE CONTABILIDAD, INGRESOS Y EGRESOS ---
+
+// Obtenemos los movimientos extras
+app.get('/api/egresos', (req, res) => {
+  db.all('SELECT * FROM egresos ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/egresos', (req, res) => {
+  const { tipo, monto, descripcion, categoria, usuario_nombre } = req.body;
+  const fechaColombia = getFechaHoraColombia();
+
+  db.run(
+    `INSERT INTO egresos (tipo, monto, descripcion, categoria, fecha, usuario_nombre)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [tipo || 'egreso', Number(monto), descripcion, categoria || 'General', fechaColombia, usuario_nombre || 'Admin'],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Movimiento registrado con éxito', id: this.lastID });
+    }
+  );
+});
+
+app.delete('/api/egresos/:id', (req, res) => {
+  const { id } = req.params;
+  db.run('DELETE FROM egresos WHERE id = ?', [id], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Movimiento eliminado correctamente' });
+  });
+});
+
+// Resumen general de Contabilidad
+app.get('/api/contabilidad/resumen', (req, res) => {
+  // 1. Obtener ventas totales
+  db.all('SELECT total, medio_pago FROM ventas', [], (errVentas, rowsVentas) => {
+    if (errVentas) return res.status(500).json({ error: errVentas.message });
+
+    let totalVentas = 0;
+    let totalEfectivoVentas = 0;
+    (rowsVentas || []).forEach((v) => {
+      totalVentas += Number(v.total) || 0;
+      if (!v.medio_pago || !v.medio_pago.toLowerCase().includes('transferencia')) {
+        totalEfectivoVentas += Number(v.total) || 0;
+      }
+    });
+
+    // 2. Obtener valor total del inventario actual
+    db.all('SELECT sale_price AS precio, stock FROM products', [], (errProd, rowsProducts) => {
+      if (errProd) return res.status(500).json({ error: errProd.message });
+
+      let saldoInventarioActual = 0;
+      (rowsProducts || []).forEach((p) => {
+        saldoInventarioActual += (Number(p.precio) || 0) * (Number(p.stock) || 0);
+      });
+
+      // 3. Obtener egresos e ingresos extras
+      db.all('SELECT tipo, monto FROM egresos', [], (errEg, rowsEgresos) => {
+        if (errEg) return res.status(500).json({ error: errEg.message });
+
+        let totalIngresosExtras = 0;
+        let totalEgresos = 0;
+        (rowsEgresos || []).forEach((e) => {
+          if (e.tipo === 'ingreso') {
+            totalIngresosExtras += Number(e.monto) || 0;
+          } else {
+            totalEgresos += Number(e.monto) || 0;
+          }
+        });
+
+        // 4. Obtener el saldo del mes anterior (último cierre de mes)
+        db.get('SELECT balance_neto FROM cierres_mes ORDER BY id DESC LIMIT 1', [], (errCierre, ultimoCierre) => {
+          const saldoMesAnterior = ultimoCierre ? Number(ultimoCierre.balance_neto) || 0 : 0;
+
+          // 5. Calcular saldo de caja disponible (Ventas Efectivo + Ingresos Extras - Egresos)
+          const saldoCaja = totalEfectivoVentas + totalIngresosExtras - totalEgresos;
+
+          // Balance Neto
+          const balanceNeto = saldoMesAnterior + totalVentas + totalIngresosExtras - totalEgresos;
+
+          res.json({
+            saldoMesAnterior,
+            saldoInventarioActual,
+            totalVentas,
+            totalIngresosExtras,
+            totalIngresos: totalVentas + totalIngresosExtras,
+            totalEgresos,
+            saldoCaja,
+            balanceNeto,
+            fechaColombia: getFechaHoraColombia()
+          });
+        });
+      });
+    });
+  });
+});
+
+// Ejecutar Cierre de Mes
+app.post('/api/contabilidad/cerrar-mes', (req, res) => {
+  const { usuario_nombre } = req.body;
+  const fechaColombia = getFechaHoraColombia();
+  
+  // Nombre del mes y año en formato es-CO (ej. "Agosto 2026")
+  const fechaObj = new Date();
+  const mesNombre = fechaObj.toLocaleString('es-CO', { month: 'long', timeZone: 'America/Bogota' });
+  const anio = fechaObj.getFullYear();
+  const mesAnioTag = `${mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1)} ${anio}`;
+
+  // Obtener balance consolidado actual
+  db.all('SELECT total, medio_pago FROM ventas', [], (errVentas, rowsVentas) => {
+    let totalVentas = 0;
+    let totalEfectivoVentas = 0;
+    (rowsVentas || []).forEach((v) => {
+      totalVentas += Number(v.total) || 0;
+      if (!v.medio_pago || !v.medio_pago.toLowerCase().includes('transferencia')) {
+        totalEfectivoVentas += Number(v.total) || 0;
+      }
+    });
+
+    db.all('SELECT sale_price AS precio, stock FROM products', [], (errProd, rowsProducts) => {
+      let saldoInventario = 0;
+      (rowsProducts || []).forEach((p) => {
+        saldoInventario += (Number(p.precio) || 0) * (Number(p.stock) || 0);
+      });
+
+      db.all('SELECT tipo, monto FROM egresos', [], (errEg, rowsEgresos) => {
+        let totalIngresosExtras = 0;
+        let totalEgresos = 0;
+        (rowsEgresos || []).forEach((e) => {
+          if (e.tipo === 'ingreso') {
+            totalIngresosExtras += Number(e.monto) || 0;
+          } else {
+            totalEgresos += Number(e.monto) || 0;
+          }
+        });
+
+        db.get('SELECT balance_neto FROM cierres_mes ORDER BY id DESC LIMIT 1', [], (errCierre, ultimoCierre) => {
+          const saldoMesAnterior = ultimoCierre ? Number(ultimoCierre.balance_neto) || 0 : 0;
+          const saldoCaja = totalEfectivoVentas + totalIngresosExtras - totalEgresos;
+          const balanceNeto = saldoMesAnterior + totalVentas + totalIngresosExtras - totalEgresos;
+
+          db.run(
+            `INSERT INTO cierres_mes 
+            (mes_anio, fecha_cierre, saldo_mes_anterior, total_ventas, total_ingresos_extras, total_egresos, saldo_inventario, saldo_caja, balance_neto, usuario_nombre)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [mesAnioTag, fechaColombia, saldoMesAnterior, totalVentas, totalIngresosExtras, totalEgresos, saldoInventario, saldoCaja, balanceNeto, usuario_nombre || 'Administrador'],
+            function (errInsert) {
+              if (errInsert) return res.status(500).json({ error: errInsert.message });
+              res.json({
+                message: `Cierre de mes (${mesAnioTag}) ejecutado exitosamente`,
+                cierre: {
+                  id: this.lastID,
+                  mes_anio: mesAnioTag,
+                  fecha_cierre: fechaColombia,
+                  saldo_mes_anterior: saldoMesAnterior,
+                  total_ventas: totalVentas,
+                  total_ingresos_extras: totalIngresosExtras,
+                  total_egresos: totalEgresos,
+                  saldo_inventario: saldoInventario,
+                  saldo_caja: saldoCaja,
+                  balance_neto: balanceNeto,
+                  usuario_nombre: usuario_nombre || 'Administrador'
+                }
+              });
+            }
+          );
+        });
+      });
+    });
+  });
+});
+
+// Obtener cierres de mes para reportes
+app.get('/api/contabilidad/cierres-mes', (req, res) => {
+  db.all('SELECT * FROM cierres_mes ORDER BY id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });

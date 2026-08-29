@@ -60,6 +60,28 @@ export default function App() {
 
   const [ventas, setVentas] = useState([]);
 
+  // ESTADOS DE CONTABILIDAD
+  const [resumenContabilidad, setResumenContabilidad] = useState({
+    saldoMesAnterior: 0,
+    saldoInventarioActual: 0,
+    totalVentas: 0,
+    totalIngresosExtras: 0,
+    totalIngresos: 0,
+    totalEgresos: 0,
+    saldoCaja: 0,
+    balanceNeto: 0,
+    fechaColombia: ''
+  });
+  const [listaEgresos, setListaEgresos] = useState([]);
+  const [nuevoMovimiento, setNuevoMovimiento] = useState({
+    tipo: 'egreso',
+    monto: '',
+    descripcion: '',
+    categoria: 'Servicios/Varios'
+  });
+  const [cierresMes, setCierresMes] = useState([]);
+  const [modalReporteMes, setModalReporteMes] = useState(null);
+
   // Bloqueo de navegación según el rol
   useEffect(() => {
     if (usuarioLogueado && usuarioLogueado.rol !== 'admin' && vistaActual !== 'caja') {
@@ -75,18 +97,20 @@ export default function App() {
       cargarVentas();
       consultarTurnoActivo();
       cargarHistorialTurnos();
+      cargarContabilidad();
+      cargarCierresMes();
     }
   }, [usuarioLogueado]);
 
-  // Disparar vista previa / guardado de PDF automáticamente al abrir modal de resumen
+  // Disparar vista previa / guardado de PDF automáticamente al abrir modal de resumen de turno
   useEffect(() => {
-    if (modalResumenTurno) {
+    if (modalResumenTurno || modalReporteMes) {
       const timer = setTimeout(() => {
         window.print();
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [modalResumenTurno]);
+  }, [modalResumenTurno, modalReporteMes]);
 
   // Autenticación
   const handleLogin = async (e) => {
@@ -115,6 +139,106 @@ export default function App() {
     setUsuarioLogueado(null);
     setTurnoActivo(null);
     localStorage.removeItem('usuario_pos');
+  };
+
+  // CONSULTAS DE CONTABILIDAD
+  const cargarContabilidad = async () => {
+    try {
+      const resResumen = await fetch(`${API_URL}/contabilidad/resumen`);
+      if (resResumen.ok) {
+        const data = await resResumen.json();
+        setResumenContabilidad(data);
+      }
+
+      const resEgresos = await fetch(`${API_URL}/egresos`);
+      if (resEgresos.ok) {
+        const dataE = await resEgresos.json();
+        setListaEgresos(dataE);
+      }
+    } catch (err) {
+      console.error('Error cargando contabilidad:', err);
+    }
+  };
+
+  const cargarCierresMes = async () => {
+    try {
+      const res = await fetch(`${API_URL}/contabilidad/cierres-mes`);
+      if (res.ok) {
+        const data = await res.json();
+        setCierresMes(data);
+      }
+    } catch (err) {
+      console.error('Error cargando cierres de mes:', err);
+    }
+  };
+
+  const handleCrearMovimiento = async (e) => {
+    e.preventDefault();
+    if (!nuevoMovimiento.monto || Number(nuevoMovimiento.monto) <= 0) {
+      return alert('Ingrese un monto válido');
+    }
+    try {
+      const res = await fetch(`${API_URL}/egresos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...nuevoMovimiento,
+          usuario_nombre: usuarioLogueado.nombre
+        })
+      });
+      if (res.ok) {
+        alert(`¡${nuevoMovimiento.tipo === 'ingreso' ? 'Ingreso Extra' : 'Egreso/Gasto'} registrado exitosamente!`);
+        setNuevoMovimiento({
+          tipo: 'egreso',
+          monto: '',
+          descripcion: '',
+          categoria: 'Servicios/Varios'
+        });
+        cargarContabilidad();
+      } else {
+        alert('Error registrando movimiento');
+      }
+    } catch (err) {
+      alert('Error de red al guardar movimiento');
+    }
+  };
+
+  const handleEliminarMovimiento = async (id) => {
+    if (window.confirm('¿Estás seguro de eliminar este registro contable?')) {
+      try {
+        const res = await fetch(`${API_URL}/egresos/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          cargarContabilidad();
+        }
+      } catch (err) {
+        alert('Error al eliminar registro');
+      }
+    }
+  };
+
+  const handleEjecutarCierreMes = async () => {
+    if (!window.confirm(`¿Confirmas el Cierre de Mes para Tunja, Colombia? Esta acción consolidará todos los Saldos, Egresos e Inventario.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/contabilidad/cerrar-mes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario_nombre: usuarioLogueado.nombre })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        setModalReporteMes(data.cierre);
+        cargarCierresMes();
+        cargarContabilidad();
+      } else {
+        alert(data.error || 'Error ejecutando Cierre de Mes');
+      }
+    } catch (err) {
+      alert('Error de conexión al cerrar mes');
+    }
   };
 
   // CONSULTAS Y FUNCIONES DE TURNO
@@ -187,6 +311,7 @@ export default function App() {
         setModalResumenTurno(data.resumen);
         setTurnoActivo(null);
         cargarHistorialTurnos();
+        cargarContabilidad();
       } else {
         alert(data.error || 'Error al cerrar el turno');
       }
@@ -195,7 +320,6 @@ export default function App() {
     }
   };
 
-  // CONSULTAR E IMPRIMIR REPORTE DE CUALQUIER TURNO DESDE LA TABLA
   const handleImprimirReporteTurno = async (turnoId) => {
     try {
       const res = await fetch(`${API_URL}/turnos/${turnoId}/reporte`);
@@ -271,6 +395,7 @@ export default function App() {
           cargarVentas();
           cargarProductos();
           cargarHistorialTurnos();
+          cargarContabilidad();
         } else {
           alert('Error al eliminar la venta');
         }
@@ -293,6 +418,7 @@ export default function App() {
         alert('¡Producto creado exitosamente!');
         setNuevoProducto({ barcode: '', nombre: '', precio: '', stock: '', min_stock: '5' });
         cargarProductos();
+        cargarContabilidad();
       } else {
         alert(data.error || 'Error al crear producto');
       }
@@ -324,6 +450,7 @@ export default function App() {
         alert(`¡Actualizado! Nuevo Stock Total: ${stockCalculadoFinal}`);
         setEntradas((prev) => ({ ...prev, [id]: '' }));
         cargarProductos();
+        cargarContabilidad();
       } else {
         alert('Error al actualizar el producto');
       }
@@ -423,8 +550,9 @@ export default function App() {
 
       if (res.ok) {
         const ahora = new Date();
-        const fechaFormateada = ahora.toLocaleDateString('es-CO');
+        const fechaFormateada = ahora.toLocaleDateString('es-CO', { timeZone: 'America/Bogota' });
         const horaFormateada = ahora.toLocaleTimeString('es-CO', {
+          timeZone: 'America/Bogota',
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit',
@@ -454,6 +582,7 @@ export default function App() {
         setMedioPago('efectivo');
         cargarProductos();
         cargarVentas();
+        cargarContabilidad();
       } else {
         alert('Error al procesar la venta');
       }
@@ -602,6 +731,15 @@ export default function App() {
                 ⚠️ Agotados ({productosAgotados.length})
               </button>
               <button
+                style={vistaActual === 'contabilidad' ? styles.navBtnActive : styles.navBtn}
+                onClick={() => {
+                  cargarContabilidad();
+                  setVistaActual('contabilidad');
+                }}
+              >
+                📈 Contabilidad
+              </button>
+              <button
                 style={vistaActual === 'empleados' ? styles.navBtnActive : styles.navBtn}
                 onClick={() => setVistaActual('empleados')}
               >
@@ -609,7 +747,10 @@ export default function App() {
               </button>
               <button
                 style={vistaActual === 'reportes' ? styles.navBtnActive : styles.navBtn}
-                onClick={() => setVistaActual('reportes')}
+                onClick={() => {
+                  cargarCierresMes();
+                  setVistaActual('reportes');
+                }}
               >
                 📊 Reportes
               </button>
@@ -1102,7 +1243,186 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 4: EMPLEADOS */}
+        {/* VISTA 4: CONTABILIDAD (NUEVA INTERFAZ COMPLETA) */}
+        {vistaActual === 'contabilidad' && usuarioLogueado.rol === 'admin' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h2>📈 Módulo Financiero y Contabilidad</h2>
+                <small style={{ color: '#64748b' }}>📍 Ubicación: Tunja, Boyacá | {resumenContabilidad.fechaColombia || 'Colombia'}</small>
+              </div>
+              <button onClick={handleEjecutarCierreMes} style={styles.btnCierreMesAction}>
+                🔒 REALIZAR CIERRE DE MES
+              </button>
+            </div>
+
+            {/* TARJETAS DE INDICADORES CLAVE (KPIs) */}
+            <div style={styles.kpiGrid}>
+              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #6366f1' }}>
+                <span style={styles.kpiLabel}>💼 Saldo Mes Anterior</span>
+                <h3 style={styles.kpiValue}>${resumenContabilidad.saldoMesAnterior.toLocaleString()}</h3>
+              </div>
+
+              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #0284c7' }}>
+                <span style={styles.kpiLabel}>📦 Valor Inventario Actual</span>
+                <h3 style={styles.kpiValue}>${resumenContabilidad.saldoInventarioActual.toLocaleString()}</h3>
+              </div>
+
+              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #16a34a' }}>
+                <span style={styles.kpiLabel}>💵 Saldo de Caja (Efectivo/General)</span>
+                <h3 style={{ ...styles.kpiValue, color: '#16a34a' }}>
+                  ${resumenContabilidad.saldoCaja.toLocaleString()}
+                </h3>
+              </div>
+
+              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #2563eb' }}>
+                <span style={styles.kpiLabel}>📈 Total Ingresos (Ventas + Extras)</span>
+                <h3 style={{ ...styles.kpiValue, color: '#2563eb' }}>
+                  ${resumenContabilidad.totalIngresos.toLocaleString()}
+                </h3>
+                <small style={{ fontSize: '11px', color: '#64748b' }}>
+                  (Ventas: ${resumenContabilidad.totalVentas.toLocaleString()} | Extras: ${resumenContabilidad.totalIngresosExtras.toLocaleString()})
+                </small>
+              </div>
+
+              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #dc2626' }}>
+                <span style={styles.kpiLabel}>📉 Total Egresos / Gastos</span>
+                <h3 style={{ ...styles.kpiValue, color: '#dc2626' }}>
+                  ${resumenContabilidad.totalEgresos.toLocaleString()}
+                </h3>
+              </div>
+
+              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #059669', backgroundColor: '#ecfdf5' }}>
+                <span style={styles.kpiLabel}>⚖️ Balance Neto Consolidado</span>
+                <h3 style={{ ...styles.kpiValue, color: '#047857' }}>
+                  ${resumenContabilidad.balanceNeto.toLocaleString()}
+                </h3>
+              </div>
+            </div>
+
+            {/* FORMULARIO DE REGISTRO DE INGRESOS Y EGRESOS */}
+            <form onSubmit={handleCrearMovimiento} style={styles.formInline}>
+              <h3>➕ Registrar Ingreso Extra o Egreso / Gasto</h3>
+              <div style={styles.formRow}>
+                <div>
+                  <label style={styles.labelSmall}>Tipo de Movimiento:</label>
+                  <select
+                    value={nuevoMovimiento.tipo}
+                    onChange={(e) => setNuevoMovimiento({ ...nuevoMovimiento, tipo: e.target.value })}
+                    style={styles.input}
+                  >
+                    <option value="egreso">📉 Egreso / Gasto (Salida de Dinero)</option>
+                    <option value="ingreso">📈 Ingreso Extra (Entrada de Dinero)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={styles.labelSmall}>Monto ($):*</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="Ej. 50000"
+                    value={nuevoMovimiento.monto}
+                    onChange={(e) => setNuevoMovimiento({ ...nuevoMovimiento, monto: e.target.value })}
+                    style={styles.input}
+                  />
+                </div>
+                <div>
+                  <label style={styles.labelSmall}>Categoría:</label>
+                  <select
+                    value={nuevoMovimiento.categoria}
+                    onChange={(e) => setNuevoMovimiento({ ...nuevoMovimiento, categoria: e.target.value })}
+                    style={styles.input}
+                  >
+                    <option value="Servicios/Varios">Servicios / Arriendo / Varios</option>
+                    <option value="Proveedores">Pago a Proveedores / Mercancía</option>
+                    <option value="Nomina">Nómina / Salarios</option>
+                    <option value="Inversion">Inversión / Equipos</option>
+                    <option value="Otros">Otros Ingresos / Aportes</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={styles.labelSmall}>Descripción / Detalle:*</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. Pago servicio de luz local"
+                    value={nuevoMovimiento.descripcion}
+                    onChange={(e) => setNuevoMovimiento({ ...nuevoMovimiento, descripcion: e.target.value })}
+                    style={styles.input}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <button type="submit" style={nuevoMovimiento.tipo === 'ingreso' ? styles.btnSuccess : styles.btnPrimary}>
+                    💾 Guardar
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {/* HISTORIAL DE MOVIMIENTOS FINANCIEROS */}
+            <h3>📄 Historial de Ingresos Extras y Egresos</h3>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>ID</th>
+                  <th style={styles.th}>Fecha y Hora</th>
+                  <th style={styles.th}>Tipo</th>
+                  <th style={styles.th}>Categoría</th>
+                  <th style={styles.th}>Descripción</th>
+                  <th style={styles.th}>Registrado por</th>
+                  <th style={styles.th}>Monto ($)</th>
+                  <th style={styles.th}>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listaEgresos.map((m) => {
+                  const esIngreso = m.tipo === 'ingreso';
+                  return (
+                    <tr key={m.id} style={styles.tr}>
+                      <td style={styles.td}><b>#{m.id}</b></td>
+                      <td style={styles.td}>{m.fecha}</td>
+                      <td style={styles.td}>
+                        <span
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontWeight: 'bold',
+                            backgroundColor: esIngreso ? '#dcfce7' : '#fee2e2',
+                            color: esIngreso ? '#15803d' : '#b91c1c'
+                          }}
+                        >
+                          {esIngreso ? '📈 Ingreso Extra' : '📉 Egreso'}
+                        </span>
+                      </td>
+                      <td style={styles.td}>{m.categoria || 'General'}</td>
+                      <td style={styles.td}>{m.descripcion}</td>
+                      <td style={styles.td}>{m.usuario_nombre || 'Admin'}</td>
+                      <td
+                        style={{
+                          ...styles.td,
+                          fontWeight: 'bold',
+                          color: esIngreso ? '#16a34a' : '#dc2626'
+                        }}
+                      >
+                        {esIngreso ? '+' : '-'}${Number(m.monto).toLocaleString()}
+                      </td>
+                      <td style={styles.td}>
+                        <button
+                          onClick={() => handleEliminarMovimiento(m.id)}
+                          style={styles.btnDangerTable}
+                        >
+                          🗑️
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* VISTA 5: EMPLEADOS */}
         {vistaActual === 'empleados' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>👥 Gestión de Empleados y Administradores</h2>
@@ -1192,10 +1512,62 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 5: REPORTES */}
+        {/* VISTA 6: REPORTES (INCLUYE HISTORIAL DE CIERRES DE MES Y TURNOS) */}
         {vistaActual === 'reportes' && usuarioLogueado.rol === 'admin' && (
           <div>
-            <h2>📊 Reportes de Cierre de Turnos y Ventas</h2>
+            <h2>📊 Reportes de Cierre de Turnos, Cierres de Mes y Ventas</h2>
+
+            {/* SECCIÓN DE CIERRES DE MES HISTÓRICOS */}
+            <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '30px' }}>
+              <h3 style={{ margin: '0 0 15px 0', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📅 Historial de Cierres de Mes Consolidados
+              </h3>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Periodo / Mes</th>
+                    <th style={styles.th}>Fecha de Cierre</th>
+                    <th style={styles.th}>Saldo Mes Anterior</th>
+                    <th style={styles.th}>Ventas Totales</th>
+                    <th style={styles.th}>Total Egresos</th>
+                    <th style={styles.th}>Saldo Inventario</th>
+                    <th style={styles.th}>Saldo Caja</th>
+                    <th style={styles.th}>Balance Neto</th>
+                    <th style={styles.th}>Realizado Por</th>
+                    <th style={styles.th}>Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cierresMes.map((c) => (
+                    <tr key={c.id} style={styles.tr}>
+                      <td style={{ ...styles.td, fontWeight: 'bold', color: '#2563eb' }}>{c.mes_anio}</td>
+                      <td style={styles.td}>{c.fecha_cierre}</td>
+                      <td style={styles.td}>${Number(c.saldo_mes_anterior || 0).toLocaleString()}</td>
+                      <td style={{ ...styles.td, color: '#16a34a', fontWeight: 'bold' }}>
+                        ${Number(c.total_ventas || 0).toLocaleString()}
+                      </td>
+                      <td style={{ ...styles.td, color: '#dc2626' }}>
+                        ${Number(c.total_egresos || 0).toLocaleString()}
+                      </td>
+                      <td style={styles.td}>${Number(c.saldo_inventario || 0).toLocaleString()}</td>
+                      <td style={styles.td}>${Number(c.saldo_caja || 0).toLocaleString()}</td>
+                      <td style={{ ...styles.td, fontWeight: 'bold', color: '#047857' }}>
+                        ${Number(c.balance_neto || 0).toLocaleString()}
+                      </td>
+                      <td style={styles.td}>{c.usuario_nombre}</td>
+                      <td style={styles.td}>
+                        <button
+                          onClick={() => setModalReporteMes(c)}
+                          style={styles.btnSaveInline}
+                        >
+                          📄 Reporte PDF
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             <h3>🔒 Arqueos y Cierres de Caja por Turno</h3>
             <table style={styles.table}>
@@ -1324,6 +1696,58 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* MODAL / REPORT DE CIERRE DE MES HISTÓRICO EN PDF */}
+      {modalReporteMes && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalResumenBox}>
+            <div style={{ textAlign: 'center', marginBottom: '15px' }}>
+              <h2 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>🌿 TERRA FRUTOS SECOS</h2>
+              <h3 style={{ margin: 0, color: '#047857' }}>REPORTE CONTABLE DE CIERRE DE MES</h3>
+              <small style={{ color: '#64748b' }}>NIT: 40044029-8 | TUNJA, BOYACÁ, COLOMBIA</small>
+            </div>
+
+            <div style={{ fontSize: '13px', lineHeight: '1.6' }}>
+              <div style={styles.ticketFlexRow}>
+                <b>Periodo / Mes: {modalReporteMes.mes_anio}</b>
+                <span><b>Generado por:</b> {modalReporteMes.usuario_nombre}</span>
+              </div>
+              <div style={styles.ticketFlexRow}>
+                <span><b>Fecha Cierre:</b> {modalReporteMes.fecha_cierre}</span>
+              </div>
+
+              <hr style={{ margin: '10px 0' }} />
+
+              <h4 style={{ margin: '5px 0', color: '#0f172a' }}>📊 DETALLE FINANCIERO CONSOLIDADO:</h4>
+              <p style={{ margin: '3px 0' }}>Saldo Mes Anterior: <b>${Number(modalReporteMes.saldo_mes_anterior).toLocaleString()}</b></p>
+              <p style={{ margin: '3px 0' }}>Ventas Totales del Mes: <b style={{ color: '#16a34a' }}>+${Number(modalReporteMes.total_ventas).toLocaleString()}</b></p>
+              <p style={{ margin: '3px 0' }}>Ingresos Extras: <b style={{ color: '#2563eb' }}>+${Number(modalReporteMes.total_ingresos_extras || 0).toLocaleString()}</b></p>
+              <p style={{ margin: '3px 0' }}>Egresos y Gastos Totales: <b style={{ color: '#dc2626' }}>-${Number(modalReporteMes.total_egresos).toLocaleString()}</b></p>
+
+              <hr style={{ margin: '10px 0' }} />
+
+              <p style={{ margin: '3px 0' }}>Valor del Inventario en Cierre: <b>${Number(modalReporteMes.saldo_inventario).toLocaleString()}</b></p>
+              <p style={{ margin: '3px 0' }}>Saldo en Caja (Efectivo/Disponible): <b>${Number(modalReporteMes.saldo_caja).toLocaleString()}</b></p>
+
+              <div style={styles.boxEfectivoEsperado}>
+                <span>⚖️ BALANCE NETO CONSOLIDADO:</span>
+                <h3 style={{ margin: '4px 0', color: '#047857' }}>
+                  ${Number(modalReporteMes.balance_neto).toLocaleString()}
+                </h3>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }} className="no-print">
+              <button onClick={() => window.print()} style={styles.btnPrimary}>
+                📄 Imprimir / Guardar PDF
+              </button>
+              <button onClick={() => setModalReporteMes(null)} style={styles.btnDanger}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL RESUMEN DE CIERRE DE TURNO */}
       {modalResumenTurno && (
@@ -1558,12 +1982,14 @@ const styles = {
   infoTransfer: { backgroundColor: '#dcfce7', color: '#15803d', padding: '10px', borderRadius: '6px', textAlign: 'center', fontSize: '14px', fontWeight: 'bold', margin: '12px 0' },
   labelSmall: { fontSize: '12px', fontWeight: 'bold', color: '#475569', display: 'block', marginBottom: '4px' },
   btnPrimary: { width: '100%', padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
+  btnSuccess: { width: '100%', padding: '10px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
   btnSecondaryAction: { flex: 1, padding: '12px', backgroundColor: '#475569', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' },
   btnPrimaryAction: { flex: 1.2, padding: '12px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' },
   btnDanger: { width: '100%', padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
   btnDangerTable: { backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' },
   btnSaveInline: { backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold' },
   btnDeleteCart: { backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '24px', height: '24px', fontWeight: 'bold' },
+  btnCierreMesAction: { backgroundColor: '#047857', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', boxShadow: '0 2px 6px rgba(0,0,0,0.15)' },
   posGrid: { display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: '20px' },
   posSection: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px' },
   cartSection: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
@@ -1581,8 +2007,12 @@ const styles = {
   td: { padding: '12px', borderBottom: '1px solid #e2e8f0' },
   tr: { borderBottom: '1px solid #e2e8f0' },
   formInline: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '20px' },
-  formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
+  formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1.5fr auto', gap: '10px', marginTop: '10px' },
   formRowProduct: { display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
+  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '25px' },
+  kpiCard: { backgroundColor: '#fff', padding: '15px 18px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' },
+  kpiLabel: { fontSize: '12px', fontWeight: 'bold', color: '#64748b' },
+  kpiValue: { fontSize: '20px', fontWeight: 'bold', margin: '6px 0 2px 0' },
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
   ticketBox: { backgroundColor: '#fff', width: '320px', maxHeight: '85vh', overflowY: 'auto', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)', boxSizing: 'border-box' },
   stickyModalFooter: { display: 'flex', gap: '10px', marginTop: '15px', position: 'sticky', bottom: 0, backgroundColor: '#fff', paddingTop: '10px', borderTop: '1px solid #eee' },
