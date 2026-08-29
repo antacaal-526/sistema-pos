@@ -11,14 +11,21 @@ export default function App() {
 
   const [vistaActual, setVistaActual] = useState('caja');
 
-  // Formulario de inicio de sesión
+  // Formulario de login
   const [loginInput, setLoginInput] = useState({ usuario: '', password: '' });
   const [loginError, setLoginError] = useState('');
 
   // Estados de inventario y caja
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
+  const [cantidadAñadir, setCantidadAñadir] = useState(1);
   const [carrito, setCarrito] = useState([]);
+
+  // Control de Efectivo y Cambio
+  const [pagaCon, setPagaCon] = useState('');
+
+  // Modal de Factura POS DIAN
+  const [facturaData, setFacturaData] = useState(null);
 
   // Estados de gestión de usuarios (Empleados)
   const [empleados, setEmpleados] = useState([]);
@@ -32,7 +39,7 @@ export default function App() {
   // Estado de reportes
   const [ventas, setVentas] = useState([]);
 
-  // Bloqueo de seguridad: Si el rol es 'cajero', forzar que solo acceda a 'caja'
+  // Bloqueo de navegación según el rol
   useEffect(() => {
     if (usuarioLogueado && usuarioLogueado.rol !== 'admin' && vistaActual !== 'caja') {
       setVistaActual('caja');
@@ -113,7 +120,110 @@ export default function App() {
     }
   };
 
-  // Crear Usuario / Empleado
+  // BÚSQUEDA Y AGREGAR POR CÓDIGO O NOMBRE
+  const agregarAlCarrito = (producto, cant = 1) => {
+    const cantidadAgregar = Math.max(1, Number(cant));
+    setCarrito((prev) => {
+      const existe = prev.find((item) => item.id === producto.id);
+      if (existe) {
+        return prev.map((item) =>
+          item.id === producto.id
+            ? { ...item, cantidad: item.cantidad + cantidadAgregar }
+            : item
+        );
+      }
+      return [...prev, { ...producto, cantidad: cantidadAgregar }];
+    });
+  };
+
+  // Permite presionar 'Enter' en el buscador para añadir código de barras directo
+  const handleKeyDownBusqueda = (e) => {
+    if (e.key === 'Enter' && busqueda.trim() !== '') {
+      e.preventDefault();
+      const productoEncontrado = productos.find(
+        (p) =>
+          (p.barcode && p.barcode.toString().toLowerCase() === busqueda.trim().toLowerCase()) ||
+          p.nombre.toLowerCase().includes(busqueda.trim().toLowerCase())
+      );
+
+      if (productoEncontrado && productoEncontrado.stock > 0) {
+        agregarAlCarrito(productoEncontrado, cantidadAñadir);
+        setBusqueda('');
+        setCantidadAñadir(1);
+      } else {
+        alert('Producto no encontrado o sin stock');
+      }
+    }
+  };
+
+  // Modificar cantidad directamente desde la lista de carrito
+  const actualizarCantidadCarrito = (id, nuevaCantidad) => {
+    const cantNum = Number(nuevaCantidad);
+    setCarrito((prev) =>
+      prev
+        .map((item) => {
+          if (item.id === id) {
+            return cantNum > 0 ? { ...item, cantidad: cantNum } : null;
+          }
+          return item;
+        })
+        .filter(Boolean)
+    );
+  };
+
+  const totalCarrito = carrito.reduce(
+    (acc, item) => acc + item.precio * item.cantidad,
+    0
+  );
+
+  const cambioCalculado = Math.max(0, (Number(pagaCon) || 0) - totalCarrito);
+
+  // REGISTRAR VENTA Y MOSTRAR FACTURA POS
+  const procesarVenta = async () => {
+    if (carrito.length === 0) return alert('El carrito está vacío');
+    if (Number(pagaCon) < totalCarrito) {
+      return alert('El monto pagado es inferior al total de la venta');
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/ventas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: carrito,
+          total: totalCarrito,
+          usuario_id: usuarioLogueado.id
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        // Generar datos de la factura POS DIAN 2026
+        const nuevaFactura = {
+          id: data.ventaId || Math.floor(100000 + Math.random() * 900000),
+          fecha: new Date().toLocaleString('es-CO'),
+          cajero: usuarioLogueado.nombre,
+          items: [...carrito],
+          total: totalCarrito,
+          pagaCon: Number(pagaCon),
+          cambio: cambioCalculado
+        };
+
+        setFacturaData(nuevaFactura);
+        setCarrito([]);
+        setPagaCon('');
+        cargarProductos();
+        cargarVentas();
+      } else {
+        alert('Error al procesar la venta');
+      }
+    } catch (err) {
+      alert('Error de conexión con el servidor');
+    }
+  };
+
+  // Crear Usuario
   const handleCrearEmpleado = async (e) => {
     e.preventDefault();
     try {
@@ -135,10 +245,10 @@ export default function App() {
     }
   };
 
-  // Eliminar Usuario / Empleado
+  // Eliminar Usuario
   const handleEliminarEmpleado = async (id, nombre) => {
     if (usuarioLogueado?.id === id) {
-      alert('No puedes eliminar tu propia cuenta mientras estés en sesión.');
+      alert('No puedes eliminar tu propia cuenta en sesión.');
       return;
     }
     if (window.confirm(`¿Estás seguro de eliminar el usuario "${nombre}"?`)) {
@@ -158,70 +268,23 @@ export default function App() {
     }
   };
 
-  // Operaciones de Carrito
-  const agregarAlCarrito = (producto) => {
-    setCarrito((prev) => {
-      const existe = prev.find((item) => item.id === producto.id);
-      if (existe) {
-        return prev.map((item) =>
-          item.id === producto.id ? { ...item, cantidad: item.cantidad + 1 } : item
-        );
-      }
-      return [...prev, { ...producto, cantidad: 1 }];
-    });
-  };
+  // FILTRADO DE PRODUCTOS (Por Nombre o por Código)
+  const productosFiltrados = productos.filter((p) => {
+    const termino = busqueda.toLowerCase().trim();
+    const coincideNombre = p.nombre && p.nombre.toLowerCase().includes(termino);
+    const coincideCodigo = p.barcode && p.barcode.toString().toLowerCase().includes(termino);
+    return coincideNombre || coincideCodigo;
+  });
 
-  const cambiarCantidad = (id, delta) => {
-    setCarrito((prev) =>
-      prev
-        .map((item) => {
-          if (item.id === id) {
-            const nuevaCantidad = item.cantidad + delta;
-            return nuevaCantidad > 0 ? { ...item, cantidad: nuevaCantidad } : null;
-          }
-          return item;
-        })
-        .filter(Boolean)
-    );
-  };
+  const productosAgotados = productos.filter((p) => p.stock <= 0);
 
-  const totalCarrito = carrito.reduce(
-    (acc, item) => acc + item.precio * item.cantidad,
-    0
-  );
-
-  const procesarVenta = async () => {
-    if (carrito.length === 0) return alert('El carrito está vacío');
-    try {
-      const res = await fetch(`${API_URL}/ventas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: carrito,
-          total: totalCarrito,
-          usuario_id: usuarioLogueado.id
-        })
-      });
-      if (res.ok) {
-        alert('¡Venta realizada con éxito!');
-        setCarrito([]);
-        cargarProductos();
-        cargarVentas();
-      } else {
-        alert('Error al procesar la venta');
-      }
-    } catch (err) {
-      alert('Error de conexión');
-    }
-  };
-
-  // PANTALLA DE INICIO DE SESIÓN
+  // PANTALLA DE LOGIN
   if (!usuarioLogueado) {
     return (
       <div style={styles.loginContainer}>
         <form onSubmit={handleLogin} style={styles.loginCard}>
           <h2>🌿 Terra Frutos Secos</h2>
-          <p>Iniciar Sesión en el Sistema POS</p>
+          <p>Sistema POS & Inventario</p>
           {loginError && <div style={styles.errorBox}>{loginError}</div>}
           <div style={styles.inputGroup}>
             <label>Usuario:</label>
@@ -255,15 +318,9 @@ export default function App() {
     );
   }
 
-  // FILTROS DE VISTAS
-  const productosFiltrados = productos.filter((p) =>
-    p.nombre?.toLowerCase().includes(busqueda.toLowerCase())
-  );
-  const productosAgotados = productos.filter((p) => p.stock <= 0);
-
   return (
     <div style={styles.appLayout}>
-      {/* NAVEGACIÓN LATERAL CON RESTRICCIÓN DE ROL */}
+      {/* MENÚ LATERAL */}
       <aside style={styles.sidebar}>
         <div style={styles.brand}>
           <h3>🌿 Terra Frutos Secos</h3>
@@ -273,7 +330,6 @@ export default function App() {
         </div>
 
         <nav style={styles.navMenu}>
-          {/* Opción permitida para Empleado/Cajero y Admin */}
           <button
             style={vistaActual === 'caja' ? styles.navBtnActive : styles.navBtn}
             onClick={() => setVistaActual('caja')}
@@ -281,7 +337,6 @@ export default function App() {
             🛒 POS / Caja
           </button>
 
-          {/* Opciones exclusivas para Administrador */}
           {usuarioLogueado.rol === 'admin' && (
             <>
               <button
@@ -317,34 +372,55 @@ export default function App() {
         </button>
       </aside>
 
-      {/* ÁREA DE CONTENIDO */}
+      {/* ÁREA DE TRABAJO */}
       <main style={styles.mainContent}>
-        {/* VISTA 1: POS / CAJA (Cajero y Admin) */}
+        {/* VISTA 1: POS / CAJA */}
         {vistaActual === 'caja' && (
           <div style={styles.posGrid}>
             <div style={styles.posSection}>
-              <div style={styles.headerBox}>
-                <h2>Módulo de Caja</h2>
-                <input
-                  type="text"
-                  placeholder="🔍 Buscar producto por nombre..."
-                  value={busqueda}
-                  onChange={(e) => setBusqueda(e.target.value)}
-                  style={styles.inputSearch}
-                />
+              <h2>Módulo de Caja</h2>
+              
+              {/* BUSCADOR DUAL: CÓDIGO Y NOMBRE + CANTIDAD */}
+              <div style={styles.searchBarBox}>
+                <div style={{ flex: 1 }}>
+                  <label style={styles.labelSmall}>🔍 Buscar por Código o Nombre:</label>
+                  <input
+                    type="text"
+                    placeholder="Escriba código o nombre y presione Enter..."
+                    value={busqueda}
+                    onKeyDown={handleKeyDownBusqueda}
+                    onChange={(e) => setBusqueda(e.target.value)}
+                    style={styles.inputSearch}
+                  />
+                </div>
+                <div style={{ width: '100px' }}>
+                  <label style={styles.labelSmall}>Cantidad:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={cantidadAñadir}
+                    onChange={(e) => setCantidadAñadir(e.target.value)}
+                    style={styles.inputSearch}
+                  />
+                </div>
               </div>
+
+              {/* GRILLA DE PRODUCTOS */}
               <div style={styles.productGrid}>
                 {productosFiltrados.map((p) => (
                   <div
                     key={p.id}
-                    onClick={() => p.stock > 0 && agregarAlCarrito(p)}
+                    onClick={() => p.stock > 0 && agregarAlCarrito(p, cantidadAñadir)}
                     style={{
                       ...styles.productCard,
                       opacity: p.stock <= 0 ? 0.4 : 1,
                       cursor: p.stock <= 0 ? 'not-allowed' : 'pointer'
                     }}
                   >
-                    <h4>{p.nombre}</h4>
+                    <small style={{ color: '#64748b', fontSize: '11px' }}>
+                      Cód: {p.barcode || p.id}
+                    </small>
+                    <h4 style={{ margin: '5px 0' }}>{p.nombre}</h4>
                     <p style={styles.priceTag}>${Number(p.precio).toLocaleString()}</p>
                     <small>Stock: {p.stock}</small>
                   </div>
@@ -352,51 +428,90 @@ export default function App() {
               </div>
             </div>
 
-            {/* Carrito */}
+            {/* CARRITO Y CÁLCULO DE CAMBIO */}
             <div style={styles.cartSection}>
               <h3>🛒 Carrito Actual</h3>
               <div style={styles.cartList}>
                 {carrito.length === 0 ? (
-                  <p style={{ color: '#888', textAlign: 'center', marginTop: '20px' }}>
+                  <p style={{ color: '#888', textAlign: 'center', marginTop: '30px' }}>
                     Sin productos seleccionados
                   </p>
                 ) : (
                   carrito.map((item) => (
                     <div key={item.id} style={styles.cartItem}>
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <b>{item.nombre}</b>
-                        <div>${Number(item.precio).toLocaleString()}</div>
+                        <div style={{ fontSize: '13px', color: '#16a34a' }}>
+                          ${Number(item.precio).toLocaleString()} c/u
+                        </div>
                       </div>
-                      <div style={styles.cartQtyControls}>
-                        <button onClick={() => cambiarCantidad(item.id, -1)}>-</button>
-                        <span>{item.cantidad}</span>
-                        <button onClick={() => cambiarCantidad(item.id, 1)}>+</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.cantidad}
+                          onChange={(e) => actualizarCantidadCarrito(item.id, e.target.value)}
+                          style={styles.qtyInput}
+                        />
+                        <button
+                          onClick={() => actualizarCantidadCarrito(item.id, 0)}
+                          style={styles.btnDeleteCart}
+                        >
+                          ✕
+                        </button>
                       </div>
                     </div>
                   ))
                 )}
               </div>
+
+              {/* SECCIÓN DE PAGO Y DEVUETLA / CAMBIO */}
               <div style={styles.cartFooter}>
-                <h2>Total: ${totalCarrito.toLocaleString()}</h2>
+                <div style={styles.totalRow}>
+                  <span>Total a Pagar:</span>
+                  <span style={{ color: '#2563eb' }}>${totalCarrito.toLocaleString()}</span>
+                </div>
+
+                <div style={{ marginTop: '10px' }}>
+                  <label style={styles.labelSmall}>Paga con (Efectivo):</label>
+                  <input
+                    type="number"
+                    placeholder="Monto recibido $"
+                    value={pagaCon}
+                    onChange={(e) => setPagaCon(e.target.value)}
+                    style={styles.inputPay}
+                  />
+                </div>
+
+                <div style={styles.changeRow}>
+                  <span>Cambio / Devuelta:</span>
+                  <span style={{ color: Number(pagaCon) >= totalCarrito ? '#16a34a' : '#dc2626' }}>
+                    ${cambioCalculado.toLocaleString()}
+                  </span>
+                </div>
+
                 <button
                   onClick={procesarVenta}
-                  disabled={carrito.length === 0}
-                  style={styles.btnSuccess}
+                  disabled={carrito.length === 0 || Number(pagaCon) < totalCarrito}
+                  style={{
+                    ...styles.btnSuccess,
+                    opacity: carrito.length === 0 || Number(pagaCon) < totalCarrito ? 0.5 : 1
+                  }}
                 >
-                  💳 Registrar Venta
+                  💳 Registrar e Imprimir Factura
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* VISTA 2: INVENTARIO (Solo Admin) */}
+        {/* VISTA 2: INVENTARIO */}
         {vistaActual === 'inventario' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>📦 Inventario de Productos</h2>
             <input
               type="text"
-              placeholder="🔍 Filtrar inventario..."
+              placeholder="🔍 Filtrar por código o nombre..."
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               style={styles.inputSearch}
@@ -404,7 +519,7 @@ export default function App() {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={styles.th}>ID</th>
+                  <th style={styles.th}>Código</th>
                   <th style={styles.th}>Producto</th>
                   <th style={styles.th}>Precio</th>
                   <th style={styles.th}>Stock</th>
@@ -413,7 +528,7 @@ export default function App() {
               <tbody>
                 {productosFiltrados.map((p) => (
                   <tr key={p.id} style={styles.tr}>
-                    <td style={styles.td}>{p.id}</td>
+                    <td style={styles.td}>{p.barcode || p.id}</td>
                     <td style={styles.td}>{p.nombre}</td>
                     <td style={styles.td}>${Number(p.precio).toLocaleString()}</td>
                     <td style={styles.td}>{p.stock}</td>
@@ -424,14 +539,14 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 3: AGOTADOS (Solo Admin) */}
+        {/* VISTA 3: AGOTADOS */}
         {vistaActual === 'agotados' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>⚠️ Productos Agotados</h2>
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={styles.th}>ID</th>
+                  <th style={styles.th}>Código</th>
                   <th style={styles.th}>Producto</th>
                   <th style={styles.th}>Precio</th>
                   <th style={styles.th}>Stock</th>
@@ -440,7 +555,7 @@ export default function App() {
               <tbody>
                 {productosAgotados.map((p) => (
                   <tr key={p.id} style={{ ...styles.tr, backgroundColor: '#fff0f0' }}>
-                    <td style={styles.td}>{p.id}</td>
+                    <td style={styles.td}>{p.barcode || p.id}</td>
                     <td style={styles.td}>{p.nombre}</td>
                     <td style={styles.td}>${Number(p.precio).toLocaleString()}</td>
                     <td style={{ ...styles.td, color: 'red', fontWeight: 'bold' }}>
@@ -453,12 +568,10 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 4: EMPLEADOS Y ROLES (Solo Admin) */}
+        {/* VISTA 4: EMPLEADOS */}
         {vistaActual === 'empleados' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>👥 Gestión de Empleados y Administradores</h2>
-
-            {/* Formulario de Registro */}
             <form onSubmit={handleCrearEmpleado} style={styles.formInline}>
               <h3>Registrar Nuevo Usuario</h3>
               <div style={styles.formRow}>
@@ -467,9 +580,7 @@ export default function App() {
                   placeholder="Nombre completo"
                   required
                   value={nuevoEmpleado.nombre}
-                  onChange={(e) =>
-                    setNuevoEmpleado({ ...nuevoEmpleado, nombre: e.target.value })
-                  }
+                  onChange={(e) => setNuevoEmpleado({ ...nuevoEmpleado, nombre: e.target.value })}
                   style={styles.input}
                 />
                 <input
@@ -477,9 +588,7 @@ export default function App() {
                   placeholder="Usuario"
                   required
                   value={nuevoEmpleado.usuario}
-                  onChange={(e) =>
-                    setNuevoEmpleado({ ...nuevoEmpleado, usuario: e.target.value })
-                  }
+                  onChange={(e) => setNuevoEmpleado({ ...nuevoEmpleado, usuario: e.target.value })}
                   style={styles.input}
                 />
                 <input
@@ -487,16 +596,12 @@ export default function App() {
                   placeholder="Contraseña"
                   required
                   value={nuevoEmpleado.password}
-                  onChange={(e) =>
-                    setNuevoEmpleado({ ...nuevoEmpleado, password: e.target.value })
-                  }
+                  onChange={(e) => setNuevoEmpleado({ ...nuevoEmpleado, password: e.target.value })}
                   style={styles.input}
                 />
                 <select
                   value={nuevoEmpleado.rol}
-                  onChange={(e) =>
-                    setNuevoEmpleado({ ...nuevoEmpleado, rol: e.target.value })
-                  }
+                  onChange={(e) => setNuevoEmpleado({ ...nuevoEmpleado, rol: e.target.value })}
                   style={styles.input}
                 >
                   <option value="cajero">Cajero / Empleado</option>
@@ -508,7 +613,6 @@ export default function App() {
               </div>
             </form>
 
-            {/* Tabla de Usuarios con Opción Eliminar */}
             <h3>Usuarios Registrados</h3>
             <table style={styles.table}>
               <thead>
@@ -554,7 +658,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 5: REPORTES (Solo Admin) */}
+        {/* VISTA 5: REPORTES */}
         {vistaActual === 'reportes' && usuarioLogueado.rol === 'admin' && (
           <div>
             <h2>📊 Historial de Ventas</h2>
@@ -579,11 +683,86 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* MODAL IMPRIMIBLE FACTURA TIPO DIAN COLOMBIA 2026 */}
+      {facturaData && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.ticketBox} id="ticket-factura">
+            <div style={{ textAlign: 'center', fontSize: '12px' }}>
+              <h3 style={{ margin: '0 0 4px 0', fontSize: '16px' }}>TERRA FRUTOS SECOS</h3>
+              <p style={{ margin: 0 }}>NIT: 1049600000-1</p>
+              <p style={{ margin: 0 }}>No Responsable de IVA</p>
+              <p style={{ margin: 0 }}>Tunja, Boyacá - Colombia</p>
+              <p style={{ margin: '4px 0', fontWeight: 'bold' }}>
+                DOCUMENTO EQUIVALENTE POS N°: {facturaData.id}
+              </p>
+              <p style={{ margin: 0 }}>Fecha: {facturaData.fecha}</p>
+              <p style={{ margin: 0 }}>Cajero: {facturaData.cajero}</p>
+            </div>
+
+            <div style={styles.ticketDivider}>----------------------------------------</div>
+
+            <table style={styles.ticketTable}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Cant</th>
+                  <th style={{ textAlign: 'left' }}>Producto</th>
+                  <th style={{ textAlign: 'right' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {facturaData.items.map((it, idx) => (
+                  <tr key={idx}>
+                    <td>{it.cantidad}</td>
+                    <td>{it.nombre}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      ${(it.precio * it.cantidad).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={styles.ticketDivider}>----------------------------------------</div>
+
+            <div style={{ fontSize: '13px' }}>
+              <div style={styles.ticketFlexRow}>
+                <b>TOTAL COMPRA:</b>
+                <b>${facturaData.total.toLocaleString()}</b>
+              </div>
+              <div style={styles.ticketFlexRow}>
+                <span>RECIBIDO (EFECTIVO):</span>
+                <span>${facturaData.pagaCon.toLocaleString()}</span>
+              </div>
+              <div style={styles.ticketFlexRow}>
+                <b>CAMBIO / DEVUETLA:</b>
+                <b>${facturaData.cambio.toLocaleString()}</b>
+              </div>
+            </div>
+
+            <div style={styles.ticketDivider}>----------------------------------------</div>
+
+            <div style={{ textAlign: 'center', fontSize: '11px' }}>
+              <p style={{ margin: '2px 0' }}>Sistema POS Equivalente DIAN 2026</p>
+              <p style={{ margin: '2px 0', fontWeight: 'bold' }}>¡Gracias por su compra!</p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }} className="no-print">
+              <button onClick={() => window.print()} style={styles.btnPrimary}>
+                🖨️ Imprimir Ticket
+              </button>
+              <button onClick={() => setFacturaData(null)} style={styles.btnDanger}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ESTILOS EN OBJETO JAVASCRIPT
+// ESTILOS DE LA APLICACIÓN Y TICKET IMPRIMIBLE
 const styles = {
   appLayout: { display: 'flex', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f4f6f9' },
   sidebar: { width: '240px', backgroundColor: '#1e293b', color: '#fff', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
@@ -598,24 +777,37 @@ const styles = {
   errorBox: { backgroundColor: '#fee2e2', color: '#dc2626', padding: '10px', borderRadius: '5px', marginBottom: '15px', fontSize: '14px' },
   inputGroup: { marginBottom: '15px', textAlign: 'left' },
   input: { width: '100%', padding: '10px', marginTop: '5px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
-  inputSearch: { width: '100%', padding: '10px', marginBottom: '15px', borderRadius: '6px', border: '1px solid #ccc' },
+  searchBarBox: { display: 'flex', gap: '10px', marginBottom: '15px' },
+  inputSearch: { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
+  inputPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #2563eb', fontSize: '16px', fontWeight: 'bold', boxSizing: 'border-box' },
+  labelSmall: { fontSize: '12px', fontWeight: 'bold', color: '#475569', display: 'block', marginBottom: '4px' },
   btnPrimary: { width: '100%', padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  btnSuccess: { width: '100%', padding: '15px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '18px', fontWeight: 'bold' },
-  btnDanger: { padding: '6px 12px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
-  posGrid: { display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' },
+  btnSuccess: { width: '100%', padding: '15px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold', marginTop: '10px' },
+  btnDanger: { width: '100%', padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
+  btnDeleteCart: { backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '24px', height: '24px', fontWeight: 'bold' },
+  posGrid: { display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: '20px' },
   posSection: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px' },
   cartSection: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
-  productGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '15px', maxHeight: '65vh', overflowY: 'auto' },
-  productCard: { border: '1px solid #e2e8f0', padding: '15px', borderRadius: '8px', textAlign: 'center', backgroundColor: '#f8fafc' },
-  priceTag: { color: '#16a34a', fontWeight: 'bold', fontSize: '16px' },
+  productGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px', maxHeight: '60vh', overflowY: 'auto' },
+  productCard: { border: '1px solid #e2e8f0', padding: '12px', borderRadius: '8px', textAlign: 'center', backgroundColor: '#f8fafc' },
+  priceTag: { color: '#16a34a', fontWeight: 'bold', fontSize: '15px', margin: '2px 0' },
   cartList: { flex: 1, overflowY: 'auto', margin: '15px 0' },
-  cartItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee', paddingBottom: '10px', marginBottom: '10px' },
-  cartQtyControls: { display: 'flex', gap: '5px', alignItems: 'center' },
-  cartFooter: { borderTop: '2px solid #eee', paddingTop: '15px' },
+  cartItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee', paddingBottom: '8px', marginBottom: '8px' },
+  qtyInput: { width: '50px', padding: '4px', textAlign: 'center', borderRadius: '4px', border: '1px solid #ccc' },
+  cartFooter: { borderTop: '2px solid #e2e8f0', paddingTop: '15px' },
+  totalRow: { display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: 'bold' },
+  changeRow: { display: 'flex', justifyContent: 'space-between', fontSize: '16px', fontWeight: 'bold', margin: '10px 0' },
   table: { width: '100%', borderCollapse: 'collapse', marginTop: '15px', backgroundColor: '#fff', borderRadius: '8px', overflow: 'hidden' },
   th: { padding: '12px', textAlign: 'left', backgroundColor: '#f1f5f9', borderBottom: '1px solid #e2e8f0' },
   td: { padding: '12px', borderBottom: '1px solid #e2e8f0' },
   tr: { borderBottom: '1px solid #e2e8f0' },
   formInline: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '20px' },
-  formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' }
+  formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
+  
+  // MODAL Y TICKET IMPRIMIBLE DIAN
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
+  ticketBox: { backgroundColor: '#fff', width: '300px', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' },
+  ticketDivider: { textAlign: 'center', margin: '8px 0', fontSize: '12px' },
+  ticketTable: { width: '100%', fontSize: '12px', borderCollapse: 'collapse' },
+  ticketFlexRow: { display: 'flex', justifyContent: 'space-between', margin: '4px 0' }
 };
