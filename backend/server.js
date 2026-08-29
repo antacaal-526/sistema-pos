@@ -46,7 +46,7 @@ db.serialize(() => {
     )
   `);
 
-  // Tabla de Ventas
+  // Tabla de Ventas (Con columnas para items_json y cliente_cc)
   db.run(`
     CREATE TABLE IF NOT EXISTS ventas (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,11 +54,14 @@ db.serialize(() => {
       usuario_id INTEGER,
       medio_pago TEXT,
       fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-      items_json TEXT
+      items_json TEXT,
+      cliente_cc TEXT
     )
   `);
 
+  // Asegurar columnas opcionales en bases de datos existentes
   db.run(`ALTER TABLE ventas ADD COLUMN items_json TEXT`, (err) => {});
+  db.run(`ALTER TABLE ventas ADD COLUMN cliente_cc TEXT`, (err) => {});
 
   // Tabla de Control de Turnos / Arqueo de Caja
   db.run(`
@@ -186,12 +189,12 @@ app.put('/api/productos/:id', (req, res) => {
 
 // --- RUTAS DE VENTAS ---
 app.post('/api/ventas', (req, res) => {
-  const { items, total, usuario_id, medio_pago } = req.body;
+  const { items, total, usuario_id, medio_pago, cliente_cc } = req.body;
   const itemsJson = JSON.stringify(items || []);
 
   db.run(
-    'INSERT INTO ventas (total, usuario_id, medio_pago, items_json) VALUES (?, ?, ?, ?)',
-    [total, usuario_id, medio_pago || 'efectivo', itemsJson],
+    'INSERT INTO ventas (total, usuario_id, medio_pago, items_json, cliente_cc) VALUES (?, ?, ?, ?, ?)',
+    [total, usuario_id, medio_pago || 'efectivo', itemsJson, cliente_cc || ''],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -280,7 +283,6 @@ app.post('/api/turnos/abrir', (req, res) => {
   );
 });
 
-// Cierre de turno con reporte de ventas del turno y stock actualizado
 app.post('/api/turnos/cerrar', (req, res) => {
   const { turno_id } = req.body;
   const ahora = new Date();

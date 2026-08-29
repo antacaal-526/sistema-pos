@@ -41,9 +41,10 @@ export default function App() {
   const [edicionStock, setEdicionStock] = useState({});
   const [entradas, setEntradas] = useState({});
 
-  // Control de Medio de Pago
+  // Control de Medio de Pago y Cliente (Cédula/CC Opcional)
   const [medioPago, setMedioPago] = useState('efectivo');
   const [pagaCon, setPagaCon] = useState('');
+  const [clienteCc, setClienteCc] = useState('');
 
   // Modal de Factura POS DIAN
   const [facturaData, setFacturaData] = useState(null);
@@ -371,7 +372,8 @@ export default function App() {
     ? Math.max(0, (Number(pagaCon) || 0) - totalCarrito)
     : 0;
 
-  const procesarVenta = async () => {
+  // PROCESAR VENTA (Con o sin modal de recibo)
+  const procesarVenta = async (deseaImprimir = true) => {
     if (!turnoActivo) return alert('Debes iniciar turno antes de vender.');
     if (carrito.length === 0) return alert('El carrito está vacío');
     if (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito) {
@@ -388,7 +390,8 @@ export default function App() {
           items: carrito,
           total: totalCarrito,
           usuario_id: usuarioLogueado.id,
-          medio_pago: medioPago
+          medio_pago: medioPago,
+          cliente_cc: clienteCc.trim()
         })
       });
 
@@ -404,20 +407,27 @@ export default function App() {
           hour12: true
         });
 
-        const nuevaFactura = {
-          id: data.ventaId || (ventas.length + 1),
-          fechaHora: `${fechaFormateada}, ${horaFormateada}`,
-          cajero: usuarioLogueado.nombre,
-          items: [...carrito],
-          total: totalCarrito,
-          medioPago: medioPago === 'efectivo' ? 'EFECTIVO' : 'TRANSFERENCIA (ELECTRONICO)',
-          pagaCon: pagaConFinal,
-          cambio: medioPago === 'efectivo' ? cambioCalculado : 0
-        };
+        if (deseaImprimir) {
+          const nuevaFactura = {
+            id: data.ventaId || (ventas.length + 1),
+            fechaHora: `${fechaFormateada}, ${horaFormateada}`,
+            cajero: usuarioLogueado.nombre,
+            clienteCc: clienteCc.trim(),
+            items: [...carrito],
+            total: totalCarrito,
+            medioPago: medioPago === 'efectivo' ? 'EFECTIVO' : 'TRANSFERENCIA (ELECTRONICO)',
+            pagaCon: pagaConFinal,
+            cambio: medioPago === 'efectivo' ? cambioCalculado : 0
+          };
+          setFacturaData(nuevaFactura);
+        } else {
+          alert(`¡Venta #${data.ventaId || ''} registrada exitosamente!`);
+        }
 
-        setFacturaData(nuevaFactura);
+        // Limpiar estado
         setCarrito([]);
         setPagaCon('');
+        setClienteCc('');
         setMedioPago('efectivo');
         cargarProductos();
         cargarVentas();
@@ -722,7 +732,19 @@ export default function App() {
                     <span style={{ color: '#2563eb' }}>${totalCarrito.toLocaleString()}</span>
                   </div>
 
-                  <div style={{ marginTop: '12px' }}>
+                  {/* CAMPO CC / CÉDULA CLIENTE (OPCIONAL) */}
+                  <div style={{ marginTop: '10px' }}>
+                    <label style={styles.labelSmall}>🪪 CC / Cédula Cliente (Opcional):</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: 1049583920 (Dejar en blanco si no requiere)"
+                      value={clienteCc}
+                      onChange={(e) => setClienteCc(e.target.value)}
+                      style={styles.inputSearch}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: '10px' }}>
                     <label style={styles.labelSmall}>💳 Seleccionar Medio de Pago:</label>
                     <select
                       value={medioPago}
@@ -763,25 +785,47 @@ export default function App() {
                     </div>
                   )}
 
-                  <button
-                    onClick={procesarVenta}
-                    disabled={
-                      !turnoActivo ||
-                      carrito.length === 0 ||
-                      (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
-                    }
-                    style={{
-                      ...styles.btnSuccess,
-                      opacity:
+                  {/* OPCIONES DE ACCIÓN: SOLO REGISTRAR O REGISTRAR E IMPRIMIR */}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button
+                      onClick={() => procesarVenta(false)}
+                      disabled={
                         !turnoActivo ||
                         carrito.length === 0 ||
                         (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
-                          ? 0.5
-                          : 1
-                    }}
-                  >
-                    💳 Registrar e Imprimir Factura
-                  </button>
+                      }
+                      style={{
+                        ...styles.btnSecondaryAction,
+                        opacity:
+                          !turnoActivo ||
+                          carrito.length === 0 ||
+                          (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
+                            ? 0.5
+                            : 1
+                      }}
+                    >
+                      💾 Solo Registrar
+                    </button>
+                    <button
+                      onClick={() => procesarVenta(true)}
+                      disabled={
+                        !turnoActivo ||
+                        carrito.length === 0 ||
+                        (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
+                      }
+                      style={{
+                        ...styles.btnPrimaryAction,
+                        opacity:
+                          !turnoActivo ||
+                          carrito.length === 0 ||
+                          (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
+                            ? 0.5
+                            : 1
+                      }}
+                    >
+                      🖨️ Registrar e Imprimir
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1184,6 +1228,7 @@ export default function App() {
                 <tr>
                   <th style={styles.th}>ID Venta</th>
                   <th style={styles.th}>Fecha y Hora</th>
+                  <th style={styles.th}>Cédula/CC Cliente</th>
                   <th style={styles.th}>Descripción de Productos Vendidos</th>
                   <th style={styles.th}>Medio de Pago</th>
                   <th style={styles.th}>Total de la Venta</th>
@@ -1208,6 +1253,7 @@ export default function App() {
                     <tr key={v.id} style={styles.tr}>
                       <td style={styles.td}><b>#{v.id}</b></td>
                       <td style={styles.td}>{v.fecha || 'Reciente'}</td>
+                      <td style={styles.td}>{v.cliente_cc ? `CC: ${v.cliente_cc}` : 'Consumidor Final'}</td>
                       <td style={{ ...styles.td, color: '#334155', fontSize: '13px' }}>
                         {descripcionProductos}
                       </td>
@@ -1249,7 +1295,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL RESUMEN DE CIERRE DE TURNO Y DESCARGA PDF */}
+      {/* MODAL RESUMEN DE CIERRE DE TURNO */}
       {modalResumenTurno && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalResumenBox} id="reporte-turno-pdf">
@@ -1363,7 +1409,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL RECIBO POS DIAN */}
+      {/* MODAL RECIBO POS DIAN CON SCROLL INTERNO CORREGIDO */}
       {facturaData && (
         <div style={styles.modalOverlay}>
           <div style={styles.ticketBox} id="ticket-factura">
@@ -1384,6 +1430,9 @@ export default function App() {
               </p>
               <p style={{ margin: 0 }}>Fecha: {facturaData.fechaHora}</p>
               <p style={{ margin: 0 }}>Cajero: {facturaData.cajero}</p>
+              <p style={{ margin: '2px 0', fontWeight: 'bold' }}>
+                Cliente / CC: {facturaData.clienteCc || 'Consumidor Final'}
+              </p>
             </div>
 
             <div style={styles.ticketDivider}>----------------------------------------</div>
@@ -1425,7 +1474,7 @@ export default function App() {
                 <span>${facturaData.pagaCon.toLocaleString()}</span>
               </div>
               <div style={styles.ticketFlexRow}>
-                <b>CAMBIO / DEVUETLA:</b>
+                <b>CAMBIO / DEVUELTA:</b>
                 <b>${facturaData.cambio.toLocaleString()}</b>
               </div>
             </div>
@@ -1437,7 +1486,7 @@ export default function App() {
               <p style={{ margin: '2px 0', fontWeight: 'bold' }}>¡Gracias por su compra!</p>
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }} className="no-print">
+            <div style={styles.stickyModalFooter} className="no-print">
               <button onClick={() => window.print()} style={styles.btnPrimary}>
                 🖨️ Imprimir Ticket
               </button>
@@ -1500,7 +1549,8 @@ const styles = {
   infoTransfer: { backgroundColor: '#dcfce7', color: '#15803d', padding: '10px', borderRadius: '6px', textAlign: 'center', fontSize: '14px', fontWeight: 'bold', margin: '12px 0' },
   labelSmall: { fontSize: '12px', fontWeight: 'bold', color: '#475569', display: 'block', marginBottom: '4px' },
   btnPrimary: { width: '100%', padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  btnSuccess: { width: '100%', padding: '15px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold', marginTop: '10px' },
+  btnSecondaryAction: { flex: 1, padding: '12px', backgroundColor: '#475569', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' },
+  btnPrimaryAction: { flex: 1.2, padding: '12px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' },
   btnDanger: { width: '100%', padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
   btnDangerTable: { backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' },
   btnSaveInline: { backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold' },
@@ -1524,8 +1574,9 @@ const styles = {
   formInline: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '20px' },
   formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
   formRowProduct: { display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
-  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
-  ticketBox: { backgroundColor: '#fff', width: '300px', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' },
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
+  ticketBox: { backgroundColor: '#fff', width: '320px', maxHeight: '85vh', overflowY: 'auto', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)', boxSizing: 'border-box' },
+  stickyModalFooter: { display: 'flex', gap: '10px', marginTop: '15px', position: 'sticky', bottom: 0, backgroundColor: '#fff', paddingTop: '10px', borderTop: '1px solid #eee' },
   ticketDivider: { textAlign: 'center', margin: '8px 0', fontSize: '12px' },
   ticketTable: { width: '100%', fontSize: '12px', borderCollapse: 'collapse' },
   ticketFlexRow: { display: 'flex', justifyContent: 'space-between', margin: '4px 0' },
