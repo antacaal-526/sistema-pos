@@ -4,20 +4,20 @@ const productosActualizados = [
   { barcode: "1", nombre: "AJONJOLI NATURAL 500 G", stock: 9, precio: 13000, min_stock: 5 },
   { barcode: "2", nombre: "AJONJOLI TOSTADO 500 G", stock: 2, precio: 13500, min_stock: 5 },
   { barcode: "3", nombre: "10 X 25 250 G", stock: 9, precio: 6800, min_stock: 5 },
-  { barcode: "4", nombre: "ALMENDRA NATURAL 500 G", stock: 12, precio: 26200, min_stock: 5 },
-  { barcode: "5", nombre: "DATIL 100 G", stock: 12, precio: 5000, min_stock: 5 },
-  { barcode: "6", nombre: "AVENA 500 G", stock: 9, precio: 3000, min_stock: 5 },
-  { barcode: "7", nombre: "GELATINA SIN SABOR 125G", stock: 9, precio: 8350, min_stock: 5 },
+  { barcode: "4", nombre: "ALMENDRA NATURAL 500 G", stock: 11, precio: 26200, min_stock: 5 },
+  { barcode: "5", nombre: "DATIL 100 G", stock: 11, precio: 5000, min_stock: 5 },
+  { barcode: "6", nombre: "AVENA 500 G", stock: 6, precio: 3000, min_stock: 5 },
+  { barcode: "7", nombre: "GELATINA SIN SABOR 125G", stock: 8, precio: 8350, min_stock: 5 },
   { barcode: "8", nombre: "GELATINA SIN SABOR 250 G", stock: 3, precio: 16100, min_stock: 5 },
-  { barcode: "9", nombre: "PIMIENTO NEGRA ENTERA 50 G", stock: 14, precio: 4050, min_stock: 5 },
-  { barcode: "10", nombre: "FROOTLOOPS 100 G", stock: 4, precio: 2600, min_stock: 5 },
+  { barcode: "9", nombre: "PIMIENTA NEGRA ENTERA 50 G", stock: 20, precio: 4050, min_stock: 5 },
+  { barcode: "10", nombre: "FROOTLOOPS 100 G", stock: 3, precio: 2600, min_stock: 5 },
   { barcode: "11", nombre: "ARANDANOS 500 G", stock: 5, precio: 19800, min_stock: 5 },
   { barcode: "12", nombre: "SEMILLA DE CALABAZA 250", stock: 10, precio: 14600, min_stock: 5 },
   { barcode: "13", nombre: "AJONJOLI NATURAL 250 G", stock: 7, precio: 6800, min_stock: 5 },
-  { barcode: "14", nombre: "AJONJOLI TOSTADO 250 G", stock: 0, precio: 7050, min_stock: 5 },
+  { barcode: "14", nombre: "AJONJOLI TOSTADO 250 G", stock: 10, precio: 7050, min_stock: 5 },
   { barcode: "15", nombre: "ALMENDRA DULCE 250 G", stock: 5, precio: 8100, min_stock: 5 },
-  { barcode: "16", nombre: "ALMENDRA NATURAL 250G", stock: 7, precio: 13400, min_stock: 5 },
-  { barcode: "17", nombre: "ARANDANOS 125 G", stock: 12, precio: 5400, min_stock: 5 },
+  { barcode: "16", nombre: "ALMENDRA NATURAL 250G", stock: 5, precio: 13400, min_stock: 5 },
+  { barcode: "17", nombre: "ARANDANOS 125 G", stock: 10, precio: 5400, min_stock: 5 },
   { barcode: "18", nombre: "ARANDANOS 250 G", stock: 7, precio: 10200, min_stock: 5 },
   { barcode: "19", nombre: "3/2 X 20 (50 UN )", stock: 20, precio: 2600, min_stock: 5 },
   { barcode: "20", nombre: "BOLSA 30 KL", stock: 0, precio: 700, min_stock: 5 },
@@ -25,11 +25,11 @@ const productosActualizados = [
   { barcode: "22", nombre: "BOLSA 2 KL", stock: 0, precio: 200, min_stock: 5 },
   { barcode: "23", nombre: "5 X 25 KILO", stock: 0, precio: 26000, min_stock: 5 },
   { barcode: "24", nombre: "MACADAMIA 200G", stock: 5, precio: 19200, min_stock: 5 },
-  { barcode: "26", nombre: "PIMIENTO NEGRA ENTERA 125 G", stock: 6, precio: 9950, min_stock: 5 },
+  { barcode: "26", nombre: "PIMIENTA NEGRA ENTERA 125 G", stock: 6, precio: 9950, min_stock: 5 },
   { barcode: "27", nombre: "ALMENDRA DULCE 125 G", stock: 5, precio: 4350, min_stock: 5 },
   { barcode: "28", nombre: "ALMENDRA NATURAL 125 G", stock: 9, precio: 7000, min_stock: 5 },
   { barcode: "29", nombre: "COCO DESHIDRATADO 250 G", stock: 0, precio: 12700, min_stock: 5 },
-  { barcode: "30", nombre: "PIMIENTO BLANCA MOLIDA 50 G", stock: 11, precio: 3650, min_stock: 5 },
+  { barcode: "30", nombre: "PIMIENTA BLANCA MOLIDA 50 G", stock: 11, precio: 3650, min_stock: 5 },
   { barcode: "31", nombre: "ALMENDRA DULCE 50 G", stock: 22, precio: 1900, min_stock: 5 },
   { barcode: "32", nombre: "ALMENDRA NATURAL 50 G", stock: 15, precio: 3200, min_stock: 5 },
   { barcode: "33", nombre: "ARANDANOS 50 G", stock: 25, precio: 3000, min_stock: 5 },
@@ -91,6 +91,7 @@ const productosActualizados = [
   { barcode: "107", nombre: "COCTEL FRUTOS SECOS 250 G", stock: 7, precio: 8600, min_stock: 5 },
   { barcode: "111", nombre: "COCTEL FRUTOS SECOS 125 G", stock: 10, precio: 4600, min_stock: 5 },
   { barcode: "112", nombre: "COCTEL FRUTOS SECOS 50 G", stock: 9, precio: 2000, min_stock: 5 },
+  { barcode: "114", nombre: "CORTEZA DE CERDO 500 G", stock: 50, precio: 0, min_stock: 5 },
   { barcode: "122", nombre: "ALMENDRA CHOCOLATE 50 G", stock: 14, precio: 3950, min_stock: 5 },
   { barcode: "126", nombre: "MARAÑON 200 G", stock: 0, precio: 17400, min_stock: 5 },
   { barcode: "130", nombre: "TURRON SURTIDO 6", stock: 8, precio: 5700, min_stock: 5 },
@@ -148,6 +149,7 @@ const productosActualizados = [
   { barcode: "249", nombre: "MANI CHOCOLATE COLOR 220 G", stock: 2, precio: 7650, min_stock: 5 },
   { barcode: "252", nombre: "MANI CON UVAS X 5LB", stock: 8, precio: 38500, min_stock: 5 },
   { barcode: "253", nombre: "MORITAS 50 G", stock: 7, precio: 1750, min_stock: 5 },
+  { barcode: "254", nombre: "CAJA DE UVA", stock: 0, precio: 128000, min_stock: 5 },
   { barcode: "257", nombre: "MARAÑON 50G", stock: 2, precio: 4700, min_stock: 5 },
   { barcode: "258", nombre: "MANI CON SAL X 5 LB", stock: 9, precio: 38500, min_stock: 5 },
   { barcode: "259", nombre: "MANI CON SAL X @", stock: 0, precio: 190000, min_stock: 5 },
@@ -156,6 +158,7 @@ const productosActualizados = [
   { barcode: "271", nombre: "MANI DULCE X 5 LB", stock: 10, precio: 30000, min_stock: 5 },
   { barcode: "272", nombre: "MANI CHOCOLATE COLOR 120G", stock: 4, precio: 4800, min_stock: 5 },
   { barcode: "274", nombre: "DATIL 150G", stock: 11, precio: 7050, min_stock: 5 },
+  { barcode: "279", nombre: "NUEZ DEL BRASIL 500 G", stock: 0, precio: 0, min_stock: 5 },
   { barcode: "280", nombre: "NUEZ DEL BRASIL 200 G", stock: 10, precio: 20000, min_stock: 5 },
   { barcode: "281", nombre: "NUEZ DEL BRASIL 100 G", stock: 2, precio: 10400, min_stock: 5 },
   { barcode: "282", nombre: "NUEZ DEL BRASIL 50 G", stock: 6, precio: 5400, min_stock: 5 },
@@ -190,6 +193,7 @@ const productosActualizados = [
   { barcode: "331", nombre: "SEMILLA DE GIRASOL 125 G", stock: 12, precio: 3000, min_stock: 5 },
   { barcode: "332", nombre: "SEMILLA DE GIRASOL 250 G", stock: 7, precio: 5500, min_stock: 5 },
   { barcode: "335", nombre: "SEMILLA DE GIRASOL CHOCO 50", stock: 6, precio: 3700, min_stock: 5 },
+  { barcode: "340", nombre: "TURRON SURTIDO X 12 UN", stock: 0, precio: 10800, min_stock: 5 },
   { barcode: "344", nombre: "TOCINETA 200 G", stock: 4, precio: 4500, min_stock: 5 },
   { barcode: "345", nombre: "TOCINETA 60 G", stock: 69, precio: 1800, min_stock: 5 },
   { barcode: "347", nombre: "TOCINETA SURTIDA 500G", stock: 15, precio: 6800, min_stock: 5 },
@@ -200,6 +204,12 @@ const productosActualizados = [
   { barcode: "355", nombre: "TURRON AJONJOLI UN", stock: 1, precio: 1200, min_stock: 5 },
   { barcode: "356", nombre: "TURRON GRANOLA UN", stock: 5, precio: 1200, min_stock: 5 },
   { barcode: "357", nombre: "TURRON QUINUA UN", stock: 1, precio: 1200, min_stock: 5 },
+  { barcode: "361", nombre: "TURRON DE QUINUA X 12 UN", stock: 0, precio: 10800, min_stock: 5 },
+  { barcode: "363", nombre: "TURRON DE COCO X 12 UN", stock: 0, precio: 10800, min_stock: 5 },
+  { barcode: "364", nombre: "TURRON GRANOLA X 12 UN", stock: 0, precio: 10800, min_stock: 5 },
+  { barcode: "365", nombre: "TURRON AJONJOLI X 12 UN", stock: 0, precio: 10800, min_stock: 5 },
+  { barcode: "366", nombre: "TURRON MANI X 12 UN", stock: 0, precio: 10800, min_stock: 5 },
+  { barcode: "367", nombre: "TURRON 7 GRANOS X 12 UN", stock: 0, precio: 10800, min_stock: 5 },
   { barcode: "368", nombre: "TURRON MONTREAL UN", stock: 10, precio: 1800, min_stock: 5 },
   { barcode: "369", nombre: "TURRON MONTREAL X 15 UN", stock: 2, precio: 17700, min_stock: 5 },
   { barcode: "379", nombre: "UVA CHOCOLATE 220 G", stock: 3, precio: 7650, min_stock: 5 },
@@ -215,36 +225,91 @@ const productosActualizados = [
   { barcode: "403", nombre: "ZUCARITAS 200 G", stock: 7, precio: 3800, min_stock: 5 },
   { barcode: "404", nombre: "PATACON DULCE 50g", stock: 3, precio: 2300, min_stock: 5 },
   { barcode: "405", nombre: "MAIZ PICANTE 50 G", stock: 6, precio: 2300, min_stock: 5 },
-  { barcode: "406", nombre: "MAIZ NATURAL 50 G", stock: 19, precio: 2300, min_stock: 5 },
-  { barcode: "407", nombre: "PATACON SALADO 50g", stock: 5, precio: 2300, min_stock: 5 },
-  { barcode: "408", nombre: "NUEZ DEL NOGAL 50 G", stock: 2, precio: 4200, min_stock: 5 },
-  { barcode: "409", nombre: "HABAS PICANTES 35G", stock: 7, precio: 1500, min_stock: 5 },
+  { barcode: "406", nombre: "MAIZ NATURAL 50 G", stock: 18, precio: 2300, min_stock: 5 },
+  { barcode: "407", nombre: "PATACON SALADO 50g", stock: 4, precio: 2300, min_stock: 5 },
+  { barcode: "408", nombre: "NUEZ DEL NOGAL 50 G", stock: 1, precio: 4200, min_stock: 5 },
+  { barcode: "409", nombre: "HABAS PICANTES 35G", stock: 5, precio: 1500, min_stock: 5 },
   { barcode: "410", nombre: "MACADAMIA 50G", stock: 5, precio: 5200, min_stock: 5 },
+  { barcode: "411", nombre: "PATACON X 12 UNIDADES", stock: 0, precio: 23400, min_stock: 5 },
+  { barcode: "412", nombre: "MANI X 12 UNIDADES", stock: 0, precio: 16000, min_stock: 5 },
+  { barcode: "413", nombre: "CAFÉ CUMBRE 500G", stock: 0, precio: 40000, min_stock: 5 },
+  { barcode: "414", nombre: "CAFÉ CUMBRE 250G", stock: 0, precio: 0, min_stock: 5 },
+  { barcode: "415", nombre: "CAFÉ CUMBRE 125G", stock: 0, precio: 0, min_stock: 5 },
   { barcode: "416", nombre: "ZUCARITAS 100G", stock: 10, precio: 2200, min_stock: 5 },
+  { barcode: "417", nombre: "haba x 12", stock: 0, precio: 22800, min_stock: 5 },
   { barcode: "418", nombre: "huevos 50 g", stock: 5, precio: 2300, min_stock: 5 },
   { barcode: "419", nombre: "huevos 100g", stock: 5, precio: 4550, min_stock: 5 },
-  { barcode: "433", nombre: "GRANOLA ROJA O DIETETICA", stock: 59, precio: 10400, min_stock: 5 }
+  { barcode: "433", nombre: "GRANOLA ROJA O DIETETICA", stock: 55, precio: 11000, min_stock: 5 }
 ];
 
 db.serialize(() => {
-  const stmt = db.prepare(`
-    INSERT INTO products (barcode, internal_code, name, category, cost_price, sale_price, stock, min_stock)
-    VALUES (?, ?, ?, 'General', 0, ?, ?, ?)
-    ON CONFLICT(barcode) DO UPDATE SET
-      name = excluded.name,
-      sale_price = excluded.sale_price,
-      stock = excluded.stock,
-      min_stock = excluded.min_stock
-  `);
+  // 1. Crea la tabla si no existe
+  db.run(`
+    CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      barcode TEXT UNIQUE,
+      internal_code TEXT,
+      name TEXT,
+      category TEXT DEFAULT 'General',
+      cost_price REAL DEFAULT 0,
+      sale_price REAL DEFAULT 0,
+      stock INTEGER DEFAULT 0,
+      min_stock INTEGER DEFAULT 5
+    )
+  `, (err) => {
+    if (err) {
+      console.error('❌ Error creando la tabla products:', err.message);
+      return;
+    }
 
-  let actualizados = 0;
-  productosActualizados.forEach((p) => {
-    stmt.run(p.barcode, p.barcode, p.nombre, p.precio, p.stock, p.min_stock, (err) => {
-      if (!err) actualizados++;
+    console.log('✔ Tabla products lista.');
+
+    let procesados = 0;
+    let actualizados = 0;
+    let insertados = 0;
+
+    // 2. Inserta o actualiza cada producto
+    productosActualizados.forEach((p) => {
+      db.run(
+        `UPDATE products 
+         SET name = ?, sale_price = ?, stock = ?, min_stock = ? 
+         WHERE barcode = ? OR internal_code = ?`,
+        [p.nombre, p.precio, p.stock, p.min_stock, p.barcode, p.barcode],
+        function (errUpd) {
+          if (errUpd) {
+            console.error(`Error actualizando ${p.barcode}:`, errUpd.message);
+            comprobarFin();
+          } else if (this.changes === 0) {
+            // Si el producto no existía, lo inserta de cero
+            db.run(
+              `INSERT INTO products (barcode, internal_code, name, category, cost_price, sale_price, stock, min_stock) 
+               VALUES (?, ?, ?, 'General', 0, ?, ?, ?)`,
+              [p.barcode, p.barcode, p.nombre, p.precio, p.stock, p.min_stock],
+              (errIns) => {
+                if (errIns) {
+                  console.error(`Error insertando ${p.barcode}:`, errIns.message);
+                } else {
+                  insertados++;
+                }
+                comprobarFin();
+              }
+            );
+          } else {
+            actualizados++;
+            comprobarFin();
+          }
+        }
+      );
     });
-  });
 
-  stmt.finalize(() => {
-    console.log(`✓ ¡Se han actualizado e insertado ${actualizados} productos correctamente en la base de datos!`);
+    function comprobarFin() {
+      procesados++;
+      if (procesados === productosActualizados.length) {
+        console.log(`\n🎉 ¡ÉXITO TOTAL!`);
+        console.log(`  - Productos actualizados: ${actualizados}`);
+        console.log(`  - Productos nuevos insertados: ${insertados}`);
+        console.log(`  - Total procesados en base de datos: ${procesados} de ${productosActualizados.length}`);
+      }
+    }
   });
 });

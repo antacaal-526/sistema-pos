@@ -1,660 +1,332 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const db = require('./database');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
 
-// --- INICIALIZACIÓN DE TABLAS Y ADMIN ---
-db.serialize(() => {
-  // Tabla de Usuarios
-  db.run(`
-    CREATE TABLE IF NOT EXISTS usuarios (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nombre TEXT,
-      usuario TEXT UNIQUE,
-      password TEXT,
-      rol TEXT
-    )
-  `);
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
-  // Asegurar siempre el usuario Administrador (admin / 0526)
-  db.run(`
-    INSERT INTO usuarios (nombre, usuario, password, rol)
-    VALUES ('Administrador', 'admin', '0526', 'admin')
-    ON CONFLICT(usuario) DO UPDATE SET password = '0526', rol = 'admin'
-  `, (err) => {
-    if (err) console.error('Error inicializando admin:', err.message);
-    else console.log('✓ Usuario Administrador listo: (admin / 0526)');
-  });
+// --- LOGIN ---
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Ingrese usuario y contraseña' });
 
-  // Tabla de Productos
-  db.run(`
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      barcode TEXT UNIQUE,
-      internal_code TEXT,
-      name TEXT,
-      category TEXT,
-      cost_price REAL,
-      sale_price REAL,
-      stock INTEGER,
-      min_stock INTEGER
-    )
-  `);
-
-  // Tabla de Ventas
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ventas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      total REAL,
-      usuario_id INTEGER,
-      medio_pago TEXT,
-      fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-      items_json TEXT,
-      cliente_cc TEXT
-    )
-  `);
-
-  db.run(`ALTER TABLE ventas ADD COLUMN items_json TEXT`, (err) => {});
-  db.run(`ALTER TABLE ventas ADD COLUMN cliente_cc TEXT`, (err) => {});
-
-  // Tabla de Control de Turnos / Arqueo de Caja
-  db.run(`
-    CREATE TABLE IF NOT EXISTS turnos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      usuario_id INTEGER,
-      nombre_cajero TEXT,
-      base_inicial REAL,
-      fecha_inicio TEXT,
-      fecha_cierre TEXT,
-      total_efectivo REAL DEFAULT 0,
-      total_transferencia REAL DEFAULT 0,
-      total_ventas REAL DEFAULT 0,
-      estado TEXT DEFAULT 'abierto'
-    )
-  `);
-
-  // Tabla de Movimientos Contables (Ingresos Extras y Egresos/Gastos)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS egresos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tipo TEXT DEFAULT 'egreso',
-      monto REAL,
-      descripcion TEXT,
-      categoria TEXT DEFAULT 'General',
-      fecha TEXT,
-      usuario_nombre TEXT
-    )
-  `);
-
-  // Tabla de Cierres de Mes Históricos
-  db.run(`
-    CREATE TABLE IF NOT EXISTS cierres_mes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mes_anio TEXT,
-      fecha_cierre TEXT,
-      saldo_mes_anterior REAL DEFAULT 0,
-      total_ventas REAL DEFAULT 0,
-      total_ingresos_extras REAL DEFAULT 0,
-      total_egresos REAL DEFAULT 0,
-      saldo_inventario REAL DEFAULT 0,
-      saldo_caja REAL DEFAULT 0,
-      balance_neto REAL DEFAULT 0,
-      usuario_nombre TEXT
-    )
-  `);
+  db.get(
+    'SELECT id, name, username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?',
+    [username.trim(), password.trim()],
+    (err, user) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!user) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+      res.json({ success: true, user });
+    }
+  );
 });
 
-// Función auxiliar para obtener fecha y hora actual de Colombia (Tunja, Boyacá)
-function getFechaHoraColombia() {
-  const ahora = new Date();
-  const fecha = ahora.toLocaleDateString('es-CO', { timeZone: 'America/Bogota' });
-  const hora = ahora.toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-  return `${fecha} ${hora}`;
-}
+// --- GESTIÓN DE EMPLEADOS Y USUARIOS ---
+app.get('/api/users', (req, res) => {
+  db.all('SELECT id, name, username, role FROM users ORDER BY id ASC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
 
-// --- RUTAS DE AUTENTICACIÓN ---
-app.post('/api/login', (req, res) => {
-  const { usuario, password } = req.body;
-  if (!usuario || !password) {
-    return res.status(400).json({ error: 'Ingrese usuario y contraseña' });
+app.post('/api/users', (req, res) => {
+  const { name, username, password, role } = req.body;
+  if (!name || !username || !password) {
+    return res.status(400).json({ error: 'Todos los campos son obligatorios' });
   }
 
-  db.get(
-    'SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(?)',
-    [usuario.trim()],
-    (err, userRow) => {
-      if (err) return res.status(500).json({ error: 'Error en el servidor' });
-      if (!userRow) return res.status(404).json({ error: 'Usuario no encontrado' });
-      if (userRow.password !== password.trim()) {
-        return res.status(401).json({ error: 'Contraseña incorrecta' });
-      }
-
-      res.json({
-        message: 'Acceso concedido',
-        usuario: {
-          id: userRow.id,
-          nombre: userRow.nombre,
-          usuario: userRow.usuario,
-          rol: userRow.rol
+  db.run(
+    'INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)',
+    [name.trim(), username.trim().toLowerCase(), password.trim(), role || 'Cajero'],
+    function (err) {
+      if (err) {
+        if (err.message && err.message.includes('UNIQUE')) {
+          return res.status(400).json({ error: 'El nombre de usuario ya está registrado' });
         }
-      });
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true, userId: this.lastID });
     }
   );
 });
 
-// --- RUTAS DE GESTIÓN DE USUARIOS ---
-app.get('/api/usuarios', (req, res) => {
-  db.all('SELECT id, nombre, usuario, rol FROM usuarios', [], (err, rows) => {
+app.delete('/api/users/:id', (req, res) => {
+  const { id } = req.params;
+  db.run('DELETE FROM users WHERE id = ?', [id], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// --- TURNOS Y REPORTES DE TURNOS ---
+app.get('/api/shifts', (req, res) => {
+  db.all('SELECT * FROM shifts ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
+
+app.get('/api/shifts/active', (req, res) => {
+  const userName = req.query.user_name ? req.query.user_name.trim() : null;
+  const query = userName 
+    ? 'SELECT * FROM shifts WHERE LOWER(user_name) = LOWER(?) AND status = "abierto" ORDER BY id DESC LIMIT 1'
+    : 'SELECT * FROM shifts WHERE status = "abierto" ORDER BY id DESC LIMIT 1';
+
+  db.get(query, userName ? [userName] : [], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(row || null);
+  });
+});
+
+app.post('/api/shifts/open', (req, res) => {
+  const { user_name, start_amount } = req.body;
+  const usuario = user_name ? user_name.trim() : 'ANTHONY CARDENAS';
+  const base = parseFloat(start_amount) || 0;
+
+  db.run(
+    'INSERT INTO shifts (user_name, start_amount, status) VALUES (?, ?, "abierto")',
+    [usuario, base],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, shiftId: this.lastID, user_name: usuario, start_amount: base });
+    }
+  );
+});
+
+app.post('/api/shifts/close', (req, res) => {
+  const { shift_id } = req.body;
+
+  db.get('SELECT * FROM shifts WHERE id = ?', [shift_id], (errShift, shift) => {
+    if (errShift || !shift) return res.status(500).json({ error: 'Turno no encontrado' });
+
+    db.all(
+      `SELECT payment_method, SUM(total) as total_sales FROM sales WHERE shift_id = ? GROUP BY payment_method`,
+      [shift_id],
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        let cashSales = 0;
+        let transferSales = 0;
+
+        if (rows) {
+          rows.forEach((r) => {
+            if (r.payment_method === 'Efectivo') cashSales += (r.total_sales || 0);
+            else transferSales += (r.total_sales || 0);
+          });
+        }
+
+        const totalSales = cashSales + transferSales;
+        const startBase = shift.start_amount || 0;
+        const totalCashInBox = startBase + cashSales;
+
+        db.run(
+          `UPDATE shifts SET status = "cerrado", end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [totalCashInBox, cashSales, transferSales, totalSales, shift_id],
+          function (errClose) {
+            if (errClose) return res.status(500).json({ error: errClose.message });
+            res.json({
+              success: true,
+              summary: {
+                shift_id,
+                startBase,
+                cashSales,
+                transferSales,
+                totalSales,
+                totalCashInBox
+              }
+            });
+          }
+        );
+      }
+    );
+  });
+});
+
+// --- PRODUCTOS ---
+app.get('/api/products', (req, res) => {
+  db.all('SELECT * FROM products ORDER BY CAST(barcode AS INTEGER) ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-app.post('/api/usuarios', (req, res) => {
-  const { nombre, usuario, password, rol } = req.body;
+app.post('/api/products', (req, res) => {
+  const { barcode, name, sale_price, stock, min_stock } = req.body;
+  if (!barcode || !name) return res.status(400).json({ error: 'El código y nombre son requeridos' });
+
   db.run(
-    'INSERT INTO usuarios (nombre, usuario, password, rol) VALUES (?, ?, ?, ?)',
-    [nombre, usuario, password, rol || 'cajero'],
+    `INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)`,
+    [barcode.trim(), name.trim(), parseFloat(sale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3],
     function (err) {
-      if (err) {
-        if (err.message.includes('UNIQUE')) {
-          return res.status(400).json({ error: 'El nombre de usuario ya existe' });
-        }
-        return res.status(500).json({ error: err.message });
-      }
-      res.json({ message: 'Usuario creado exitosamente', id: this.lastID });
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
     }
   );
 });
 
-app.delete('/api/usuarios/:id', (req, res) => {
-  const { id } = req.params;
-  db.run('DELETE FROM usuarios WHERE id = ?', [id], function (err) {
-    if (err) return res.status(500).json({ error: 'Error al eliminar usuario' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
-    res.json({ message: 'Usuario eliminado con éxito' });
-  });
+app.put('/api/products/:barcode', (req, res) => {
+  const { barcode } = req.params;
+  const { name, sale_price, stock, min_stock } = req.body;
+
+  db.run(
+    `UPDATE products SET name = ?, sale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
+    [name.trim(), parseFloat(sale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3, barcode.trim()],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
 });
 
-// --- RUTAS DE PRODUCTOS E INVENTARIO ---
-app.get('/api/productos', (req, res) => {
-  db.all('SELECT id, barcode, name AS nombre, sale_price AS precio, stock, COALESCE(min_stock, 5) AS min_stock FROM products', [], (err, rows) => {
+app.delete('/api/products/:barcode', (req, res) => {
+  const { barcode } = req.params;
+  db.run('DELETE FROM products WHERE barcode = ?', [barcode.trim()], function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
+    res.json({ success: true });
   });
 });
 
-app.post('/api/productos', (req, res) => {
-  const { barcode, nombre, precio, stock, min_stock } = req.body;
-  const codigoFinal = barcode ? barcode.trim() : Date.now().toString();
+// --- VENTAS E INTEGRACIÓN AUTOMÁTICA CON CONTABILIDAD ---
+app.post('/api/sales', (req, res) => {
+  const { shift_id, user_name, customer_doc, customer_name, items, total, payment_method, amount_paid, change_given, sale_type } = req.body;
+
+  if (!items || items.length === 0) return res.status(400).json({ error: 'Carrito vacío' });
+
+  const prefijo = 'TF';
+  const invNumber = `${prefijo}-${Date.now().toString().slice(-6)}`;
 
   db.run(
-    `INSERT INTO products (barcode, internal_code, name, category, cost_price, sale_price, stock, min_stock)
-     VALUES (?, ?, ?, 'General', 0, ?, ?, ?)`,
-    [codigoFinal, codigoFinal, nombre, Number(precio), Number(stock), Number(min_stock) || 5],
-    function (err) {
-      if (err) {
-        if (err.message.includes('UNIQUE')) {
-          return res.status(400).json({ error: 'El código de barras ya pertenece a otro producto' });
-        }
-        return res.status(500).json({ error: err.message });
-      }
-      res.json({ message: 'Producto creado exitosamente', id: this.lastID });
-    }
-  );
-});
+    `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+    [shift_id || null, user_name || 'ANTHONY CARDENAS', invNumber, customer_doc || '222222222222', customer_name || 'Consumidor Final', total, total, payment_method || 'Efectivo', amount_paid || total, change_given || 0, sale_type || 'Facturada'],
+    function (errSale) {
+      if (errSale) return res.status(500).json({ error: errSale.message });
 
-app.put('/api/productos/:id', (req, res) => {
-  const { id } = req.params;
-  const { stock, precio, min_stock } = req.body;
+      const saleId = this.lastID;
 
-  db.run(
-    `UPDATE products SET stock = ?, sale_price = ?, min_stock = ? WHERE id = ?`,
-    [Number(stock), Number(precio), Number(min_stock) || 5, id],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      if (this.changes === 0) return res.status(404).json({ error: 'Producto no encontrado' });
-      res.json({ message: 'Producto actualizado correctamente' });
-    }
-  );
-});
-
-// --- RUTAS DE VENTAS ---
-app.post('/api/ventas', (req, res) => {
-  const { items, total, usuario_id, medio_pago, cliente_cc } = req.body;
-  const itemsJson = JSON.stringify(items || []);
-
-  db.run(
-    'INSERT INTO ventas (total, usuario_id, medio_pago, items_json, cliente_cc) VALUES (?, ?, ?, ?, ?)',
-    [total, usuario_id, medio_pago || 'efectivo', itemsJson, cliente_cc || ''],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-
-      const ventaId = this.lastID;
-      const stmt = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
       items.forEach((item) => {
-        stmt.run(item.cantidad, item.id);
+        db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode]);
+        db.run('INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
+          [saleId, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price]
+        );
       });
-      stmt.finalize();
 
-      res.json({ message: 'Venta registrada con éxito', ventaId });
+      db.run(
+        `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
+        [`Venta POS Factura #${invNumber} (${payment_method})`, total, user_name || 'ANTHONY CARDENAS']
+      );
+
+      res.json({ success: true, saleId, invoice_number: invNumber });
     }
   );
 });
 
-app.get('/api/ventas', (req, res) => {
-  db.all('SELECT * FROM ventas ORDER BY id DESC', [], (err, rows) => {
+// --- MOVIMIENTOS CONTABLES (INGRESOS Y EGRESOS) ---
+app.get('/api/transactions', (req, res) => {
+  db.all('SELECT * FROM transactions ORDER BY id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
+    res.json(rows || []);
   });
 });
 
-app.delete('/api/ventas/:id', (req, res) => {
+app.post('/api/transactions', (req, res) => {
+  const { type, category, description, amount, user_name } = req.body;
+  if (!type || !amount) return res.status(400).json({ error: 'Tipo y monto requeridos' });
+
+  db.run(
+    `INSERT INTO transactions (type, category, description, amount, user_name) VALUES (?, ?, ?, ?, ?)`,
+    [type, category || 'Varios', description || '', parseFloat(amount) || 0, user_name || 'ANTHONY CARDENAS'],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.delete('/api/transactions/:id', (req, res) => {
   const { id } = req.params;
 
-  db.get('SELECT items_json FROM ventas WHERE id = ?', [id], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: 'Venta no encontrada' });
+  db.get('SELECT * FROM transactions WHERE id = ?', [id], (err, tx) => {
+    if (err || !tx) return res.status(400).json({ error: 'Movimiento no encontrado' });
 
-    if (row.items_json) {
-      try {
-        const items = JSON.parse(row.items_json);
-        const stmt = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
-        items.forEach((item) => {
-          stmt.run(item.cantidad, item.id);
+    if (tx.category === 'Venta POS' && tx.description.includes('Factura #')) {
+      const parts = tx.description.split('Factura #');
+      if (parts[1]) {
+        const invNumber = parts[1].split(' ')[0].trim();
+        db.get('SELECT id FROM sales WHERE invoice_number = ?', [invNumber], (errSale, sale) => {
+          if (sale) {
+            db.all('SELECT product_barcode, quantity FROM sale_items WHERE sale_id = ?', [sale.id], (errItems, items) => {
+              if (items) {
+                items.forEach((item) => {
+                  db.run('UPDATE products SET stock = stock + ? WHERE barcode = ?', [item.quantity, item.product_barcode]);
+                });
+              }
+              db.run('DELETE FROM sale_items WHERE sale_id = ?', [sale.id]);
+              db.run('DELETE FROM sales WHERE id = ?', [sale.id]);
+            });
+          }
         });
-        stmt.finalize();
-      } catch (e) {
-        console.error('Error devolviendo stock:', e);
       }
     }
 
-    db.run('DELETE FROM ventas WHERE id = ?', [id], function (errDelete) {
-      if (errDelete) return res.status(500).json({ error: errDelete.message });
-      res.json({ message: 'Venta eliminada y stock devuelto exitosamente' });
+    db.run('DELETE FROM transactions WHERE id = ?', [id], function (errDel) {
+      if (errDel) return res.status(500).json({ error: errDel.message });
+      res.json({ success: true });
     });
   });
 });
 
-// --- RUTAS DE TURNOS ---
-app.get('/api/turnos/activo/:usuario_id', (req, res) => {
-  const { usuario_id } = req.params;
-  db.get(
-    "SELECT * FROM turnos WHERE usuario_id = ? AND estado = 'abierto' ORDER BY id DESC LIMIT 1",
-    [usuario_id],
-    (err, row) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(row || null);
+// --- CONFIGURACIÓN DIAN Y RECIBO ---
+app.get('/api/config', (req, res) => {
+  db.all('SELECT * FROM config', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const configObj = {
+      razon_social: 'TERRA FRUTOS SECOS',
+      nit: '40044029-8',
+      direccion: 'Cra 7 #15-63, Tunja, Boyacá',
+      telefono: '3183142180',
+      actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR',
+      footer_msg: '¡Gracias por su compra!'
+    };
+    if (rows) {
+      rows.forEach((r) => { configObj[r.key] = r.value; });
     }
-  );
+    res.json(configObj);
+  });
 });
 
-app.post('/api/turnos/abrir', (req, res) => {
-  const { usuario_id, nombre_cajero, base_inicial } = req.body;
-  const fechaInicio = getFechaHoraColombia();
+app.post('/api/config', (req, res) => {
+  const config = req.body;
+  const keys = Object.keys(config);
 
-  db.run(
-    `INSERT INTO turnos (usuario_id, nombre_cajero, base_inicial, fecha_inicio, estado)
-     VALUES (?, ?, ?, ?, 'abierto')`,
-    [usuario_id, nombre_cajero, Number(base_inicial) || 200000, fechaInicio],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({
-        message: 'Turno iniciado con éxito',
-        turno: {
-          id: this.lastID,
-          usuario_id,
-          nombre_cajero,
-          base_inicial: Number(base_inicial) || 200000,
-          fecha_inicio: fechaInicio,
-          estado: 'abierto'
+  if (keys.length === 0) return res.status(400).json({ error: 'Datos no válidos' });
+
+  let completed = 0;
+  keys.forEach((key) => {
+    db.run(
+      `INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [key, config[key]],
+      (err) => {
+        completed++;
+        if (completed === keys.length) {
+          res.json({ success: true });
         }
-      });
-    }
-  );
-});
-
-app.post('/api/turnos/cerrar', (req, res) => {
-  const { turno_id } = req.body;
-  const fechaCierre = getFechaHoraColombia();
-
-  db.get('SELECT * FROM turnos WHERE id = ?', [turno_id], (err, turno) => {
-    if (err || !turno) return res.status(404).json({ error: 'Turno no encontrado' });
-
-    db.all(
-      'SELECT * FROM ventas WHERE usuario_id = ? ORDER BY id DESC',
-      [turno.usuario_id],
-      (errVentas, rowsVentas) => {
-        let totalEfectivo = 0;
-        let totalTransferencia = 0;
-
-        if (rowsVentas && rowsVentas.length > 0) {
-          rowsVentas.forEach((v) => {
-            if (v.medio_pago && v.medio_pago.toLowerCase().includes('transferencia')) {
-              totalTransferencia += Number(v.total) || 0;
-            } else {
-              totalEfectivo += Number(v.total) || 0;
-            }
-          });
-        }
-
-        const totalVentas = totalEfectivo + totalTransferencia;
-
-        db.all('SELECT id, name AS nombre, stock FROM products', [], (errProd, rowsProducts) => {
-          const stockMap = {};
-          if (rowsProducts) {
-            rowsProducts.forEach(p => {
-              stockMap[p.id] = p.stock;
-              stockMap[p.nombre] = p.stock;
-            });
-          }
-
-          const ventasEnriquecidas = (rowsVentas || []).map(v => {
-            let items = [];
-            if (v.items_json) {
-              try {
-                items = JSON.parse(v.items_json).map(item => ({
-                  ...item,
-                  stockActual: stockMap[item.id] !== undefined ? stockMap[item.id] : (stockMap[item.nombre] ?? 0)
-                }));
-              } catch (e) {}
-            }
-            return {
-              ...v,
-              itemsEnriquecidos: items
-            };
-          });
-
-          db.run(
-            `UPDATE turnos SET fecha_cierre = ?, total_efectivo = ?, total_transferencia = ?, total_ventas = ?, estado = 'cerrado' WHERE id = ?`,
-            [fechaCierre, totalEfectivo, totalTransferencia, totalVentas, turno_id],
-            function (errUpdate) {
-              if (errUpdate) return res.status(500).json({ error: errUpdate.message });
-              res.json({
-                message: 'Turno cerrado exitosamente',
-                resumen: {
-                  turnoId: turno_id,
-                  cajero: turno.nombre_cajero,
-                  baseInicial: turno.base_inicial,
-                  fechaInicio: turno.fecha_inicio,
-                  fechaCierre: fechaCierre,
-                  totalEfectivo,
-                  totalTransferencia,
-                  totalVentas,
-                  efectivoEsperadoEnCaja: turno.base_inicial + totalEfectivo,
-                  ventasDelTurno: ventasEnriquecidas
-                }
-              });
-            }
-          );
-        });
       }
     );
   });
 });
 
-app.get('/api/turnos/:id/reporte', (req, res) => {
-  const { id } = req.params;
-  db.get('SELECT * FROM turnos WHERE id = ?', [id], (err, turno) => {
-    if (err || !turno) return res.status(404).json({ error: 'Turno no encontrado' });
-
-    db.all(
-      'SELECT * FROM ventas WHERE usuario_id = ? ORDER BY id DESC',
-      [turno.usuario_id],
-      (errVentas, rowsVentas) => {
-        let totalEfectivo = 0;
-        let totalTransferencia = 0;
-
-        if (rowsVentas && rowsVentas.length > 0) {
-          rowsVentas.forEach((v) => {
-            if (v.medio_pago && v.medio_pago.toLowerCase().includes('transferencia')) {
-              totalTransferencia += Number(v.total) || 0;
-            } else {
-              totalEfectivo += Number(v.total) || 0;
-            }
-          });
-        }
-
-        const totalVentas = totalEfectivo + totalTransferencia;
-
-        db.all('SELECT id, name AS nombre, stock FROM products', [], (errProd, rowsProducts) => {
-          const stockMap = {};
-          if (rowsProducts) {
-            rowsProducts.forEach(p => {
-              stockMap[p.id] = p.stock;
-              stockMap[p.nombre] = p.stock;
-            });
-          }
-
-          const ventasEnriquecidas = (rowsVentas || []).map(v => {
-            let items = [];
-            if (v.items_json) {
-              try {
-                items = JSON.parse(v.items_json).map(item => ({
-                  ...item,
-                  stockActual: stockMap[item.id] !== undefined ? stockMap[item.id] : (stockMap[item.nombre] ?? 0)
-                }));
-              } catch (e) {}
-            }
-            return {
-              ...v,
-              itemsEnriquecidos: items
-            };
-          });
-
-          res.json({
-            resumen: {
-              turnoId: turno.id,
-              cajero: turno.nombre_cajero,
-              baseInicial: turno.base_inicial,
-              fechaInicio: turno.fecha_inicio,
-              fechaCierre: turno.fecha_cierre || 'Turno En Curso',
-              totalEfectivo: turno.total_efectivo || totalEfectivo,
-              totalTransferencia: turno.total_transferencia || totalTransferencia,
-              totalVentas: turno.total_ventas || totalVentas,
-              efectivoEsperadoEnCaja: turno.base_inicial + (turno.total_efectivo || totalEfectivo),
-              ventasDelTurno: ventasEnriquecidas
-            }
-          });
-        });
-      }
-    );
-  });
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
 
-app.get('/api/turnos', (req, res) => {
-  db.all('SELECT * FROM turnos ORDER BY id DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-// --- RUTAS DE CONTABILIDAD, INGRESOS Y EGRESOS ---
-
-// Obtenemos los movimientos extras
-app.get('/api/egresos', (req, res) => {
-  db.all('SELECT * FROM egresos ORDER BY id DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-app.post('/api/egresos', (req, res) => {
-  const { tipo, monto, descripcion, categoria, usuario_nombre } = req.body;
-  const fechaColombia = getFechaHoraColombia();
-
-  db.run(
-    `INSERT INTO egresos (tipo, monto, descripcion, categoria, fecha, usuario_nombre)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [tipo || 'egreso', Number(monto), descripcion, categoria || 'General', fechaColombia, usuario_nombre || 'Admin'],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: 'Movimiento registrado con éxito', id: this.lastID });
-    }
-  );
-});
-
-app.delete('/api/egresos/:id', (req, res) => {
-  const { id } = req.params;
-  db.run('DELETE FROM egresos WHERE id = ?', [id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Movimiento eliminado correctamente' });
-  });
-});
-
-// Resumen general de Contabilidad
-app.get('/api/contabilidad/resumen', (req, res) => {
-  // 1. Obtener ventas totales
-  db.all('SELECT total, medio_pago FROM ventas', [], (errVentas, rowsVentas) => {
-    if (errVentas) return res.status(500).json({ error: errVentas.message });
-
-    let totalVentas = 0;
-    let totalEfectivoVentas = 0;
-    (rowsVentas || []).forEach((v) => {
-      totalVentas += Number(v.total) || 0;
-      if (!v.medio_pago || !v.medio_pago.toLowerCase().includes('transferencia')) {
-        totalEfectivoVentas += Number(v.total) || 0;
-      }
-    });
-
-    // 2. Obtener valor total del inventario actual
-    db.all('SELECT sale_price AS precio, stock FROM products', [], (errProd, rowsProducts) => {
-      if (errProd) return res.status(500).json({ error: errProd.message });
-
-      let saldoInventarioActual = 0;
-      (rowsProducts || []).forEach((p) => {
-        saldoInventarioActual += (Number(p.precio) || 0) * (Number(p.stock) || 0);
-      });
-
-      // 3. Obtener egresos e ingresos extras
-      db.all('SELECT tipo, monto FROM egresos', [], (errEg, rowsEgresos) => {
-        if (errEg) return res.status(500).json({ error: errEg.message });
-
-        let totalIngresosExtras = 0;
-        let totalEgresos = 0;
-        (rowsEgresos || []).forEach((e) => {
-          if (e.tipo === 'ingreso') {
-            totalIngresosExtras += Number(e.monto) || 0;
-          } else {
-            totalEgresos += Number(e.monto) || 0;
-          }
-        });
-
-        // 4. Obtener el saldo del mes anterior (último cierre de mes)
-        db.get('SELECT balance_neto FROM cierres_mes ORDER BY id DESC LIMIT 1', [], (errCierre, ultimoCierre) => {
-          const saldoMesAnterior = ultimoCierre ? Number(ultimoCierre.balance_neto) || 0 : 0;
-
-          // 5. Calcular saldo de caja disponible (Ventas Efectivo + Ingresos Extras - Egresos)
-          const saldoCaja = totalEfectivoVentas + totalIngresosExtras - totalEgresos;
-
-          // Balance Neto
-          const balanceNeto = saldoMesAnterior + totalVentas + totalIngresosExtras - totalEgresos;
-
-          res.json({
-            saldoMesAnterior,
-            saldoInventarioActual,
-            totalVentas,
-            totalIngresosExtras,
-            totalIngresos: totalVentas + totalIngresosExtras,
-            totalEgresos,
-            saldoCaja,
-            balanceNeto,
-            fechaColombia: getFechaHoraColombia()
-          });
-        });
-      });
-    });
-  });
-});
-
-// Ejecutar Cierre de Mes
-app.post('/api/contabilidad/cerrar-mes', (req, res) => {
-  const { usuario_nombre } = req.body;
-  const fechaColombia = getFechaHoraColombia();
-  
-  // Nombre del mes y año en formato es-CO (ej. "Agosto 2026")
-  const fechaObj = new Date();
-  const mesNombre = fechaObj.toLocaleString('es-CO', { month: 'long', timeZone: 'America/Bogota' });
-  const anio = fechaObj.getFullYear();
-  const mesAnioTag = `${mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1)} ${anio}`;
-
-  // Obtener balance consolidado actual
-  db.all('SELECT total, medio_pago FROM ventas', [], (errVentas, rowsVentas) => {
-    let totalVentas = 0;
-    let totalEfectivoVentas = 0;
-    (rowsVentas || []).forEach((v) => {
-      totalVentas += Number(v.total) || 0;
-      if (!v.medio_pago || !v.medio_pago.toLowerCase().includes('transferencia')) {
-        totalEfectivoVentas += Number(v.total) || 0;
-      }
-    });
-
-    db.all('SELECT sale_price AS precio, stock FROM products', [], (errProd, rowsProducts) => {
-      let saldoInventario = 0;
-      (rowsProducts || []).forEach((p) => {
-        saldoInventario += (Number(p.precio) || 0) * (Number(p.stock) || 0);
-      });
-
-      db.all('SELECT tipo, monto FROM egresos', [], (errEg, rowsEgresos) => {
-        let totalIngresosExtras = 0;
-        let totalEgresos = 0;
-        (rowsEgresos || []).forEach((e) => {
-          if (e.tipo === 'ingreso') {
-            totalIngresosExtras += Number(e.monto) || 0;
-          } else {
-            totalEgresos += Number(e.monto) || 0;
-          }
-        });
-
-        db.get('SELECT balance_neto FROM cierres_mes ORDER BY id DESC LIMIT 1', [], (errCierre, ultimoCierre) => {
-          const saldoMesAnterior = ultimoCierre ? Number(ultimoCierre.balance_neto) || 0 : 0;
-          const saldoCaja = totalEfectivoVentas + totalIngresosExtras - totalEgresos;
-          const balanceNeto = saldoMesAnterior + totalVentas + totalIngresosExtras - totalEgresos;
-
-          db.run(
-            `INSERT INTO cierres_mes 
-            (mes_anio, fecha_cierre, saldo_mes_anterior, total_ventas, total_ingresos_extras, total_egresos, saldo_inventario, saldo_caja, balance_neto, usuario_nombre)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [mesAnioTag, fechaColombia, saldoMesAnterior, totalVentas, totalIngresosExtras, totalEgresos, saldoInventario, saldoCaja, balanceNeto, usuario_nombre || 'Administrador'],
-            function (errInsert) {
-              if (errInsert) return res.status(500).json({ error: errInsert.message });
-              res.json({
-                message: `Cierre de mes (${mesAnioTag}) ejecutado exitosamente`,
-                cierre: {
-                  id: this.lastID,
-                  mes_anio: mesAnioTag,
-                  fecha_cierre: fechaColombia,
-                  saldo_mes_anterior: saldoMesAnterior,
-                  total_ventas: totalVentas,
-                  total_ingresos_extras: totalIngresosExtras,
-                  total_egresos: totalEgresos,
-                  saldo_inventario: saldoInventario,
-                  saldo_caja: saldoCaja,
-                  balance_neto: balanceNeto,
-                  usuario_nombre: usuario_nombre || 'Administrador'
-                }
-              });
-            }
-          );
-        });
-      });
-    });
-  });
-});
-
-// Obtener cierres de mes para reportes
-app.get('/api/contabilidad/cierres-mes', (req, res) => {
-  db.all('SELECT * FROM cierres_mes ORDER BY id DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
+const PORT = 3000;
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor Terra Frutos Secos corriendo en el puerto ${PORT}`);
+  console.log(`Servidor Backend ejecutándose en el puerto ${PORT}`);
 });

@@ -1,1566 +1,883 @@
 import React, { useState, useEffect } from 'react';
+import './App.css';
 
-const API_URL = 'https://terra-pos-backend-526.onrender.com/api';
+const API = `http://${window.location.hostname}:3000`;
 
 export default function App() {
-  // Estado de sesión y usuario logueado
-  const [usuarioLogueado, setUsuarioLogueado] = useState(() => {
-    const saved = localStorage.getItem('usuario_pos');
-    return saved ? JSON.parse(saved) : null;
+  const [currentUser, setCurrentUser] = useState(null);
+  const [activeShift, setActiveShift] = useState(null);
+  const [showShiftModal, setShowShiftModal] = useState(false);
+  const [shiftSummary, setShiftSummary] = useState(null);
+  const [shiftBaseInput, setShiftBaseInput] = useState('');
+  const [activeTab, setActiveTab] = useState('pos');
+
+  // Datos de Configuración del Negocio
+  const [storeConfig, setStoreConfig] = useState({
+    razon_social: 'TERRA FRUTOS SECOS',
+    nit: '40044029-8',
+    direccion: 'Cra 7 #15-63, Tunja, Boyacá',
+    telefono: '3183142180',
+    actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR',
+    footer_msg: '¡Gracias por su compra!'
   });
 
-  const [vistaActual, setVistaActual] = useState('caja');
-  const [sidebarHovered, setSidebarHovered] = useState(false);
+  // Datos de Factura para Impresión
+  const [lastInvoice, setLastInvoice] = useState(null);
 
-  // Formulario de login
-  const [loginInput, setLoginInput] = useState({ usuario: '', password: '' });
+  // Login
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Control de Turnos / Arqueo de Caja
-  const [turnoActivo, setTurnoActivo] = useState(null);
-  const [baseInicialInput, setBaseInicialInput] = useState('200000');
-  const [modalResumenTurno, setModalResumenTurno] = useState(null);
-  const [historialTurnos, setHistorialTurnos] = useState([]);
+  // Productos y Carrito POS
+  const [products, setProducts] = useState([]);
+  const [cart, setCart] = useState([]);
+  const [search, setSearch] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('Efectivo');
+  const [amountPaid, setAmountPaid] = useState('');
+  const [customerDoc, setCustomerDoc] = useState('222222222222');
+  const [customerName, setCustomerName] = useState('Consumidor Final');
 
-  // Estados de inventario y caja
-  const [productos, setProductos] = useState([]);
-  const [busqueda, setBusqueda] = useState('');
-  const [cantidadAñadir, setCantidadAñadir] = useState(1);
-  const [carrito, setCarrito] = useState([]);
+  // Inventario y Agotados
+  const [invSearch, setInvSearch] = useState('');
+  const [outSearch, setOutSearch] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [newProd, setNewProd] = useState({ barcode: '', name: '', sale_price: '', stock: '', min_stock: '3' });
 
-  // Formulario de Crear Producto
-  const [nuevoProducto, setNuevoProducto] = useState({
-    barcode: '',
-    nombre: '',
-    precio: '',
-    stock: '',
-    min_stock: '5'
-  });
+  // Contabilidad
+  const [transactions, setTransactions] = useState([]);
+  const [showTxModal, setShowTxModal] = useState(false);
+  const [newTx, setNewTx] = useState({ type: 'Ingreso', category: 'Varios', description: '', amount: '' });
 
-  // Estado para la edición de inventario y casillas de entrada
-  const [edicionStock, setEdicionStock] = useState({});
-  const [entradas, setEntradas] = useState({});
+  // Empleados
+  const [usersList, setUsersList] = useState([]);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'Cajero' });
 
-  // Control de Medio de Pago y Cliente
-  const [medioPago, setMedioPago] = useState('efectivo');
-  const [pagaCon, setPagaCon] = useState('');
-  const [clienteCc, setClienteCc] = useState('');
+  // Reportes y Turnos
+  const [shiftsList, setShiftsList] = useState([]);
+  const [reportType, setReportType] = useState('daily');
+  const [filterUser, setFilterUser] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [printShiftData, setPrintShiftData] = useState(null);
 
-  // Modal de Factura POS DIAN
-  const [facturaData, setFacturaData] = useState(null);
-
-  // Estados de gestión de usuarios y reportes
-  const [empleados, setEmpleados] = useState([]);
-  const [nuevoEmpleado, setNuevoEmpleado] = useState({
-    nombre: '',
-    usuario: '',
-    password: '',
-    rol: 'cajero'
-  });
-
-  const [ventas, setVentas] = useState([]);
-
-  // ESTADOS DE CONTABILIDAD
-  const [resumenContabilidad, setResumenContabilidad] = useState({
-    saldoMesAnterior: 0,
-    saldoInventarioActual: 0,
-    totalVentas: 0,
-    totalIngresosExtras: 0,
-    totalIngresos: 0,
-    totalEgresos: 0,
-    saldoCaja: 0,
-    balanceNeto: 0,
-    fechaColombia: ''
-  });
-  const [listaEgresos, setListaEgresos] = useState([]);
-  const [nuevoMovimiento, setNuevoMovimiento] = useState({
-    tipo: 'egreso',
-    monto: '',
-    descripcion: '',
-    categoria: 'Servicios/Varios'
-  });
-  const [cierresMes, setCierresMes] = useState([]);
-  const [modalReporteMes, setModalReporteMes] = useState(null);
-
-  // Bloqueo de navegación según el rol
+  // Carga inicial y control de sesión activa
   useEffect(() => {
-    if (usuarioLogueado && usuarioLogueado.rol !== 'admin' && vistaActual !== 'caja') {
-      setVistaActual('caja');
+    const savedUser = localStorage.getItem('pos_user');
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        setCurrentUser(user);
+      } catch (e) {
+        localStorage.removeItem('pos_user');
+      }
     }
-  }, [usuarioLogueado, vistaActual]);
+  }, []);
 
-  // Cargar datos al iniciar sesión
+  // Carga de datos únicamente cuando hay un usuario autenticado
   useEffect(() => {
-    if (usuarioLogueado) {
-      cargarProductos();
-      cargarEmpleados();
-      cargarVentas();
-      consultarTurnoActivo();
-      cargarHistorialTurnos();
-      cargarContabilidad();
-      cargarCierresMes();
+    if (currentUser) {
+      checkActiveShift(currentUser.name);
+      loadConfig();
+      loadProducts();
+      loadTransactions();
+      loadUsers();
+      loadShifts();
     }
-  }, [usuarioLogueado]);
+  }, [currentUser]);
 
-  // Disparar vista previa / guardado de PDF automáticamente al abrir modal de resumen de turno
-  useEffect(() => {
-    if (modalResumenTurno || modalReporteMes) {
-      const timer = setTimeout(() => {
-        window.print();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [modalResumenTurno, modalReporteMes]);
+  const loadConfig = async () => {
+    try {
+      const res = await fetch(`${API}/api/config`);
+      if (res.ok) {
+        const data = await res.json();
+        setStoreConfig(prev => ({ ...prev, ...data }));
+      }
+    } catch (e) { console.error('Error cargando configuración:', e); }
+  };
 
-  // Autenticación
+  const handleSaveConfig = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API}/api/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(storeConfig)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert('⚙️ Configuración del Recibo y DIAN actualizada correctamente');
+      } else {
+        alert('⚠️ Error al guardar la configuración');
+      }
+    } catch (e) { alert('Error conectando con el servidor'); }
+  };
+
+  const loadProducts = async () => {
+    try {
+      const res = await fetch(`${API}/api/products`);
+      if (res.ok) setProducts(await res.json());
+    } catch (e) { console.error('Error cargando productos:', e); }
+  };
+
+  const loadTransactions = async () => {
+    try {
+      const res = await fetch(`${API}/api/transactions`);
+      if (res.ok) setTransactions(await res.json());
+    } catch (e) { console.error('Error cargando transacciones:', e); }
+  };
+
+  const loadUsers = async () => {
+    try {
+      const res = await fetch(`${API}/api/users`);
+      if (res.ok) setUsersList(await res.json());
+    } catch (e) { console.error('Error cargando usuarios:', e); }
+  };
+
+  const loadShifts = async () => {
+    try {
+      const res = await fetch(`${API}/api/shifts`);
+      if (res.ok) setShiftsList(await res.json());
+    } catch (e) { console.error('Error cargando turnos:', e); }
+  };
+
+  const checkActiveShift = async (userName) => {
+    try {
+      const res = await fetch(`${API}/api/shifts/active?user_name=${encodeURIComponent(userName)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setActiveShift(data);
+      } else {
+        setActiveShift(null);
+      }
+    } catch (e) { console.error('Error verificando turno:', e); }
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
     try {
-      const res = await fetch(`${API_URL}/login`, {
+      const res = await fetch(`${API}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginInput)
+        body: JSON.stringify({ username: loginUser, password: loginPass })
       });
       const data = await res.json();
-      if (res.ok && data.usuario) {
-        setUsuarioLogueado(data.usuario);
-        localStorage.setItem('usuario_pos', JSON.stringify(data.usuario));
-        setVistaActual('caja');
+      if (res.ok && data.success) {
+        setCurrentUser(data.user);
+        localStorage.setItem('pos_user', JSON.stringify(data.user));
       } else {
         setLoginError(data.error || 'Credenciales incorrectas');
       }
-    } catch (err) {
-      setLoginError('Error de conexión con el servidor');
-    }
+    } catch (e) { setLoginError('Error de conexión con el servidor'); }
   };
 
   const handleLogout = () => {
-    setUsuarioLogueado(null);
-    setTurnoActivo(null);
-    localStorage.removeItem('usuario_pos');
+    localStorage.removeItem('pos_user');
+    setCurrentUser(null);
+    setActiveShift(null);
+    setCart([]);
   };
 
-  // CONSULTAS DE CONTABILIDAD
-  const cargarContabilidad = async () => {
+  const handleOpenShift = async () => {
+    const baseValue = parseFloat(shiftBaseInput) || 0;
     try {
-      const resResumen = await fetch(`${API_URL}/contabilidad/resumen`);
-      if (resResumen.ok) {
-        const data = await resResumen.json();
-        setResumenContabilidad(data);
+      const res = await fetch(`${API}/api/shifts/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_name: currentUser.name, start_amount: baseValue })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setShowShiftModal(false);
+        setShiftBaseInput('');
+        checkActiveShift(currentUser.name);
+        loadShifts();
+        alert(`☀️ Turno iniciado con base de $${baseValue.toLocaleString()}`);
       }
+    } catch (e) { alert('Error al abrir el turno'); }
+  };
 
-      const resEgresos = await fetch(`${API_URL}/egresos`);
-      if (resEgresos.ok) {
-        const dataE = await resEgresos.json();
-        setListaEgresos(dataE);
+  const handleCloseShift = async () => {
+    if (!activeShift) return;
+    if (!window.confirm('¿Desea cerrar el turno actual?')) return;
+
+    try {
+      const res = await fetch(`${API}/api/shifts/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shift_id: activeShift.id })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setShiftSummary(data.summary);
+        setActiveShift(null);
+        loadShifts();
+      } else {
+        alert('⚠️ No se pudo cerrar el turno');
       }
-    } catch (err) {
-      console.error('Error cargando contabilidad:', err);
+    } catch (e) { alert('Error al cerrar el turno'); }
+  };
+
+  const addToCart = (p) => {
+    if (!activeShift) { alert('⚠️ Debe iniciar un turno para poder vender.'); setShowShiftModal(true); return; }
+    const exist = cart.find(x => x.barcode === p.barcode);
+    if (exist) {
+      setCart(cart.map(x => x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x));
+    } else {
+      setCart([...cart, { ...p, quantity: 1 }]);
     }
   };
 
-  const cargarCierresMes = async () => {
-    try {
-      const res = await fetch(`${API_URL}/contabilidad/cierres-mes`);
-      if (res.ok) {
-        const data = await res.json();
-        setCierresMes(data);
-      }
-    } catch (err) {
-      console.error('Error cargando cierres de mes:', err);
-    }
+  const updateQty = (barcode, qty) => {
+    if (qty <= 0) setCart(cart.filter(x => x.barcode !== barcode));
+    else setCart(cart.map(x => x.barcode === barcode ? { ...x, quantity: qty } : x));
   };
 
-  const handleCrearMovimiento = async (e) => {
-    e.preventDefault();
-    if (!nuevoMovimiento.monto || Number(nuevoMovimiento.monto) <= 0) {
-      return alert('Ingrese un monto válido');
-    }
+  const totalCart = cart.reduce((s, i) => s + (i.sale_price * i.quantity), 0);
+  const received = parseFloat(amountPaid) || totalCart;
+  const changeGiven = received >= totalCart ? received - totalCart : 0;
+
+  const handleProcessSale = async (saleType) => {
+    if (cart.length === 0) return alert('El carrito está vacío');
     try {
-      const res = await fetch(`${API_URL}/egresos`, {
+      const res = await fetch(`${API}/api/sales`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...nuevoMovimiento,
-          usuario_nombre: usuarioLogueado.nombre
-        })
-      });
-      if (res.ok) {
-        alert(`¡${nuevoMovimiento.tipo === 'ingreso' ? 'Ingreso Extra' : 'Egreso/Gasto'} registrado exitosamente!`);
-        setNuevoMovimiento({
-          tipo: 'egreso',
-          monto: '',
-          descripcion: '',
-          categoria: 'Servicios/Varios'
-        });
-        cargarContabilidad();
-      } else {
-        alert('Error registrando movimiento');
-      }
-    } catch (err) {
-      alert('Error de red al guardar movimiento');
-    }
-  };
-
-  const handleEliminarMovimiento = async (id) => {
-    if (window.confirm('¿Estás seguro de eliminar este registro contable?')) {
-      try {
-        const res = await fetch(`${API_URL}/egresos/${id}`, { method: 'DELETE' });
-        if (res.ok) {
-          cargarContabilidad();
-        }
-      } catch (err) {
-        alert('Error al eliminar registro');
-      }
-    }
-  };
-
-  const handleEjecutarCierreMes = async () => {
-    if (!window.confirm(`¿Confirmas el Cierre de Mes para Tunja, Colombia? Esta acción consolidará todos los Saldos, Egresos e Inventario.`)) {
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_URL}/contabilidad/cerrar-mes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usuario_nombre: usuarioLogueado.nombre })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        alert(data.message);
-        setModalReporteMes(data.cierre);
-        cargarCierresMes();
-        cargarContabilidad();
-      } else {
-        alert(data.error || 'Error ejecutando Cierre de Mes');
-      }
-    } catch (err) {
-      alert('Error de conexión al cerrar mes');
-    }
-  };
-
-  // CONSULTAS Y FUNCIONES DE TURNO
-  const consultarTurnoActivo = async () => {
-    if (!usuarioLogueado) return;
-    try {
-      const res = await fetch(`${API_URL}/turnos/activo/${usuarioLogueado.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setTurnoActivo(data);
-      }
-    } catch (err) {
-      console.error('Error al consultar turno activo:', err);
-    }
-  };
-
-  const cargarHistorialTurnos = async () => {
-    try {
-      const res = await fetch(`${API_URL}/turnos`);
-      if (res.ok) {
-        const data = await res.json();
-        setHistorialTurnos(data);
-      }
-    } catch (err) {
-      console.error('Error cargando historial de turnos:', err);
-    }
-  };
-
-  const handleIniciarTurno = async () => {
-    if (!baseInicialInput || Number(baseInicialInput) < 0) {
-      return alert('Ingrese un valor válido para la base inicial de caja');
-    }
-
-    try {
-      const res = await fetch(`${API_URL}/turnos/abrir`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          usuario_id: usuarioLogueado.id,
-          nombre_cajero: usuarioLogueado.nombre,
-          base_inicial: Number(baseInicialInput)
+          shift_id: activeShift?.id || null,
+          user_name: currentUser.name,
+          customer_doc: customerDoc,
+          customer_name: customerName,
+          items: cart,
+          total: totalCart,
+          payment_method: paymentMethod,
+          amount_paid: received,
+          change_given: changeGiven,
+          sale_type: saleType
         })
       });
       const data = await res.json();
-      if (res.ok) {
-        setTurnoActivo(data.turno);
-        alert(`¡Turno iniciado exitosamente por ${usuarioLogueado.nombre}! Base: $${Number(baseInicialInput).toLocaleString()}`);
-      } else {
-        alert(data.error || 'Error al iniciar turno');
-      }
-    } catch (err) {
-      alert('Error de red al iniciar el turno');
-    }
-  };
+      if (res.ok && data.success) {
+        const invoiceData = {
+          number: data.invoice_number,
+          date: new Date().toLocaleString(),
+          customerDoc,
+          customerName,
+          items: [...cart],
+          total: totalCart,
+          paymentMethod,
+          received,
+          changeGiven,
+          seller: currentUser.name
+        };
 
-  const handleCerrarTurno = async () => {
-    if (!turnoActivo) return;
-    if (!window.confirm(`¿Estás seguro de realizar el Cierre de Turno para ${usuarioLogueado.nombre}?`)) {
-      return;
-    }
+        setLastInvoice(invoiceData);
+        alert(`✅ Venta Registrada con Éxito. Factura #: ${data.invoice_number}`);
 
-    try {
-      const res = await fetch(`${API_URL}/turnos/cerrar`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ turno_id: turnoActivo.id })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setModalResumenTurno(data.resumen);
-        setTurnoActivo(null);
-        cargarHistorialTurnos();
-        cargarContabilidad();
-      } else {
-        alert(data.error || 'Error al cerrar el turno');
-      }
-    } catch (err) {
-      alert('Error de conexión al cerrar turno');
-    }
-  };
-
-  const handleImprimirReporteTurno = async (turnoId) => {
-    try {
-      const res = await fetch(`${API_URL}/turnos/${turnoId}/reporte`);
-      if (res.ok) {
-        const data = await res.json();
-        setModalResumenTurno(data.resumen);
-      } else {
-        alert('Error al obtener el reporte del turno');
-      }
-    } catch (err) {
-      alert('Error de conexión al cargar el reporte');
-    }
-  };
-
-  // Consultas API
-  const cargarProductos = async () => {
-    try {
-      const res = await fetch(`${API_URL}/productos`);
-      if (res.ok) {
-        const data = await res.json();
-        setProductos(data);
-
-        const mapaEdicion = {};
-        const mapaEntradas = {};
-        data.forEach((p) => {
-          mapaEdicion[p.id] = {
-            stock: p.stock,
-            precio: p.precio,
-            min_stock: p.min_stock || 5
-          };
-          mapaEntradas[p.id] = '';
-        });
-        setEdicionStock(mapaEdicion);
-        setEntradas(mapaEntradas);
-      }
-    } catch (err) {
-      console.error('Error cargando productos:', err);
-    }
-  };
-
-  const cargarEmpleados = async () => {
-    try {
-      const res = await fetch(`${API_URL}/usuarios`);
-      if (res.ok) {
-        const data = await res.json();
-        setEmpleados(data);
-      }
-    } catch (err) {
-      console.error('Error cargando empleados:', err);
-    }
-  };
-
-  const cargarVentas = async () => {
-    try {
-      const res = await fetch(`${API_URL}/ventas`);
-      if (res.ok) {
-        const data = await res.json();
-        setVentas(data);
-      }
-    } catch (err) {
-      console.error('Error cargando ventas:', err);
-    }
-  };
-
-  const handleEliminarVenta = async (ventaId) => {
-    if (window.confirm(`¿Estás seguro de eliminar la Venta #${ventaId}? Se devolverán los productos vendidos al inventario.`)) {
-      try {
-        const res = await fetch(`${API_URL}/ventas/${ventaId}`, {
-          method: 'DELETE'
-        });
-        if (res.ok) {
-          alert(`¡Venta #${ventaId} eliminada correctamente y stock restaurado!`);
-          cargarVentas();
-          cargarProductos();
-          cargarHistorialTurnos();
-          cargarContabilidad();
-        } else {
-          alert('Error al eliminar la venta');
+        if (saleType === 'Facturada') {
+          setTimeout(() => window.print(), 300);
         }
-      } catch (err) {
-        alert('Error de conexión al intentar eliminar la venta');
+
+        setCart([]);
+        setAmountPaid('');
+        loadProducts();
+        loadTransactions();
+      } else {
+        alert(`⚠️ ${data.error || 'Error procesando la venta'}`);
       }
-    }
+    } catch (e) { alert('Error de conexión al registrar la venta'); }
   };
 
-  const handleCrearProducto = async (e) => {
+  const handleSaveNewProduct = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API_URL}/productos`, {
+      const res = await fetch(`${API}/api/products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nuevoProducto)
+        body: JSON.stringify(newProd)
       });
       const data = await res.json();
-      if (res.ok) {
-        alert('¡Producto creado exitosamente!');
-        setNuevoProducto({ barcode: '', nombre: '', precio: '', stock: '', min_stock: '5' });
-        cargarProductos();
-        cargarContabilidad();
-      } else {
-        alert(data.error || 'Error al crear producto');
-      }
-    } catch (err) {
-      alert('Error de conexión al guardar producto');
-    }
+      if (res.ok && data.success) {
+        alert('✅ Producto registrado correctamente');
+        setNewProd({ barcode: '', name: '', sale_price: '', stock: '', min_stock: '3' });
+        setShowAddModal(false);
+        loadProducts();
+      } else { alert(`⚠️ ${data.error}`); }
+    } catch (e) { alert('Error conectando al servidor'); }
   };
 
-  const handleGuardarCambiosStock = async (id) => {
-    const itemEditado = edicionStock[id];
-    if (!itemEditado) return;
-
-    const entradaValor = Number(entradas[id]) || 0;
-    const stockActualBase = Number(itemEditado.stock) || 0;
-    const stockCalculadoFinal = stockActualBase + entradaValor;
-
+  const handleUpdateProduct = async (e) => {
+    e.preventDefault();
     try {
-      const res = await fetch(`${API_URL}/productos/${id}`, {
+      const res = await fetch(`${API}/api/products/${editingProduct.barcode}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          stock: stockCalculadoFinal,
-          precio: itemEditado.precio,
-          min_stock: itemEditado.min_stock
-        })
+        body: JSON.stringify(editingProduct)
       });
-
-      if (res.ok) {
-        alert(`¡Actualizado! Nuevo Stock Total: ${stockCalculadoFinal}`);
-        setEntradas((prev) => ({ ...prev, [id]: '' }));
-        cargarProductos();
-        cargarContabilidad();
-      } else {
-        alert('Error al actualizar el producto');
-      }
-    } catch (err) {
-      alert('Error de conexión al actualizar stock');
-    }
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert('✅ Producto actualizado correctamente');
+        setEditingProduct(null);
+        loadProducts();
+      } else { alert(`⚠️ ${data.error}`); }
+    } catch (e) { alert('Error conectando al servidor'); }
   };
 
-  const agregarAlCarrito = (producto, cant = 1) => {
-    if (!turnoActivo) {
-      alert('Debes Iniciar Turno con la Base de Caja antes de realizar ventas.');
-      return;
-    }
-    const cantidadAgregar = Math.max(1, Number(cant));
-    setCarrito((prev) => {
-      const existe = prev.find((item) => item.id === producto.id);
-      if (existe) {
-        return prev.map((item) =>
-          item.id === producto.id
-            ? { ...item, cantidad: item.cantidad + cantidadAgregar }
-            : item
-        );
-      }
-      return [...prev, { ...producto, cantidad: cantidadAgregar }];
-    });
+  const handleDeleteProduct = async (barcode, name) => {
+    if (!window.confirm(`¿Está seguro de que desea eliminar "${name}" (CÓD: ${barcode})?`)) return;
+    try {
+      const res = await fetch(`${API}/api/products/${barcode}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert('🗑️ Producto eliminado correctamente');
+        loadProducts();
+      } else { alert(`⚠️ ${data.error}`); }
+    } catch (e) { alert('Error conectando al servidor'); }
   };
 
-  const handleKeyDownBusqueda = (e) => {
-    if (e.key === 'Enter' && busqueda.trim() !== '') {
-      e.preventDefault();
-      if (!turnoActivo) {
-        alert('Debes Iniciar Turno con la Base de Caja antes de realizar ventas.');
-        return;
-      }
-      const productoEncontrado = productos.find(
-        (p) =>
-          (p.barcode && p.barcode.toString().toLowerCase() === busqueda.trim().toLowerCase()) ||
-          p.nombre.toLowerCase().includes(busqueda.trim().toLowerCase())
-      );
-
-      if (productoEncontrado && productoEncontrado.stock > 0) {
-        agregarAlCarrito(productoEncontrado, cantidadAñadir);
-        setBusqueda('');
-        setCantidadAñadir(1);
-      } else {
-        alert('Producto no encontrado o sin stock');
-      }
-    }
-  };
-
-  const actualizarCantidadCarrito = (id, nuevaCantidad) => {
-    const cantNum = Number(nuevaCantidad);
-    setCarrito((prev) =>
-      prev
-        .map((item) => {
-          if (item.id === id) {
-            return cantNum > 0 ? { ...item, cantidad: cantNum } : null;
-          }
-          return item;
-        })
-        .filter(Boolean)
-    );
-  };
-
-  const totalCarrito = carrito.reduce(
-    (acc, item) => acc + item.precio * item.cantidad,
-    0
-  );
-
-  const cambioCalculado = medioPago === 'efectivo'
-    ? Math.max(0, (Number(pagaCon) || 0) - totalCarrito)
-    : 0;
-
-  const procesarVenta = async (deseaImprimir = true) => {
-    if (!turnoActivo) return alert('Debes iniciar turno antes de vender.');
-    if (carrito.length === 0) return alert('El carrito está vacío');
-    if (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito) {
-      return alert('El monto recibido en efectivo es inferior al total');
-    }
-
-    const pagaConFinal = medioPago === 'transferencia' ? totalCarrito : Number(pagaCon);
+  const handleSaveTransaction = async (e) => {
+    e.preventDefault();
+    if (!newTx.amount || parseFloat(newTx.amount) <= 0) return alert('Monto inválido');
 
     try {
-      const res = await fetch(`${API_URL}/ventas`, {
+      const res = await fetch(`${API}/api/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: carrito,
-          total: totalCarrito,
-          usuario_id: usuarioLogueado.id,
-          medio_pago: medioPago,
-          cliente_cc: clienteCc.trim()
-        })
+        body: JSON.stringify({ ...newTx, user_name: currentUser.name })
       });
-
       const data = await res.json();
-
-      if (res.ok) {
-        const ahora = new Date();
-        const fechaFormateada = ahora.toLocaleDateString('es-CO', { timeZone: 'America/Bogota' });
-        const horaFormateada = ahora.toLocaleTimeString('es-CO', {
-          timeZone: 'America/Bogota',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: true
-        });
-
-        if (deseaImprimir) {
-          const nuevaFactura = {
-            id: data.ventaId || (ventas.length + 1),
-            fechaHora: `${fechaFormateada}, ${horaFormateada}`,
-            cajero: usuarioLogueado.nombre,
-            clienteCc: clienteCc.trim(),
-            items: [...carrito],
-            total: totalCarrito,
-            medioPago: medioPago === 'efectivo' ? 'EFECTIVO' : 'TRANSFERENCIA (ELECTRONICO)',
-            pagaCon: pagaConFinal,
-            cambio: medioPago === 'efectivo' ? cambioCalculado : 0
-          };
-          setFacturaData(nuevaFactura);
-        } else {
-          alert(`¡Venta #${data.ventaId || ''} registrada exitosamente!`);
-        }
-
-        setCarrito([]);
-        setPagaCon('');
-        setClienteCc('');
-        setMedioPago('efectivo');
-        cargarProductos();
-        cargarVentas();
-        cargarContabilidad();
-      } else {
-        alert('Error al procesar la venta');
-      }
-    } catch (err) {
-      alert('Error de conexión con el servidor');
-    }
+      if (res.ok && data.success) {
+        alert(`✅ ${newTx.type} registrado correctamente`);
+        setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' });
+        setShowTxModal(false);
+        loadTransactions();
+      } else { alert(`⚠️ ${data.error}`); }
+    } catch (e) { alert('Error conectando al servidor'); }
   };
 
-  const handleCrearEmpleado = async (e) => {
+  const handleDeleteTransaction = async (id, description, category) => {
+    const isSale = category === 'Venta POS';
+    const msg = isSale
+      ? `¿Desea anular la venta "${description}"? Esto eliminará el ingreso contable y repondrá las unidades vendidas al stock.`
+      : `¿Está seguro de eliminar el registro contable "${description}"?`;
+
+    if (!window.confirm(msg)) return;
+
+    try {
+      const res = await fetch(`${API}/api/transactions/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert('🗑️ Registro eliminado correctamente');
+        loadTransactions();
+        loadProducts();
+      } else { alert(`⚠️ ${data.error || 'Error al eliminar el registro'}`); }
+    } catch (e) { alert('Error conectando al servidor'); }
+  };
+
+  const handleSaveUser = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API_URL}/usuarios`, {
+      const res = await fetch(`${API}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nuevoEmpleado)
+        body: JSON.stringify(newUser)
       });
-      if (res.ok) {
-        alert('Usuario registrado exitosamente');
-        setNuevoEmpleado({ nombre: '', usuario: '', password: '', rol: 'cajero' });
-        cargarEmpleados();
-      } else {
-        const err = await res.json();
-        alert(err.error || 'Error al registrar usuario');
-      }
-    } catch (error) {
-      alert('Error de red al registrar usuario');
-    }
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert('👤 Empleado / Usuario creado correctamente');
+        setNewUser({ name: '', username: '', password: '', role: 'Cajero' });
+        setShowUserModal(false);
+        loadUsers();
+      } else { alert(`⚠️ ${data.error || 'Error al registrar usuario'}`); }
+    } catch (e) { alert('Error conectando al servidor'); }
   };
 
-  const handleEliminarEmpleado = async (id, nombre) => {
-    if (usuarioLogueado?.id === id) {
-      alert('No puedes eliminar tu propia cuenta en sesión.');
-      return;
-    }
-    if (window.confirm(`¿Estás seguro de eliminar el usuario "${nombre}"?`)) {
-      try {
-        const res = await fetch(`${API_URL}/usuarios/${id}`, {
-          method: 'DELETE'
-        });
-        if (res.ok) {
-          alert('Usuario eliminado correctamente');
-          cargarEmpleados();
-        } else {
-          alert('Error al eliminar usuario');
-        }
-      } catch (error) {
-        alert('Error de conexión al eliminar usuario');
-      }
-    }
+  const handleDeleteUser = async (id, name) => {
+    if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual');
+    if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return;
+
+    try {
+      const res = await fetch(`${API}/api/users/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert('🗑️ Usuario eliminado correctamente');
+        loadUsers();
+      } else { alert(`⚠️ ${data.error || 'Error al eliminar usuario'}`); }
+    } catch (e) { alert('Error conectando al servidor'); }
   };
 
-  // FILTROS
-  const productosFiltrados = productos.filter((p) => {
-    const termino = busqueda.toLowerCase().trim();
-    const coincideNombre = p.nombre && p.nombre.toLowerCase().includes(termino);
-    const coincideCodigo = p.barcode && p.barcode.toString().toLowerCase().includes(termino);
-    return coincideNombre || coincideCodigo;
+  const filteredDailyShifts = shiftsList.filter(s => {
+    const matchesUser = filterUser ? s.user_name.toLowerCase().includes(filterUser.toLowerCase()) : true;
+    const matchesDate = filterDate ? (s.opened_at && s.opened_at.startsWith(filterDate)) : true;
+    return matchesUser && matchesDate;
   });
 
-  const productosAgotados = productos
-    .filter((p) => Number(p.stock) <= Number(p.min_stock || 5))
-    .sort((a, b) => Number(a.stock) - Number(b.stock));
+  const monthlyShifts = shiftsList.filter(s => s.opened_at && s.opened_at.startsWith(selectedMonth));
+  const monthlyCash = monthlyShifts.reduce((acc, s) => acc + (s.cash_sales || 0), 0);
+  const monthlyTransfer = monthlyShifts.reduce((acc, s) => acc + (s.transfer_sales || 0), 0);
+  const monthlyTotal = monthlyShifts.reduce((acc, s) => acc + (s.total_sales || 0), 0);
 
-  // LOGIN
-  if (!usuarioLogueado) {
+  const handlePrintShiftReport = (shift) => {
+    setPrintShiftData(shift);
+    setTimeout(() => window.print(), 300);
+  };
+
+  const totalIncomes = transactions.filter(t => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
+  const totalExpenses = transactions.filter(t => t.type === 'Egreso').reduce((acc, t) => acc + (t.amount || 0), 0);
+  const netBalance = totalIncomes - totalExpenses;
+  const inventoryValue = products.reduce((acc, p) => acc + ((p.sale_price || 0) * (p.stock || 0)), 0);
+
+  const handleExportCSV = () => {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n";
+
+    transactions.forEach(t => {
+      csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Reporte_Contable_TerraFrutosSecos_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  if (!currentUser) {
     return (
-      <div style={styles.loginContainer}>
-        <form onSubmit={handleLogin} style={styles.loginCard}>
-          <h2>🌿 TERRA FRUTOS SECOS</h2>
-          <p>Sistema POS & Inventario</p>
-          {loginError && <div style={styles.errorBox}>{loginError}</div>}
-          <div style={styles.inputGroup}>
-            <label>Usuario:</label>
-            <input
-              type="text"
-              required
-              value={loginInput.usuario}
-              onChange={(e) => setLoginInput({ ...loginInput, usuario: e.target.value })}
-              style={styles.input}
-            />
-          </div>
-          <div style={styles.inputGroup}>
-            <label>Contraseña:</label>
-            <input
-              type="password"
-              required
-              value={loginInput.password}
-              onChange={(e) => setLoginInput({ ...loginInput, password: e.target.value })}
-              style={styles.input}
-            />
-          </div>
-          <button type="submit" style={styles.btnPrimary}>
-            Ingresar al Sistema
-          </button>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#121824' }}>
+        <form onSubmit={handleLogin} style={{ background: '#1e293b', padding: '2rem', borderRadius: '8px', color: '#fff', width: '320px' }}>
+          <h2 style={{ color: '#38bdf8', textAlign: 'center' }}>🌱 TERRA FRUTOS SECOS</h2>
+          <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8' }}>Sistema POS e Inventario</p>
+          {loginError && <div style={{ background: '#f87171', color: '#7f1d1d', padding: '0.5rem', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.85rem' }}>⚠️ {loginError}</div>}
+          <label style={{ fontSize: '0.85rem' }}>Usuario:</label>
+          <input type="text" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} style={{ width: '100%', padding: '0.5rem', margin: '0.5rem 0 1rem 0', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: '#fff' }} required />
+          <label style={{ fontSize: '0.85rem' }}>Contraseña:</label>
+          <input type="password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} style={{ width: '100%', padding: '0.5rem', margin: '0.5rem 0 1rem 0', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: '#fff' }} required />
+          <button type="submit" style={{ width: '100%', padding: '0.75rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🔑 INICIAR SESIÓN</button>
         </form>
       </div>
     );
   }
 
+  const isAdmin = currentUser.role?.toLowerCase() === 'administrador';
+
   return (
-    <div style={styles.appLayout}>
-      {/* MENÚ LATERAL AUTOPLEGABLE */}
-      <aside
-        onMouseEnter={() => setSidebarHovered(true)}
-        onMouseLeave={() => setSidebarHovered(false)}
-        className="no-print"
-        style={{
-          ...styles.sidebar,
-          transform: sidebarHovered ? 'translateX(0)' : 'translateX(-222px)',
-          boxShadow: sidebarHovered ? '4px 0 20px rgba(0,0,0,0.5)' : '2px 0 8px rgba(0,0,0,0.2)'
-        }}
-      >
-        {!sidebarHovered && (
-          <div style={styles.sidebarIndicator}>
-            <span>▶</span>
-          </div>
-        )}
-
-        <div style={styles.brand}>
-          <h3>🌿 TERRA FRUTOS SECOS</h3>
-          <small>
-            Usuario: <b>{usuarioLogueado.nombre}</b> ({usuarioLogueado.rol})
-          </small>
-        </div>
-
-        <nav style={styles.navMenu}>
-          <button
-            style={vistaActual === 'caja' ? styles.navBtnActive : styles.navBtn}
-            onClick={() => setVistaActual('caja')}
-          >
-            🛒 POS / Caja
-          </button>
-
-          {usuarioLogueado.rol === 'admin' && (
-            <>
-              <button
-                style={vistaActual === 'inventario' ? styles.navBtnActive : styles.navBtn}
-                onClick={() => setVistaActual('inventario')}
-              >
-                📦 Inventario
-              </button>
-              <button
-                style={vistaActual === 'agotados' ? styles.navBtnActive : styles.navBtn}
-                onClick={() => setVistaActual('agotados')}
-              >
-                ⚠️ Agotados ({productosAgotados.length})
-              </button>
-              <button
-                style={vistaActual === 'contabilidad' ? styles.navBtnActive : styles.navBtn}
-                onClick={() => {
-                  cargarContabilidad();
-                  setVistaActual('contabilidad');
-                }}
-              >
-                📈 Contabilidad
-              </button>
-              <button
-                style={vistaActual === 'empleados' ? styles.navBtnActive : styles.navBtn}
-                onClick={() => setVistaActual('empleados')}
-              >
-                👥 Empleados
-              </button>
-              <button
-                style={vistaActual === 'reportes' ? styles.navBtnActive : styles.navBtn}
-                onClick={() => {
-                  cargarCierresMes();
-                  setVistaActual('reportes');
-                }}
-              >
-                📊 Reportes
-              </button>
-            </>
-          )}
-        </nav>
-
-        <button onClick={handleLogout} style={styles.btnLogout}>
-          🚪 Cerrar Sesión
-        </button>
-      </aside>
-
-      {/* ÁREA DE TRABAJO PRINCIPAL */}
-      <main style={styles.mainContent}>
-        {/* VISTA 1: POS / CAJA */}
-        {vistaActual === 'caja' && (
-          <div>
-            {/* BARRA SUPERIOR DE INICIO / CIERRE DE TURNO */}
-            <div style={turnoActivo ? styles.turnoActivoBar : styles.turnoInactivoBar} className="no-print">
-              {!turnoActivo ? (
-                <div style={styles.turnoFlexRow}>
-                  <div>
-                    <strong style={{ color: '#b91c1c' }}>⚠️ SIN TURNO INICIADO:</strong> Ingrese la base de caja e inicie turno para poder registrar ventas.
-                  </div>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Base Inicial ($):</label>
-                    <input
-                      type="number"
-                      value={baseInicialInput}
-                      onChange={(e) => setBaseInicialInput(e.target.value)}
-                      style={styles.inputBaseShift}
-                    />
-                    <button onClick={handleIniciarTurno} style={styles.btnStartShift}>
-                      🚀 INICIAR TURNO
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={styles.turnoFlexRow}>
-                  <div>
-                    <span style={{ fontSize: '15px', fontWeight: 'bold', color: '#15803d' }}>
-                      🟢 TURNO ACTIVO
-                    </span>{' '}
-                    | Cajero: <b>{turnoActivo.nombre_cajero}</b> | Base: <b>${Number(turnoActivo.base_inicial).toLocaleString()}</b> | Inicio: <i>{turnoActivo.fecha_inicio}</i>
-                  </div>
-                  <button onClick={handleCerrarTurno} style={styles.btnCloseShift}>
-                    🔒 CERRAR TURNO
-                  </button>
-                </div>
-              )}
+    <>
+      <div id="print-receipt" className="print-only">
+        {printShiftData ? (
+          <div style={{ width: '100%', boxSizing: 'border-box' }}>
+            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px' }}>🌱 {storeConfig.razon_social}</h3>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '9px', fontWeight: 'bold' }}>REPORTE DE TURNO #{printShiftData.id}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <p style={{ margin: '1px 0' }}>Empleado: <strong>{printShiftData.user_name}</strong></p>
+            <p style={{ margin: '1px 0' }}>Apertura: {printShiftData.opened_at}</p>
+            <p style={{ margin: '1px 0' }}>Cierre: {printShiftData.closed_at || 'En curso'}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Base Inicial:</span><span>${printShiftData.start_amount?.toLocaleString()}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Efectivo:</span><span>${printShiftData.cash_sales?.toLocaleString()}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Transferencia:</span><span>${printShiftData.transfer_sales?.toLocaleString()}</span></div>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}>
+              <span>TOTAL VENDIDO:</span>
+              <span>${printShiftData.total_sales?.toLocaleString()}</span>
             </div>
-
-            <div style={styles.posGrid}>
-              <div style={styles.posSection}>
-                <h2>Módulo de Caja</h2>
-                
-                <div style={styles.searchBarBox}>
-                  <div style={{ flex: 1 }}>
-                    <label style={styles.labelSmall}>🔍 Buscar por Código o Nombre:</label>
-                    <input
-                      type="text"
-                      placeholder="Escriba código o nombre y presione Enter..."
-                      value={busqueda}
-                      onKeyDown={handleKeyDownBusqueda}
-                      onChange={(e) => setBusqueda(e.target.value)}
-                      style={styles.inputSearch}
-                    />
-                  </div>
-                  <div style={{ width: '100px' }}>
-                    <label style={styles.labelSmall}>Cantidad:</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={cantidadAñadir}
-                      onChange={(e) => setCantidadAñadir(e.target.value)}
-                      style={styles.inputSearch}
-                    />
-                  </div>
-                </div>
-
-                <div style={styles.productGrid}>
-                  {productosFiltrados.map((p) => (
-                    <div
-                      key={p.id}
-                      onClick={() => p.stock > 0 && agregarAlCarrito(p, cantidadAñadir)}
-                      style={{
-                        ...styles.productCard,
-                        opacity: p.stock <= 0 ? 0.4 : 1,
-                        cursor: p.stock <= 0 ? 'not-allowed' : 'pointer'
-                      }}
-                    >
-                      <small style={{ color: '#64748b', fontSize: '11px' }}>
-                        Cód: {p.barcode || p.id}
-                      </small>
-                      <h4 style={{ margin: '5px 0' }}>{p.nombre}</h4>
-                      <p style={styles.priceTag}>${Number(p.precio).toLocaleString()}</p>
-                      <small>Stock: {p.stock}</small>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* CARRITO Y PAGO */}
-              <div style={styles.cartSection}>
-                <h3>🛒 Carrito Actual</h3>
-                <div style={styles.cartList}>
-                  {carrito.length === 0 ? (
-                    <p style={{ color: '#888', textAlign: 'center', marginTop: '30px' }}>
-                      Sin productos seleccionados
-                    </p>
-                  ) : (
-                    carrito.map((item) => (
-                      <div key={item.id} style={styles.cartItem}>
-                        <div style={{ flex: 1 }}>
-                          <b>{item.nombre}</b>
-                          <div style={{ fontSize: '13px', color: '#16a34a' }}>
-                            ${Number(item.precio).toLocaleString()} c/u
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <input
-                            type="number"
-                            min="1"
-                            value={item.cantidad}
-                            onChange={(e) => actualizarCantidadCarrito(item.id, e.target.value)}
-                            style={styles.qtyInput}
-                          />
-                          <button
-                            onClick={() => actualizarCantidadCarrito(item.id, 0)}
-                            style={styles.btnDeleteCart}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <div style={styles.cartFooter}>
-                  <div style={styles.totalRow}>
-                    <span>Total a Pagar:</span>
-                    <span style={{ color: '#2563eb' }}>${totalCarrito.toLocaleString()}</span>
-                  </div>
-
-                  <div style={{ marginTop: '10px' }}>
-                    <label style={styles.labelSmall}>🪪 CC / Cédula Cliente (Opcional):</label>
-                    <input
-                      type="text"
-                      placeholder="Ej: 1049583920 (Dejar en blanco si no requiere)"
-                      value={clienteCc}
-                      onChange={(e) => setClienteCc(e.target.value)}
-                      style={styles.inputSearch}
-                    />
-                  </div>
-
-                  <div style={{ marginTop: '10px' }}>
-                    <label style={styles.labelSmall}>💳 Seleccionar Medio de Pago:</label>
-                    <select
-                      value={medioPago}
-                      onChange={(e) => {
-                        setMedioPago(e.target.value);
-                        if (e.target.value === 'transferencia') setPagaCon('');
-                      }}
-                      style={styles.selectPay}
-                    >
-                      <option value="efectivo">💵 Efectivo</option>
-                      <option value="transferencia">📲 Transferencia (Nequi / Daviplata / QR)</option>
-                    </select>
-                  </div>
-
-                  {medioPago === 'efectivo' ? (
-                    <>
-                      <div style={{ marginTop: '10px' }}>
-                        <label style={styles.labelSmall}>Paga con (Efectivo):</label>
-                        <input
-                          type="number"
-                          placeholder="Monto recibido $"
-                          value={pagaCon}
-                          onChange={(e) => setPagaCon(e.target.value)}
-                          style={styles.inputPay}
-                        />
-                      </div>
-
-                      <div style={styles.changeRow}>
-                        <span>Cambio / Devuelta:</span>
-                        <span style={{ color: Number(pagaCon) >= totalCarrito ? '#16a34a' : '#dc2626' }}>
-                          ${cambioCalculado.toLocaleString()}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div style={styles.infoTransfer}>
-                      ✓ Pago exacto por transferencia digital
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                    <button
-                      onClick={() => procesarVenta(false)}
-                      disabled={
-                        !turnoActivo ||
-                        carrito.length === 0 ||
-                        (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
-                      }
-                      style={{
-                        ...styles.btnSecondaryAction,
-                        opacity:
-                          !turnoActivo ||
-                          carrito.length === 0 ||
-                          (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
-                            ? 0.5
-                            : 1
-                      }}
-                    >
-                      💾 Solo Registrar
-                    </button>
-                    <button
-                      onClick={() => procesarVenta(true)}
-                      disabled={
-                        !turnoActivo ||
-                        carrito.length === 0 ||
-                        (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
-                      }
-                      style={{
-                        ...styles.btnPrimaryAction,
-                        opacity:
-                          !turnoActivo ||
-                          carrito.length === 0 ||
-                          (medioPago === 'efectivo' && Number(pagaCon) < totalCarrito)
-                            ? 0.5
-                            : 1
-                      }}
-                    >
-                      🖨️ Registrar e Imprimir
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}>
+              <span>TOTAL EN CAJA:</span>
+              <span>${printShiftData.end_amount?.toLocaleString()}</span>
             </div>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
           </div>
-        )}
-
-        {/* VISTA 2: INVENTARIO */}
-        {vistaActual === 'inventario' && usuarioLogueado.rol === 'admin' && (
-          <div>
-            <h2>📦 Inventario de Productos</h2>
-
-            <form onSubmit={handleCrearProducto} style={styles.formInline}>
-              <h3>➕ Registrar Nuevo Producto</h3>
-              <div style={styles.formRowProduct}>
-                <div>
-                  <label style={styles.labelSmall}>Código / Código de Barras:</label>
-                  <input
-                    type="text"
-                    placeholder="Ej. 243"
-                    value={nuevoProducto.barcode}
-                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, barcode: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-                <div>
-                  <label style={styles.labelSmall}>Nombre del Producto:*</label>
-                  <input
-                    type="text"
-                    placeholder="Nombre y presentación"
-                    required
-                    value={nuevoProducto.nombre}
-                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, nombre: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-                <div>
-                  <label style={styles.labelSmall}>Precio ($):*</label>
-                  <input
-                    type="number"
-                    placeholder="Ej: 1000"
-                    required
-                    value={nuevoProducto.precio}
-                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, precio: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-                <div>
-                  <label style={styles.labelSmall}>Stock Inicial:*</label>
-                  <input
-                    type="number"
-                    placeholder="Cantidad"
-                    required
-                    value={nuevoProducto.stock}
-                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, stock: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-                <div>
-                  <label style={styles.labelSmall}>Stock Mínimo:</label>
-                  <input
-                    type="number"
-                    placeholder="Mínimo"
-                    value={nuevoProducto.min_stock}
-                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, min_stock: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                  <button type="submit" style={styles.btnPrimary}>
-                    💾 Crear Producto
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            <h3>Listado y Entrada de Mercancía</h3>
-            <input
-              type="text"
-              placeholder="🔍 Buscar por código o nombre para registrar entradas..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              style={styles.inputSearch}
-            />
-
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Código</th>
-                  <th style={styles.th}>Producto</th>
-                  <th style={styles.th}>Precio ($)</th>
-                  <th style={styles.th}>Stock Actual</th>
-                  <th style={styles.th}>➕ Entrada (Suma)</th>
-                  <th style={styles.th}>⚠️ Stock Mínimo</th>
-                  <th style={styles.th}>Acciones / Guardar</th>
-                </tr>
-              </thead>
+        ) : lastInvoice ? (
+          <div style={{ width: '100%', boxSizing: 'border-box' }}>
+            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px' }}>🌱 {storeConfig.razon_social}</h3>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px' }}>{storeConfig.actividad}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px' }}>{storeConfig.direccion}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px' }}>TEL: {storeConfig.telefono}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px' }}>NIT: {storeConfig.nit}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px' }}>Doc. POS - Sistema Local</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <p style={{ margin: '1px 0' }}>Factura #: <strong>{lastInvoice.number}</strong></p>
+            <p style={{ margin: '1px 0' }}>Fecha: {lastInvoice.date}</p>
+            <p style={{ margin: '1px 0' }}>Atendido por: {lastInvoice.seller}</p>
+            <p style={{ margin: '1px 0' }}>Cliente: {lastInvoice.customerName}</p>
+            <p style={{ margin: '1px 0' }}>NIT/CC: {lastInvoice.customerDoc}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px' }}>
               <tbody>
-                {productosFiltrados.map((p) => {
-                  const entradaVal = Number(entradas[p.id]) || 0;
-                  const stockBase = Number(edicionStock[p.id]?.stock ?? p.stock);
-                  const nuevoTotalCalculado = stockBase + entradaVal;
-
-                  return (
-                    <tr key={p.id} style={styles.tr}>
-                      <td style={styles.td}><b>{p.barcode || p.id}</b></td>
-                      <td style={styles.td}>{p.nombre}</td>
-                      <td style={styles.td}>
-                        <input
-                          type="number"
-                          value={edicionStock[p.id]?.precio ?? p.precio}
-                          onChange={(e) =>
-                            setEdicionStock({
-                              ...edicionStock,
-                              [p.id]: {
-                                ...edicionStock[p.id],
-                                precio: e.target.value
-                              }
-                            })
-                          }
-                          style={styles.inputTableNumber}
-                        />
-                      </td>
-                      <td style={styles.td}>
-                        <input
-                          type="number"
-                          value={edicionStock[p.id]?.stock ?? p.stock}
-                          onChange={(e) =>
-                            setEdicionStock({
-                              ...edicionStock,
-                              [p.id]: {
-                                ...edicionStock[p.id],
-                                stock: e.target.value
-                              }
-                            })
-                          }
-                          style={{
-                            ...styles.inputTableNumber,
-                            borderColor: stockBase <= (edicionStock[p.id]?.min_stock || 5) ? '#dc2626' : '#2563eb',
-                            color: stockBase <= (edicionStock[p.id]?.min_stock || 5) ? '#dc2626' : '#000',
-                            fontWeight: 'bold'
-                          }}
-                        />
-                      </td>
-                      <td style={styles.td}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <input
-                            type="number"
-                            min="0"
-                            placeholder="+ Entrada"
-                            value={entradas[p.id] || ''}
-                            onChange={(e) => setEntradas({ ...entradas, [p.id]: e.target.value })}
-                            style={styles.inputEntrada}
-                          />
-                          {entradaVal > 0 && (
-                            <span style={{ fontSize: '12px', color: '#16a34a', fontWeight: 'bold' }}>
-                              (= {nuevoTotalCalculado})
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={styles.td}>
-                        <input
-                          type="number"
-                          value={edicionStock[p.id]?.min_stock ?? (p.min_stock || 5)}
-                          onChange={(e) =>
-                            setEdicionStock({
-                              ...edicionStock,
-                              [p.id]: {
-                                ...edicionStock[p.id],
-                                min_stock: e.target.value
-                              }
-                            })
-                          }
-                          style={styles.inputTableNumber}
-                        />
-                      </td>
-                      <td style={styles.td}>
-                        <button
-                          onClick={() => handleGuardarCambiosStock(p.id)}
-                          style={styles.btnSaveInline}
-                        >
-                          💾 Actualizar
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* VISTA 3: AGOTADOS */}
-        {vistaActual === 'agotados' && usuarioLogueado.rol === 'admin' && (
-          <div>
-            <h2>⚠️ Productos Agotados o Bajo Stock Mínimo</h2>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Código</th>
-                  <th style={styles.th}>Producto</th>
-                  <th style={styles.th}>Precio</th>
-                  <th style={styles.th}>Stock Actual</th>
-                  <th style={styles.th}>Stock Mínimo</th>
-                  <th style={styles.th}>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {productosAgotados.map((p) => {
-                  const esAgotado = Number(p.stock) === 0;
-                  return (
-                    <tr
-                      key={p.id}
-                      style={{
-                        ...styles.tr,
-                        backgroundColor: esAgotado ? '#fef2f2' : '#fffbeb'
-                      }}
-                    >
-                      <td style={styles.td}><b>{p.barcode || p.id}</b></td>
-                      <td style={styles.td}>{p.nombre}</td>
-                      <td style={styles.td}>${Number(p.precio).toLocaleString()}</td>
-                      <td
-                        style={{
-                          ...styles.td,
-                          color: esAgotado ? '#dc2626' : '#d97706',
-                          fontWeight: 'bold',
-                          fontSize: '15px'
-                        }}
-                      >
-                        {p.stock}
-                      </td>
-                      <td style={styles.td}>{p.min_stock || 5}</td>
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: '12px',
-                            fontSize: '12px',
-                            fontWeight: 'bold',
-                            backgroundColor: esAgotado ? '#fee2e2' : '#fef3c7',
-                            color: esAgotado ? '#991b1b' : '#92400e',
-                            border: `1px solid ${esAgotado ? '#fca5a5' : '#fcd34d'}`
-                          }}
-                        >
-                          {esAgotado ? '🔴 Agotado' : '🟠 Crítico'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* VISTA 4: CONTABILIDAD (NUEVA INTERFAZ COMPLETA) */}
-        {vistaActual === 'contabilidad' && usuarioLogueado.rol === 'admin' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <div>
-                <h2>📈 Módulo Financiero y Contabilidad</h2>
-                <small style={{ color: '#64748b' }}>📍 Ubicación: Tunja, Boyacá | {resumenContabilidad.fechaColombia || 'Colombia'}</small>
-              </div>
-              <button onClick={handleEjecutarCierreMes} style={styles.btnCierreMesAction}>
-                🔒 REALIZAR CIERRE DE MES
-              </button>
-            </div>
-
-            {/* TARJETAS DE INDICADORES CLAVE (KPIs) */}
-            <div style={styles.kpiGrid}>
-              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #6366f1' }}>
-                <span style={styles.kpiLabel}>💼 Saldo Mes Anterior</span>
-                <h3 style={styles.kpiValue}>${resumenContabilidad.saldoMesAnterior.toLocaleString()}</h3>
-              </div>
-
-              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #0284c7' }}>
-                <span style={styles.kpiLabel}>📦 Valor Inventario Actual</span>
-                <h3 style={styles.kpiValue}>${resumenContabilidad.saldoInventarioActual.toLocaleString()}</h3>
-              </div>
-
-              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #16a34a' }}>
-                <span style={styles.kpiLabel}>💵 Saldo de Caja (Efectivo/General)</span>
-                <h3 style={{ ...styles.kpiValue, color: '#16a34a' }}>
-                  ${resumenContabilidad.saldoCaja.toLocaleString()}
-                </h3>
-              </div>
-
-              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #2563eb' }}>
-                <span style={styles.kpiLabel}>📈 Total Ingresos (Ventas + Extras)</span>
-                <h3 style={{ ...styles.kpiValue, color: '#2563eb' }}>
-                  ${resumenContabilidad.totalIngresos.toLocaleString()}
-                </h3>
-                <small style={{ fontSize: '11px', color: '#64748b' }}>
-                  (Ventas: ${resumenContabilidad.totalVentas.toLocaleString()} | Extras: ${resumenContabilidad.totalIngresosExtras.toLocaleString()})
-                </small>
-              </div>
-
-              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #dc2626' }}>
-                <span style={styles.kpiLabel}>📉 Total Egresos / Gastos</span>
-                <h3 style={{ ...styles.kpiValue, color: '#dc2626' }}>
-                  ${resumenContabilidad.totalEgresos.toLocaleString()}
-                </h3>
-              </div>
-
-              <div style={{ ...styles.kpiCard, borderLeft: '5px solid #059669', backgroundColor: '#ecfdf5' }}>
-                <span style={styles.kpiLabel}>⚖️ Balance Neto Consolidado</span>
-                <h3 style={{ ...styles.kpiValue, color: '#047857' }}>
-                  ${resumenContabilidad.balanceNeto.toLocaleString()}
-                </h3>
-              </div>
-            </div>
-
-            {/* FORMULARIO DE REGISTRO DE INGRESOS Y EGRESOS */}
-            <form onSubmit={handleCrearMovimiento} style={styles.formInline}>
-              <h3>➕ Registrar Ingreso Extra o Egreso / Gasto</h3>
-              <div style={styles.formRow}>
-                <div>
-                  <label style={styles.labelSmall}>Tipo de Movimiento:</label>
-                  <select
-                    value={nuevoMovimiento.tipo}
-                    onChange={(e) => setNuevoMovimiento({ ...nuevoMovimiento, tipo: e.target.value })}
-                    style={styles.input}
-                  >
-                    <option value="egreso">📉 Egreso / Gasto (Salida de Dinero)</option>
-                    <option value="ingreso">📈 Ingreso Extra (Entrada de Dinero)</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={styles.labelSmall}>Monto ($):*</label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="Ej. 50000"
-                    value={nuevoMovimiento.monto}
-                    onChange={(e) => setNuevoMovimiento({ ...nuevoMovimiento, monto: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-                <div>
-                  <label style={styles.labelSmall}>Categoría:</label>
-                  <select
-                    value={nuevoMovimiento.categoria}
-                    onChange={(e) => setNuevoMovimiento({ ...nuevoMovimiento, categoria: e.target.value })}
-                    style={styles.input}
-                  >
-                    <option value="Servicios/Varios">Servicios / Arriendo / Varios</option>
-                    <option value="Proveedores">Pago a Proveedores / Mercancía</option>
-                    <option value="Nomina">Nómina / Salarios</option>
-                    <option value="Inversion">Inversión / Equipos</option>
-                    <option value="Otros">Otros Ingresos / Aportes</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={styles.labelSmall}>Descripción / Detalle:*</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. Pago servicio de luz local"
-                    value={nuevoMovimiento.descripcion}
-                    onChange={(e) => setNuevoMovimiento({ ...nuevoMovimiento, descripcion: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                  <button type="submit" style={nuevoMovimiento.tipo === 'ingreso' ? styles.btnSuccess : styles.btnPrimary}>
-                    💾 Guardar
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            {/* HISTORIAL DE MOVIMIENTOS FINANCIEROS */}
-            <h3>📄 Historial de Ingresos Extras y Egresos</h3>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>ID</th>
-                  <th style={styles.th}>Fecha y Hora</th>
-                  <th style={styles.th}>Tipo</th>
-                  <th style={styles.th}>Categoría</th>
-                  <th style={styles.th}>Descripción</th>
-                  <th style={styles.th}>Registrado por</th>
-                  <th style={styles.th}>Monto ($)</th>
-                  <th style={styles.th}>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listaEgresos.map((m) => {
-                  const esIngreso = m.tipo === 'ingreso';
-                  return (
-                    <tr key={m.id} style={styles.tr}>
-                      <td style={styles.td}><b>#{m.id}</b></td>
-                      <td style={styles.td}>{m.fecha}</td>
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            fontWeight: 'bold',
-                            backgroundColor: esIngreso ? '#dcfce7' : '#fee2e2',
-                            color: esIngreso ? '#15803d' : '#b91c1c'
-                          }}
-                        >
-                          {esIngreso ? '📈 Ingreso Extra' : '📉 Egreso'}
-                        </span>
-                      </td>
-                      <td style={styles.td}>{m.categoria || 'General'}</td>
-                      <td style={styles.td}>{m.descripcion}</td>
-                      <td style={styles.td}>{m.usuario_nombre || 'Admin'}</td>
-                      <td
-                        style={{
-                          ...styles.td,
-                          fontWeight: 'bold',
-                          color: esIngreso ? '#16a34a' : '#dc2626'
-                        }}
-                      >
-                        {esIngreso ? '+' : '-'}${Number(m.monto).toLocaleString()}
-                      </td>
-                      <td style={styles.td}>
-                        <button
-                          onClick={() => handleEliminarMovimiento(m.id)}
-                          style={styles.btnDangerTable}
-                        >
-                          🗑️
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* VISTA 5: EMPLEADOS */}
-        {vistaActual === 'empleados' && usuarioLogueado.rol === 'admin' && (
-          <div>
-            <h2>👥 Gestión de Empleados y Administradores</h2>
-            <form onSubmit={handleCrearEmpleado} style={styles.formInline}>
-              <h3>Registrar Nuevo Usuario</h3>
-              <div style={styles.formRow}>
-                <input
-                  type="text"
-                  placeholder="Nombre completo"
-                  required
-                  value={nuevoEmpleado.nombre}
-                  onChange={(e) => setNuevoEmpleado({ ...nuevoEmpleado, nombre: e.target.value })}
-                  style={styles.input}
-                />
-                <input
-                  type="text"
-                  placeholder="Usuario"
-                  required
-                  value={nuevoEmpleado.usuario}
-                  onChange={(e) => setNuevoEmpleado({ ...nuevoEmpleado, usuario: e.target.value })}
-                  style={styles.input}
-                />
-                <input
-                  type="password"
-                  placeholder="Contraseña"
-                  required
-                  value={nuevoEmpleado.password}
-                  onChange={(e) => setNuevoEmpleado({ ...nuevoEmpleado, password: e.target.value })}
-                  style={styles.input}
-                />
-                <select
-                  value={nuevoEmpleado.rol}
-                  onChange={(e) => setNuevoEmpleado({ ...nuevoEmpleado, rol: e.target.value })}
-                  style={styles.input}
-                >
-                  <option value="cajero">Cajero / Empleado</option>
-                  <option value="admin">Administrador</option>
-                </select>
-                <button type="submit" style={styles.btnPrimary}>
-                  ➕ Crear
-                </button>
-              </div>
-            </form>
-
-            <h3>Usuarios Registrados</h3>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>ID</th>
-                  <th style={styles.th}>Nombre</th>
-                  <th style={styles.th}>Usuario</th>
-                  <th style={styles.th}>Rol</th>
-                  <th style={styles.th}>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {empleados.map((emp) => (
-                  <tr key={emp.id} style={styles.tr}>
-                    <td style={styles.td}>{emp.id}</td>
-                    <td style={styles.td}>{emp.nombre}</td>
-                    <td style={styles.td}>{emp.usuario}</td>
-                    <td style={styles.td}>
-                      <span
-                        style={{
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                          backgroundColor: emp.rol === 'admin' ? '#d4edda' : '#e2e3e5',
-                          color: emp.rol === 'admin' ? '#155724' : '#383d41',
-                          fontWeight: 'bold'
-                        }}
-                      >
-                        {emp.rol}
-                      </span>
+                {lastInvoice.items.map((it, idx) => (
+                  <tr key={idx}>
+                    <td style={{ verticalAlign: 'top', padding: '1px 0' }}>
+                      {it.quantity}x {it.name.substring(0, 16)}
                     </td>
-                    <td style={styles.td}>
-                      <button
-                        onClick={() => handleEliminarEmpleado(emp.id, emp.nombre)}
-                        style={styles.btnDanger}
-                      >
-                        🗑️ Eliminar
-                      </button>
+                    <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '1px 0', fontWeight: 'bold' }}>
+                      ${(it.quantity * it.sale_price).toLocaleString()}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}>
+              <span>TOTAL:</span>
+              <span>${lastInvoice.total.toLocaleString()}</span>
+            </div>
+            <p style={{ margin: '1px 0', fontSize: '9px' }}>Pago: {lastInvoice.paymentMethod}</p>
+            <p style={{ margin: '1px 0', fontSize: '9px' }}>Recibido: ${lastInvoice.received.toLocaleString()}</p>
+            <p style={{ margin: '1px 0', fontSize: '9px' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString()}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <p style={{ textAlign: 'center', margin: '4px 0 0 0', fontSize: '9px' }}>{storeConfig.footer_msg}</p>
           </div>
-        )}
+        ) : null}
+      </div>
 
-        {/* VISTA 6: REPORTES (INCLUYE HISTORIAL DE CIERRES DE MES Y TURNOS) */}
-        {vistaActual === 'reportes' && usuarioLogueado.rol === 'admin' && (
+      <div className="no-print" style={{ display: 'flex', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif' }}>
+        <div style={{ width: '240px', background: '#1e293b', padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #334155' }}>
           <div>
-            <h2>📊 Reportes de Cierre de Turnos, Cierres de Mes y Ventas</h2>
+            <h3 style={{ color: '#38bdf8', fontSize: '1.1rem', margin: '0 0 1rem 0' }}>🌱 {storeConfig.razon_social}</h3>
+            <div style={{ background: '#0f172a', padding: '0.6rem', borderRadius: '6px', marginBottom: '1rem', fontSize: '0.8rem' }}>
+              <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>USUARIO ACTIVO:</span><br />
+              <strong>{currentUser.name}</strong><br />
+              <span style={{ color: '#38bdf8' }}>🔑 {currentUser.role}</span>
+            </div>
 
-            {/* SECCIÓN DE CIERRES DE MES HISTÓRICOS */}
-            <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '30px' }}>
-              <h3 style={{ margin: '0 0 15px 0', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                📅 Historial de Cierres de Mes Consolidados
-              </h3>
-              <table style={styles.table}>
+            {!activeShift ? (
+              <button onClick={() => setShowShiftModal(true)} style={{ width: '100%', padding: '0.6rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '1.5rem' }}>
+                ▶️ Iniciar Turno / Base
+              </button>
+            ) : (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ background: '#166534', color: '#4ade80', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem', textAlign: 'center', fontWeight: 'bold', marginBottom: '0.5rem' }}>
+                  🟢 Turno Activo (#{activeShift.id})
+                </div>
+                <button onClick={handleCloseShift} style={{ width: '100%', padding: '0.5rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.8rem' }}>
+                  🔴 Terminar Turno
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              <button onClick={() => setActiveTab('pos')} style={{ padding: '0.6rem', textAlign: 'left', background: activeTab === 'pos' ? '#2563eb' : 'transparent', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>💳 POS / Caja</button>
+              {isAdmin && (
+                <>
+                  <button onClick={() => setActiveTab('inventory')} style={{ padding: '0.6rem', textAlign: 'left', background: activeTab === 'inventory' ? '#2563eb' : 'transparent', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>📦 Inventario</button>
+                  <button onClick={() => setActiveTab('out_of_stock')} style={{ padding: '0.6rem', textAlign: 'left', background: activeTab === 'out_of_stock' ? '#2563eb' : 'transparent', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>⚠️ Agotados</button>
+                  <button onClick={() => setActiveTab('accounting')} style={{ padding: '0.6rem', textAlign: 'left', background: activeTab === 'accounting' ? '#2563eb' : 'transparent', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>📈 Contabilidad</button>
+                  <button onClick={() => setActiveTab('employees')} style={{ padding: '0.6rem', textAlign: 'left', background: activeTab === 'employees' ? '#2563eb' : 'transparent', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>👥 Empleados</button>
+                  <button onClick={() => setActiveTab('reports')} style={{ padding: '0.6rem', textAlign: 'left', background: activeTab === 'reports' ? '#2563eb' : 'transparent', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>📊 Reportes</button>
+                  <button onClick={() => setActiveTab('dian')} style={{ padding: '0.6rem', textAlign: 'left', background: activeTab === 'dian' ? '#2563eb' : 'transparent', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>⚙️ Configuración DIAN</button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <button onClick={handleLogout} style={{ width: '100%', padding: '0.6rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>🔒 Cerrar Sesión</button>
+        </div>
+
+        <div style={{ flex: 1, padding: '1.5rem', overflowY: 'auto' }}>
+          {activeTab === 'pos' && (
+            <div style={{ display: 'flex', gap: '1rem', height: '100%' }}>
+              <div style={{ flex: 1 }}>
+                <input type="text" placeholder="🔍 Buscar por código o nombre..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '1rem' }}>
+                  {products
+                    .filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search))
+                    .slice(0, 40)
+                    .map(p => (
+                      <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer' }}>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
+                        <h4 style={{ margin: '0.25rem 0', fontSize: '0.85rem' }}>{p.name}</h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                          <strong style={{ color: '#22c55e' }}>${p.sale_price?.toLocaleString()}</strong>
+                          <span style={{ fontSize: '0.7rem', background: '#334155', padding: '0.2rem 0.4rem', borderRadius: '4px' }}>Stock: {p.stock}</span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <div style={{ width: '320px', background: '#1e293b', borderRadius: '8px', padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 1rem 0' }}>🛒 Carrito de Venta</h3>
+                  <div style={{ fontSize: '0.8rem', marginBottom: '1rem' }}>
+                    <label>CLIENTE:</label>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
+                      <input type="text" value={customerDoc} onChange={(e) => setCustomerDoc(e.target.value)} style={{ width: '50%', padding: '0.3rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+                      <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={{ width: '50%', padding: '0.3rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+                    </div>
+                  </div>
+
+                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                    {cart.map(item => (
+                      <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', background: '#0f172a', padding: '0.4rem', borderRadius: '4px', fontSize: '0.8rem' }}>
+                        <div><strong>{item.name}</strong><br /><span style={{ color: '#22c55e' }}>${item.sale_price.toLocaleString()}</span></div>
+                        <div>
+                          <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.1rem 0.4rem' }}>-</button>
+                          <span style={{ margin: '0 0.4rem' }}>{item.quantity}</span>
+                          <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.1rem 0.4rem' }}>+</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                    <span>Total:</span><span style={{ color: '#22c55e' }}>${totalCart.toLocaleString()}</span>
+                  </div>
+                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ width: '100%', padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem' }}>
+                    <option value="Efectivo">💵 Efectivo</option>
+                    <option value="Nequi / Transferencia">📱 Nequi / Transferencia</option>
+                  </select>
+                  <input type="number" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} placeholder={`Recibido: $${totalCart.toLocaleString()}`} style={{ width: '100%', padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem' }} />
+                  <div style={{ fontSize: '0.85rem', marginBottom: '1rem', color: '#4ade80' }}>Devueltas: <strong>${changeGiven.toLocaleString()}</strong></div>
+                  <button onClick={() => handleProcessSale('Registrada')} style={{ width: '100%', padding: '0.6rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', marginBottom: '0.5rem', cursor: 'pointer' }}>📑 Solo Registrar Venta</button>
+                  <button onClick={() => handleProcessSale('Facturada')} style={{ width: '100%', padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>🧾 Facturar e Imprimir DIAN</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'inventory' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Gestión de Inventario</h2>
+                <button onClick={() => setShowAddModal(true)} style={{ padding: '0.6rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  ➕ Ingresar Nuevo Producto
+                </button>
+              </div>
+
+              <input
+                type="text"
+                placeholder="🔍 Buscar por código o nombre de producto..."
+                value={invSearch}
+                onChange={(e) => setInvSearch(e.target.value)}
+                style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }}
+              />
+
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
                 <thead>
-                  <tr>
-                    <th style={styles.th}>Periodo / Mes</th>
-                    <th style={styles.th}>Fecha de Cierre</th>
-                    <th style={styles.th}>Saldo Mes Anterior</th>
-                    <th style={styles.th}>Ventas Totales</th>
-                    <th style={styles.th}>Total Egresos</th>
-                    <th style={styles.th}>Saldo Inventario</th>
-                    <th style={styles.th}>Saldo Caja</th>
-                    <th style={styles.th}>Balance Neto</th>
-                    <th style={styles.th}>Realizado Por</th>
-                    <th style={styles.th}>Acción</th>
+                  <tr style={{ background: '#334155', textAlign: 'left' }}>
+                    <th style={{ padding: '0.75rem' }}>Código</th>
+                    <th style={{ padding: '0.75rem' }}>Nombre del Producto</th>
+                    <th style={{ padding: '0.75rem' }}>Precio de Venta</th>
+                    <th style={{ padding: '0.75rem' }}>Stock Actual</th>
+                    <th style={{ padding: '0.75rem' }}>Stock Mínimo</th>
+                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {cierresMes.map((c) => (
-                    <tr key={c.id} style={styles.tr}>
-                      <td style={{ ...styles.td, fontWeight: 'bold', color: '#2563eb' }}>{c.mes_anio}</td>
-                      <td style={styles.td}>{c.fecha_cierre}</td>
-                      <td style={styles.td}>${Number(c.saldo_mes_anterior || 0).toLocaleString()}</td>
-                      <td style={{ ...styles.td, color: '#16a34a', fontWeight: 'bold' }}>
-                        ${Number(c.total_ventas || 0).toLocaleString()}
+                  {products
+                    .filter(p => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch))
+                    .slice(0, 50)
+                    .map(p => (
+                      <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
+                        <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
+                        <td style={{ padding: '0.75rem' }}>{p.name}</td>
+                        <td style={{ padding: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString()}</td>
+                        <td style={{ padding: '0.75rem' }}>
+                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: p.stock <= (p.min_stock || 3) ? '#991b1b' : '#166534', color: '#fff' }}>
+                            {p.stock} unidades
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.75rem', color: '#94a3b8' }}>{p.min_stock || 3} unidades</td>
+                        <td style={{ padding: '0.75rem', textAlign: 'center', display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                          <button onClick={() => setEditingProduct({ ...p })} style={{ padding: '0.4rem 0.8rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                            ✏️ Modificar
+                          </button>
+                          <button onClick={() => handleDeleteProduct(p.barcode, p.name)} style={{ padding: '0.4rem 0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                            🗑️ Eliminar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeTab === 'out_of_stock' && (
+            <div>
+              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Productos Agotados o Stock Bajo (&le; Mínimo)</h2>
+
+              <input
+                type="text"
+                placeholder="🔍 Buscar producto agotado o crítico..."
+                value={outSearch}
+                onChange={(e) => setOutSearch(e.target.value)}
+                style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }}
+              />
+
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
+                <thead>
+                  <tr style={{ background: '#334155', textAlign: 'left' }}>
+                    <th style={{ padding: '0.75rem' }}>Código</th>
+                    <th style={{ padding: '0.75rem' }}>Producto</th>
+                    <th style={{ padding: '0.75rem' }}>Stock Actual</th>
+                    <th style={{ padding: '0.75rem' }}>Stock Mínimo</th>
+                    <th style={{ padding: '0.75rem' }}>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products
+                    .filter(p => p.stock <= (p.min_stock || 3))
+                    .filter(p => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch))
+                    .sort((a, b) => a.stock - b.stock)
+                    .map(p => (
+                      <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
+                        <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
+                        <td style={{ padding: '0.75rem' }}>{p.name}</td>
+                        <td style={{ padding: '0.75rem', fontWeight: 'bold', color: p.stock === 0 ? '#f87171' : '#f59e0b' }}>
+                          {p.stock}
+                        </td>
+                        <td style={{ padding: '0.75rem', color: '#94a3b8' }}>{p.min_stock || 3}</td>
+                        <td style={{ padding: '0.75rem' }}>
+                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: p.stock === 0 ? '#dc2626' : '#d97706', color: '#fff', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                            {p.stock === 0 ? 'AGOTADO' : 'STOCK CRÍTICO'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeTab === 'accounting' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Resumen Contable</h2>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={() => setShowTxModal(true)} style={{ padding: '0.6rem 1rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    ➕ Registrar Ingreso / Egreso
+                  </button>
+                  <button onClick={handleExportCSV} style={{ padding: '0.6rem 1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    📥 Descargar Reporte (Excel / CSV)
+                  </button>
+                  <button onClick={() => window.print()} style={{ padding: '0.6rem 1rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    🖨️ Imprimir PDF
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>VALOR TOTAL INVENTARIO</p>
+                  <h3 style={{ color: '#38bdf8', fontSize: '1.3rem', marginTop: '0.4rem' }}>
+                    ${inventoryValue.toLocaleString()}
+                  </h3>
+                </div>
+                <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>TOTAL INGRESOS</p>
+                  <h3 style={{ color: '#22c55e', fontSize: '1.3rem', marginTop: '0.4rem' }}>
+                    ${totalIncomes.toLocaleString()}
+                  </h3>
+                </div>
+                <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>TOTAL EGRESOS</p>
+                  <h3 style={{ color: '#f87171', fontSize: '1.3rem', marginTop: '0.4rem' }}>
+                    ${totalExpenses.toLocaleString()}
+                  </h3>
+                </div>
+                <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>BALANCE NETO</p>
+                  <h3 style={{ color: netBalance >= 0 ? '#4ade80' : '#f87171', fontSize: '1.3rem', marginTop: '0.4rem' }}>
+                    ${netBalance.toLocaleString()}
+                  </h3>
+                </div>
+              </div>
+
+              <h3 style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '0.5rem' }}>📜 Historial de Ingresos y Egresos</h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
+                <thead>
+                  <tr style={{ background: '#334155', textAlign: 'left' }}>
+                    <th style={{ padding: '0.75rem' }}>Fecha</th>
+                    <th style={{ padding: '0.75rem' }}>Tipo</th>
+                    <th style={{ padding: '0.75rem' }}>Categoría</th>
+                    <th style={{ padding: '0.75rem' }}>Descripción</th>
+                    <th style={{ padding: '0.75rem' }}>Monto</th>
+                    <th style={{ padding: '0.75rem' }}>Usuario</th>
+                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>No hay movimientos registrados.</td>
+                    </tr>
+                  ) : (
+                    transactions.map((t) => (
+                      <tr key={t.id} style={{ borderBottom: '1px solid #334155' }}>
+                        <td style={{ padding: '0.75rem', fontSize: '0.85rem', color: '#94a3b8' }}>{t.created_at || new Date().toLocaleString()}</td>
+                        <td style={{ padding: '0.75rem' }}>
+                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: t.type === 'Ingreso' ? '#166534' : '#991b1b', color: '#fff', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                            {t.type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.75rem' }}>{t.category}</td>
+                        <td style={{ padding: '0.75rem' }}>{t.description}</td>
+                        <td style={{ padding: '0.75rem', fontWeight: 'bold', color: t.type === 'Ingreso' ? '#22c55e' : '#f87171' }}>
+                          ${t.amount?.toLocaleString()}
+                        </td>
+                        <td style={{ padding: '0.75rem', fontSize: '0.85rem', color: '#94a3b8' }}>{t.user_name}</td>
+                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                          <button
+                            onClick={() => handleDeleteTransaction(t.id, t.description, t.category)}
+                            style={{ padding: '0.3rem 0.6rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' }}
+                          >
+                            🗑️ Eliminar
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeTab === 'employees' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>👥 Gestión de Empleados y Permisos</h2>
+                <button onClick={() => setShowUserModal(true)} style={{ padding: '0.6rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  ➕ Registrar Nuevo Empleado
+                </button>
+              </div>
+
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
+                <thead>
+                  <tr style={{ background: '#334155', textAlign: 'left' }}>
+                    <th style={{ padding: '0.75rem' }}>ID</th>
+                    <th style={{ padding: '0.75rem' }}>Nombre Completo</th>
+                    <th style={{ padding: '0.75rem' }}>Nombre de Usuario</th>
+                    <th style={{ padding: '0.75rem' }}>Rol / Permisos</th>
+                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usersList.map((u) => (
+                    <tr key={u.id} style={{ borderBottom: '1px solid #334155' }}>
+                      <td style={{ padding: '0.75rem', color: '#94a3b8' }}>#{u.id}</td>
+                      <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{u.name}</td>
+                      <td style={{ padding: '0.75rem' }}>{u.username}</td>
+                      <td style={{ padding: '0.75rem' }}>
+                        <span style={{ padding: '0.2rem 0.6rem', borderRadius: '4px', background: u.role === 'Administrador' ? '#1d4ed8' : '#0284c7', color: '#fff', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                          🔑 {u.role}
+                        </span>
                       </td>
-                      <td style={{ ...styles.td, color: '#dc2626' }}>
-                        ${Number(c.total_egresos || 0).toLocaleString()}
-                      </td>
-                      <td style={styles.td}>${Number(c.saldo_inventario || 0).toLocaleString()}</td>
-                      <td style={styles.td}>${Number(c.saldo_caja || 0).toLocaleString()}</td>
-                      <td style={{ ...styles.td, fontWeight: 'bold', color: '#047857' }}>
-                        ${Number(c.balance_neto || 0).toLocaleString()}
-                      </td>
-                      <td style={styles.td}>{c.usuario_nombre}</td>
-                      <td style={styles.td}>
+                      <td style={{ padding: '0.75rem', textAlign: 'center' }}>
                         <button
-                          onClick={() => setModalReporteMes(c)}
-                          style={styles.btnSaveInline}
+                          onClick={() => handleDeleteUser(u.id, u.name)}
+                          style={{ padding: '0.35rem 0.7rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
                         >
-                          📄 Reporte PDF
+                          🗑️ Eliminar
                         </button>
                       </td>
                     </tr>
@@ -1568,465 +885,358 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+          )}
 
-            <h3>🔒 Arqueos y Cierres de Caja por Turno</h3>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Turno #</th>
-                  <th style={styles.th}>Cajero</th>
-                  <th style={styles.th}>Base Inicial</th>
-                  <th style={styles.th}>Inicio</th>
-                  <th style={styles.th}>Cierre</th>
-                  <th style={styles.th}>Ventas Efectivo</th>
-                  <th style={styles.th}>Ventas Transferencia</th>
-                  <th style={styles.th}>Total Vendido</th>
-                  <th style={styles.th}>Estado</th>
-                  <th style={styles.th}>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historialTurnos.map((t) => (
-                  <tr key={t.id} style={styles.tr}>
-                    <td style={styles.td}><b>#{t.id}</b></td>
-                    <td style={styles.td}>{t.nombre_cajero}</td>
-                    <td style={styles.td}>${Number(t.base_inicial || 0).toLocaleString()}</td>
-                    <td style={styles.td}>{t.fecha_inicio}</td>
-                    <td style={styles.td}>{t.fecha_cierre || 'Turno En Curso'}</td>
-                    <td style={styles.td}>${Number(t.total_efectivo || 0).toLocaleString()}</td>
-                    <td style={styles.td}>${Number(t.total_transferencia || 0).toLocaleString()}</td>
-                    <td style={{ ...styles.td, color: '#16a34a', fontWeight: 'bold' }}>
-                      ${Number(t.total_ventas || 0).toLocaleString()}
-                    </td>
-                    <td style={styles.td}>
-                      <span
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          backgroundColor: t.estado === 'abierto' ? '#dcfce7' : '#e2e8f0',
-                          color: t.estado === 'abierto' ? '#15803d' : '#475569',
-                          fontWeight: 'bold'
-                        }}
-                      >
-                        {t.estado === 'abierto' ? '🟢 En Curso' : '🔒 Cerrado'}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <button
-                        onClick={() => handleImprimirReporteTurno(t.id)}
-                        style={styles.btnSaveInline}
-                      >
-                        📄 Imprimir Reporte
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <h3 style={{ marginTop: '30px' }}>📄 Historial Individual de Ventas</h3>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>ID Venta</th>
-                  <th style={styles.th}>Fecha y Hora</th>
-                  <th style={styles.th}>Cédula/CC Cliente</th>
-                  <th style={styles.th}>Descripción de Productos Vendidos</th>
-                  <th style={styles.th}>Medio de Pago</th>
-                  <th style={styles.th}>Total de la Venta</th>
-                  <th style={styles.th}>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ventas.map((v) => {
-                  let descripcionProductos = 'Sin detalle disponible';
-                  if (v.items_json) {
-                    try {
-                      const itemsArr = JSON.parse(v.items_json);
-                      descripcionProductos = itemsArr
-                        .map((item) => `${item.cantidad}x ${item.nombre}`)
-                        .join(' | ');
-                    } catch (e) {
-                      descripcionProductos = 'Error leyendo productos';
-                    }
-                  }
-
-                  return (
-                    <tr key={v.id} style={styles.tr}>
-                      <td style={styles.td}><b>#{v.id}</b></td>
-                      <td style={styles.td}>{v.fecha || 'Reciente'}</td>
-                      <td style={styles.td}>{v.cliente_cc ? `CC: ${v.cliente_cc}` : 'Consumidor Final'}</td>
-                      <td style={{ ...styles.td, color: '#334155', fontSize: '13px' }}>
-                        {descripcionProductos}
-                      </td>
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            padding: '3px 8px',
-                            borderRadius: '4px',
-                            backgroundColor: v.medio_pago?.toLowerCase().includes('transferencia')
-                              ? '#eff6ff'
-                              : '#f0fdf4',
-                            color: v.medio_pago?.toLowerCase().includes('transferencia')
-                              ? '#1d4ed8'
-                              : '#15803d',
-                            fontWeight: 'bold',
-                            textTransform: 'capitalize'
-                          }}
-                        >
-                          {v.medio_pago || 'Efectivo'}
-                        </span>
-                      </td>
-                      <td style={{ ...styles.td, color: '#16a34a', fontWeight: 'bold' }}>
-                        ${Number(v.total).toLocaleString()}
-                      </td>
-                      <td style={styles.td}>
-                        <button
-                          onClick={() => handleEliminarVenta(v.id)}
-                          style={styles.btnDangerTable}
-                        >
-                          🗑️ Eliminar Venta
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </main>
-
-      {/* MODAL / REPORT DE CIERRE DE MES HISTÓRICO EN PDF */}
-      {modalReporteMes && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalResumenBox}>
-            <div style={{ textAlign: 'center', marginBottom: '15px' }}>
-              <h2 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>🌿 TERRA FRUTOS SECOS</h2>
-              <h3 style={{ margin: 0, color: '#047857' }}>REPORTE CONTABLE DE CIERRE DE MES</h3>
-              <small style={{ color: '#64748b' }}>NIT: 40044029-8 | TUNJA, BOYACÁ, COLOMBIA</small>
-            </div>
-
-            <div style={{ fontSize: '13px', lineHeight: '1.6' }}>
-              <div style={styles.ticketFlexRow}>
-                <b>Periodo / Mes: {modalReporteMes.mes_anio}</b>
-                <span><b>Generado por:</b> {modalReporteMes.usuario_nombre}</span>
-              </div>
-              <div style={styles.ticketFlexRow}>
-                <span><b>Fecha Cierre:</b> {modalReporteMes.fecha_cierre}</span>
+          {activeTab === 'reports' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📊 Reportes Generales y Cierres de Turno</h2>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={() => setReportType('daily')} style={{ padding: '0.6rem 1rem', background: reportType === 'daily' ? '#2563eb' : '#334155', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    📅 Reporte Diario / Turnos
+                  </button>
+                  <button onClick={() => setReportType('monthly')} style={{ padding: '0.6rem 1rem', background: reportType === 'monthly' ? '#2563eb' : '#334155', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    📆 Reporte Mensual
+                  </button>
+                </div>
               </div>
 
-              <hr style={{ margin: '10px 0' }} />
+              {reportType === 'daily' && (
+                <div>
+                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Filtrar por Empleado / Administrador:</label>
+                      <input type="text" placeholder="Ej: Anthony, Doña Rosa..." value={filterUser} onChange={(e) => setFilterUser(e.target.value)} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Filtrar por Fecha:</label>
+                      <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }} />
+                    </div>
+                  </div>
 
-              <h4 style={{ margin: '5px 0', color: '#0f172a' }}>📊 DETALLE FINANCIERO CONSOLIDADO:</h4>
-              <p style={{ margin: '3px 0' }}>Saldo Mes Anterior: <b>${Number(modalReporteMes.saldo_mes_anterior).toLocaleString()}</b></p>
-              <p style={{ margin: '3px 0' }}>Ventas Totales del Mes: <b style={{ color: '#16a34a' }}>+${Number(modalReporteMes.total_ventas).toLocaleString()}</b></p>
-              <p style={{ margin: '3px 0' }}>Ingresos Extras: <b style={{ color: '#2563eb' }}>+${Number(modalReporteMes.total_ingresos_extras || 0).toLocaleString()}</b></p>
-              <p style={{ margin: '3px 0' }}>Egresos y Gastos Totales: <b style={{ color: '#dc2626' }}>-${Number(modalReporteMes.total_egresos).toLocaleString()}</b></p>
-
-              <hr style={{ margin: '10px 0' }} />
-
-              <p style={{ margin: '3px 0' }}>Valor del Inventario en Cierre: <b>${Number(modalReporteMes.saldo_inventario).toLocaleString()}</b></p>
-              <p style={{ margin: '3px 0' }}>Saldo en Caja (Efectivo/Disponible): <b>${Number(modalReporteMes.saldo_caja).toLocaleString()}</b></p>
-
-              <div style={styles.boxEfectivoEsperado}>
-                <span>⚖️ BALANCE NETO CONSOLIDADO:</span>
-                <h3 style={{ margin: '4px 0', color: '#047857' }}>
-                  ${Number(modalReporteMes.balance_neto).toLocaleString()}
-                </h3>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }} className="no-print">
-              <button onClick={() => window.print()} style={styles.btnPrimary}>
-                📄 Imprimir / Guardar PDF
-              </button>
-              <button onClick={() => setModalReporteMes(null)} style={styles.btnDanger}>
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL RESUMEN DE CIERRE DE TURNO */}
-      {modalResumenTurno && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalResumenBox} id="reporte-turno-pdf">
-            <div style={{ textAlign: 'center', marginBottom: '15px' }}>
-              <h2 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>🌿 TERRA FRUTOS SECOS</h2>
-              <h3 style={{ margin: 0, color: '#2563eb' }}>REPORTE COMPLETO DE CIERRE DE TURNO</h3>
-              <small style={{ color: '#64748b' }}>NIT: 40044029-8 | CRA 7 # 15-63 TUNJA</small>
-            </div>
-
-            <div style={{ fontSize: '13px', lineHeight: '1.5' }}>
-              <div style={styles.ticketFlexRow}>
-                <b>Turno ID: #{modalResumenTurno.turnoId}</b>
-                <span><b>Cajero:</b> {modalResumenTurno.cajero}</span>
-              </div>
-              <div style={styles.ticketFlexRow}>
-                <span><b>Inicio:</b> {modalResumenTurno.fechaInicio}</span>
-                <span><b>Cierre:</b> {modalResumenTurno.fechaCierre}</span>
-              </div>
-              
-              <hr style={{ margin: '10px 0' }} />
-              
-              <h4 style={{ margin: '5px 0', color: '#0f172a' }}>💰 RESUMEN FINANCIERO:</h4>
-              <p style={{ margin: '3px 0' }}>Base Inicial de Caja: <b>${modalResumenTurno.baseInicial.toLocaleString()}</b></p>
-              <p style={{ margin: '3px 0' }}>Ventas en Efectivo: <b>${modalResumenTurno.totalEfectivo.toLocaleString()}</b></p>
-              <p style={{ margin: '3px 0' }}>Ventas por Transferencia: <b>${modalResumenTurno.totalTransferencia.toLocaleString()}</b></p>
-              <p style={{ margin: '3px 0', fontSize: '15px', color: '#2563eb' }}>
-                TOTAL VENDIDO: <b>${modalResumenTurno.totalVentas.toLocaleString()}</b>
-              </p>
-
-              <div style={styles.boxEfectivoEsperado}>
-                <span>💵 EFECTIVO ESPERADO EN CAJA:</span>
-                <h3 style={{ margin: '4px 0', color: '#16a34a' }}>
-                  ${modalResumenTurno.efectivoEsperadoEnCaja.toLocaleString()}
-                </h3>
-              </div>
-
-              {/* HISTORIAL DE VENTAS CON STOCK ACTUALIZADO AL FRENTE DE CADA PRODUCTO */}
-              {modalResumenTurno.ventasDelTurno && modalResumenTurno.ventasDelTurno.length > 0 && (
-                <div style={{ marginTop: '15px' }}>
-                  <h4 style={{ margin: '5px 0' }}>📄 HISTORIAL DE VENTAS DEL TURNO:</h4>
-                  <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', border: '1px solid #cbd5e1' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
                     <thead>
-                      <tr style={{ backgroundColor: '#f1f5f9' }}>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>#</th>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>
-                          Detalle Productos (Cant x Producto [Stock Quedado])
-                        </th>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Pago</th>
-                        <th style={{ border: '1px solid #cbd5e1', padding: '4px' }}>Total</th>
+                      <tr style={{ background: '#334155', textAlign: 'left' }}>
+                        <th style={{ padding: '0.75rem' }}>ID Turno</th>
+                        <th style={{ padding: '0.75rem' }}>Empleado / Usuario</th>
+                        <th style={{ padding: '0.75rem' }}>Apertura</th>
+                        <th style={{ padding: '0.75rem' }}>Cierre</th>
+                        <th style={{ padding: '0.75rem' }}>Base Inicial</th>
+                        <th style={{ padding: '0.75rem' }}>Vtas. Efectivo</th>
+                        <th style={{ padding: '0.75rem' }}>Vtas. Nequi/Trans.</th>
+                        <th style={{ padding: '0.75rem' }}>Total Vendido</th>
+                        <th style={{ padding: '0.75rem' }}>Estado</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'center' }}>Ticket</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {modalResumenTurno.ventasDelTurno.map((v) => {
-                        let desc = '';
-                        if (v.itemsEnriquecidos && v.itemsEnriquecidos.length > 0) {
-                          desc = v.itemsEnriquecidos
-                            .map(i => `${i.cantidad}x ${i.nombre} [Stock Actual: ${i.stockActual}]`)
-                            .join(' | ');
-                        } else if (v.items_json) {
-                          try {
-                            desc = JSON.parse(v.items_json).map(i => `${i.cantidad}x ${i.nombre}`).join(', ');
-                          } catch (e) {}
-                        }
-                        return (
-                          <tr key={v.id}>
-                            <td style={{ border: '1px solid #cbd5e1', padding: '4px', fontWeight: 'bold' }}>#{v.id}</td>
-                            <td style={{ border: '1px solid #cbd5e1', padding: '4px' }}>{desc}</td>
-                            <td style={{ border: '1px solid #cbd5e1', padding: '4px', textTransform: 'capitalize' }}>{v.medio_pago}</td>
-                            <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'right', fontWeight: 'bold' }}>
-                              ${Number(v.total).toLocaleString()}
+                      {filteredDailyShifts.length === 0 ? (
+                        <tr><td colSpan="10" style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>No hay turnos registrados con los filtros seleccionados.</td></tr>
+                      ) : (
+                        filteredDailyShifts.map(s => (
+                          <tr key={s.id} style={{ borderBottom: '1px solid #334155' }}>
+                            <td style={{ padding: '0.75rem', color: '#94a3b8' }}>#{s.id}</td>
+                            <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{s.user_name}</td>
+                            <td style={{ padding: '0.75rem', fontSize: '0.8rem', color: '#94a3b8' }}>{s.opened_at}</td>
+                            <td style={{ padding: '0.75rem', fontSize: '0.8rem', color: '#94a3b8' }}>{s.closed_at || 'Activo'}</td>
+                            <td style={{ padding: '0.75rem', color: '#eab308' }}>${s.start_amount?.toLocaleString()}</td>
+                            <td style={{ padding: '0.75rem', color: '#22c55e' }}>${s.cash_sales?.toLocaleString() || 0}</td>
+                            <td style={{ padding: '0.75rem', color: '#38bdf8' }}>${s.transfer_sales?.toLocaleString() || 0}</td>
+                            <td style={{ padding: '0.75rem', fontWeight: 'bold', color: '#4ade80' }}>${s.total_sales?.toLocaleString() || 0}</td>
+                            <td style={{ padding: '0.75rem' }}>
+                              <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: s.status === 'abierto' ? '#166534' : '#334155', color: '#fff', fontSize: '0.75rem' }}>
+                                {s.status.toUpperCase()}
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                              <button onClick={() => handlePrintShiftReport(s)} style={{ padding: '0.3rem 0.6rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' }}>
+                                🖨️ Imprimir
+                              </button>
                             </td>
                           </tr>
-                        );
-                      })}
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {reportType === 'monthly' && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                    <label style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Seleccionar Mes / Año:</label>
+                    <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>TURNOS REGISTRADOS</p>
+                      <h3 style={{ color: '#38bdf8', fontSize: '1.4rem', marginTop: '0.4rem' }}>{monthlyShifts.length} turnos</h3>
+                    </div>
+                    <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>VENTAS EFECTIVO</p>
+                      <h3 style={{ color: '#22c55e', fontSize: '1.4rem', marginTop: '0.4rem' }}>${monthlyCash.toLocaleString()}</h3>
+                    </div>
+                    <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>VENTAS NEQUI / TRANSF.</p>
+                      <h3 style={{ color: '#38bdf8', fontSize: '1.4rem', marginTop: '0.4rem' }}>${monthlyTransfer.toLocaleString()}</h3>
+                    </div>
+                    <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>TOTAL ACUMULADO MES</p>
+                      <h3 style={{ color: '#4ade80', fontSize: '1.4rem', marginTop: '0.4rem' }}>${monthlyTotal.toLocaleString()}</h3>
+                    </div>
+                  </div>
+
+                  <h3 style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '0.5rem' }}>📋 Desglose de Turnos en {selectedMonth}</h3>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
+                    <thead>
+                      <tr style={{ background: '#334155', textAlign: 'left' }}>
+                        <th style={{ padding: '0.75rem' }}>Fecha / Hora</th>
+                        <th style={{ padding: '0.75rem' }}>Empleado / Usuario</th>
+                        <th style={{ padding: '0.75rem' }}>Efectivo</th>
+                        <th style={{ padding: '0.75rem' }}>Transferencia</th>
+                        <th style={{ padding: '0.75rem' }}>Total Turno</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyShifts.length === 0 ? (
+                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>No hay datos de ventas registrados para el mes seleccionado.</td></tr>
+                      ) : (
+                        monthlyShifts.map(s => (
+                          <tr key={s.id} style={{ borderBottom: '1px solid #334155' }}>
+                            <td style={{ padding: '0.75rem', fontSize: '0.85rem', color: '#94a3b8' }}>{s.opened_at}</td>
+                            <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{s.user_name}</td>
+                            <td style={{ padding: '0.75rem', color: '#22c55e' }}>${s.cash_sales?.toLocaleString() || 0}</td>
+                            <td style={{ padding: '0.75rem', color: '#38bdf8' }}>${s.transfer_sales?.toLocaleString() || 0}</td>
+                            <td style={{ padding: '0.75rem', fontWeight: 'bold', color: '#4ade80' }}>${s.total_sales?.toLocaleString() || 0}</td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
               )}
             </div>
+          )}
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }} className="no-print">
-              <button onClick={() => window.print()} style={styles.btnPrimary}>
-                📄 Imprimir / Guardar PDF
-              </button>
-              <button onClick={() => setModalResumenTurno(null)} style={styles.btnDanger}>
-                Cerrar
-              </button>
+          {activeTab === 'dian' && (
+            <div>
+              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>⚙️ Configuración DIAN y Personalización de Recibo</h2>
+              <form onSubmit={handleSaveConfig} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', border: '1px solid #334155', maxWidth: '600px' }}>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Razón Social / Nombre Comercial:</label>
+                  <input
+                    type="text"
+                    required
+                    value={storeConfig.razon_social}
+                    onChange={(e) => setStoreConfig({ ...storeConfig, razon_social: e.target.value })}
+                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>NIT / Cédula:</label>
+                    <input
+                      type="text"
+                      required
+                      value={storeConfig.nit}
+                      onChange={(e) => setStoreConfig({ ...storeConfig, nit: e.target.value })}
+                      style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Teléfono / Celular:</label>
+                    <input
+                      type="text"
+                      required
+                      value={storeConfig.telefono}
+                      onChange={(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })}
+                      style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Dirección:</label>
+                  <input
+                    type="text"
+                    required
+                    value={storeConfig.direccion}
+                    onChange={(e) => setStoreConfig({ ...storeConfig, direccion: e.target.value })}
+                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Descripción de Actividad / Encabezado:</label>
+                  <input
+                    type="text"
+                    value={storeConfig.actividad}
+                    onChange={(e) => setStoreConfig({ ...storeConfig, actividad: e.target.value })}
+                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Mensaje al Pie del Recibo:</label>
+                  <input
+                    type="text"
+                    value={storeConfig.footer_msg}
+                    onChange={(e) => setStoreConfig({ ...storeConfig, footer_msg: e.target.value })}
+                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
+                  />
+                </div>
+
+                <button type="submit" style={{ width: '100%', padding: '0.75rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>
+                  💾 Guardar Cambios de Configuración
+                </button>
+              </form>
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {showUserModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <form onSubmit={handleSaveUser} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
+            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>➕ Registrar Nuevo Empleado</h3>
+            
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Nombre Completo:</label>
+            <input type="text" required placeholder="Ej: Doña Rosa" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Usuario de Acceso:</label>
+            <input type="text" required placeholder="Ej: rosa" value={newUser.username} onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Contraseña:</label>
+            <input type="password" required value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Rol / Permisos:</label>
+            <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
+              <option value="Cajero">🛒 Cajero (Solo POS)</option>
+              <option value="Administrador">🔑 Administrador (Acceso Total)</option>
+            </select>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <button type="button" onClick={() => setShowUserModal(false)} style={{ flex: 1, padding: '0.6rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+              <button type="submit" style={{ flex: 1, padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar Empleado</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showTxModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <form onSubmit={handleSaveTransaction} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
+            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>➕ Registrar Movimiento Financiero</h3>
+            
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Tipo de Movimiento:</label>
+            <select value={newTx.type} onChange={(e) => setNewTx({ ...newTx, type: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
+              <option value="Ingreso">🟢 Ingreso</option>
+              <option value="Egreso">🔴 Egreso / Gasto</option>
+            </select>
+
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Categoría:</label>
+            <input type="text" placeholder="Ej: Proveedores, Arriendo, Servicios, Inyección capital" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Descripción / Concepto:</label>
+            <input type="text" placeholder="Detalle del movimiento" value={newTx.description} onChange={(e) => setNewTx({ ...newTx, description: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Monto ($):</label>
+            <input type="number" required value={newTx.amount} onChange={(e) => setNewTx({ ...newTx, amount: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <button type="button" onClick={() => setShowTxModal(false)} style={{ flex: 1, padding: '0.6rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+              <button type="submit" style={{ flex: 1, padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar Movimiento</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showAddModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <form onSubmit={handleSaveNewProduct} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
+            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>➕ Ingresar Nuevo Producto</h3>
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Código de Barras / ID:</label>
+            <input type="text" required value={newProd.barcode} onChange={(e) => setNewProd({ ...newProd, barcode: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Nombre del Producto:</label>
+            <input type="text" required value={newProd.name} onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Precio de Venta ($):</label>
+            <input type="number" required value={newProd.sale_price} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Stock Inicial:</label>
+                <input type="number" required value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Stock Mínimo:</label>
+                <input type="number" required value={newProd.min_stock} onChange={(e) => setNewProd({ ...newProd, min_stock: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <button type="button" onClick={() => setShowAddModal(false)} style={{ flex: 1, padding: '0.6rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+              <button type="submit" style={{ flex: 1, padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {editingProduct && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <form onSubmit={handleUpdateProduct} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
+            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>✏️ Modificar Producto (CÓD: {editingProduct.barcode})</h3>
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Nombre del Producto:</label>
+            <input type="text" required value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Precio de Venta ($):</label>
+            <input type="number" required value={editingProduct.sale_price} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Stock Actual:</label>
+                <input type="number" required value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Stock Mínimo:</label>
+                <input type="number" required value={editingProduct.min_stock || 3} onChange={(e) => setEditingProduct({ ...editingProduct, min_stock: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <button type="button" onClick={() => setEditingProduct(null)} style={{ flex: 1, padding: '0.6rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+              <button type="submit" style={{ flex: 1, padding: '0.6rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Actualizar</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showShiftModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', color: '#000', padding: '1.5rem', borderRadius: '8px', width: '320px', textAlign: 'center' }}>
+            <h3>☀️ Iniciar Turno ({currentUser.name})</h3>
+            <input type="number" placeholder="Base Inicial ($)" value={shiftBaseInput} onChange={(e) => setShiftBaseInput(e.target.value)} style={{ width: '100%', padding: '0.75rem', margin: '1rem 0', fontSize: '1.1rem', borderRadius: '4px', border: '1px solid #ccc' }} />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={() => setShowShiftModal(false)} style={{ flex: 1, padding: '0.5rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={handleOpenShift} style={{ flex: 1, padding: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ ABRIR TURNO</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL RECIBO POS DIAN */}
-      {facturaData && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.ticketBox} id="ticket-factura">
-            <div style={{ textAlign: 'center', fontSize: '12px' }}>
-              <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 'bold' }}>
-                TERRA FRUTOS SECOS
-              </h3>
-              <p style={{ margin: 0 }}>NIT: 40044029-8</p>
-              <p style={{ margin: 0 }}>Teléfono: 3183142180</p>
-              <p style={{ margin: 0 }}>Dirección: CRA 7 # 15-63</p>
-              <p style={{ margin: 0 }}>TUNJA, BOYACÁ - COLOMBIA</p>
-              <p style={{ margin: 0, fontStyle: 'italic' }}>No Responsable de IVA</p>
-              
-              <div style={styles.ticketDivider}>----------------------------------------</div>
-              
-              <p style={{ margin: '4px 0', fontWeight: 'bold' }}>
-                DOCUMENTO EQUIVALENTE POS N°: {facturaData.id}
-              </p>
-              <p style={{ margin: 0 }}>Fecha: {facturaData.fechaHora}</p>
-              <p style={{ margin: 0 }}>Cajero: {facturaData.cajero}</p>
-              <p style={{ margin: '2px 0', fontWeight: 'bold' }}>
-                Cliente / CC: {facturaData.clienteCc || 'Consumidor Final'}
-              </p>
-            </div>
-
-            <div style={styles.ticketDivider}>----------------------------------------</div>
-
-            <table style={styles.ticketTable}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left' }}>Cant</th>
-                  <th style={{ textAlign: 'left' }}>Producto</th>
-                  <th style={{ textAlign: 'right' }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {facturaData.items.map((it, idx) => (
-                  <tr key={idx}>
-                    <td>{it.cantidad}</td>
-                    <td>{it.nombre}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      ${(it.precio * it.cantidad).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div style={styles.ticketDivider}>----------------------------------------</div>
-
-            <div style={{ fontSize: '13px' }}>
-              <div style={styles.ticketFlexRow}>
-                <b>TOTAL COMPRA:</b>
-                <b>${facturaData.total.toLocaleString()}</b>
-              </div>
-              <div style={styles.ticketFlexRow}>
-                <span>FORMA DE PAGO:</span>
-                <b>{facturaData.medioPago}</b>
-              </div>
-              <div style={styles.ticketFlexRow}>
-                <span>RECIBIDO:</span>
-                <span>${facturaData.pagaCon.toLocaleString()}</span>
-              </div>
-              <div style={styles.ticketFlexRow}>
-                <b>CAMBIO / DEVUELTA:</b>
-                <b>${facturaData.cambio.toLocaleString()}</b>
-              </div>
-            </div>
-
-            <div style={styles.ticketDivider}>----------------------------------------</div>
-
-            <div style={{ textAlign: 'center', fontSize: '11px' }}>
-              <p style={{ margin: '2px 0' }}>Sistema POS Equivalente DIAN 2026</p>
-              <p style={{ margin: '2px 0', fontWeight: 'bold' }}>¡Gracias por su compra!</p>
-            </div>
-
-            <div style={styles.stickyModalFooter} className="no-print">
-              <button onClick={() => window.print()} style={styles.btnPrimary}>
-                🖨️ Imprimir Ticket
-              </button>
-              <button onClick={() => setFacturaData(null)} style={styles.btnDanger}>
-                Cerrar
-              </button>
-            </div>
+      {shiftSummary && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100 }}>
+          <div style={{ background: '#1e293b', color: '#fff', padding: '2rem', borderRadius: '8px', width: '360px', border: '1px solid #334155' }}>
+            <h3 style={{ color: '#38bdf8', textAlign: 'center', margin: '0 0 1rem 0' }}>📄 INFORME DE CIERRE DE TURNO</h3>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Vendedor: <strong>{currentUser.name}</strong></p>
+            <hr style={{ borderColor: '#334155', margin: '1rem 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>Base Inicial:</span><strong style={{ color: '#eab308' }}>${shiftSummary.startBase?.toLocaleString()}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>Ventas Efectivo:</span><strong style={{ color: '#22c55e' }}>${shiftSummary.cashSales?.toLocaleString()}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>Ventas Transferencia:</span><strong style={{ color: '#38bdf8' }}>${shiftSummary.transferSales?.toLocaleString()}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontWeight: 'bold' }}><span>TOTAL VENDIDO:</span><span style={{ color: '#4ade80' }}>${shiftSummary.totalSales?.toLocaleString()}</span></div>
+            <hr style={{ borderColor: '#334155', margin: '1rem 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', fontSize: '1.05rem', fontWeight: 'bold' }}><span>TOTAL EN CAJA:</span><span style={{ color: '#38bdf8' }}>${shiftSummary.totalCashInBox?.toLocaleString()}</span></div>
+            <button onClick={() => setShiftSummary(null)} style={{ width: '100%', padding: '0.75rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar y Finalizar</button>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
-
-// ESTILOS DE LA APLICACIÓN
-const styles = {
-  appLayout: { display: 'flex', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f4f6f9', overflow: 'hidden' },
-  sidebar: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: '240px',
-    backgroundColor: '#1e293b',
-    color: '#fff',
-    padding: '20px',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    zIndex: 999,
-    transition: 'all 0.3s ease-in-out',
-    boxSizing: 'border-box'
-  },
-  sidebarIndicator: {
-    position: 'absolute',
-    right: '4px',
-    top: '50%',
-    color: '#3b82f6',
-    fontSize: '16px',
-    fontWeight: 'bold',
-    pointerEvents: 'none'
-  },
-  brand: { borderBottom: '1px solid #334155', paddingBottom: '15px' },
-  navMenu: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' },
-  navBtn: { padding: '12px', textAlign: 'left', background: 'transparent', border: 'none', color: '#cbd5e1', cursor: 'pointer', borderRadius: '6px', fontSize: '15px' },
-  navBtnActive: { padding: '12px', textAlign: 'left', background: '#3b82f6', border: 'none', color: '#fff', cursor: 'pointer', borderRadius: '6px', fontWeight: 'bold', fontSize: '15px' },
-  btnLogout: { padding: '10px', background: '#ef4444', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  mainContent: { flex: 1, padding: '25px', overflowY: 'auto', marginLeft: '25px', width: 'calc(100% - 25px)' },
-  loginContainer: { height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' },
-  loginCard: { backgroundColor: '#fff', padding: '30px', borderRadius: '10px', width: '320px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', textAlign: 'center' },
-  errorBox: { backgroundColor: '#fee2e2', color: '#dc2626', padding: '10px', borderRadius: '5px', marginBottom: '15px', fontSize: '14px' },
-  inputGroup: { marginBottom: '15px', textAlign: 'left' },
-  input: { width: '100%', padding: '10px', marginTop: '5px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
-  searchBarBox: { display: 'flex', gap: '10px', marginBottom: '15px' },
-  inputSearch: { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
-  inputTableNumber: { width: '80px', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', textAlign: 'center' },
-  inputEntrada: { width: '80px', padding: '6px', borderRadius: '4px', border: '2px solid #16a34a', backgroundColor: '#f0fdf4', textAlign: 'center', fontWeight: 'bold' },
-  selectPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #3b82f6', fontSize: '15px', fontWeight: 'bold', backgroundColor: '#eff6ff', boxSizing: 'border-box' },
-  inputPay: { width: '100%', padding: '10px', borderRadius: '6px', border: '2px solid #2563eb', fontSize: '16px', fontWeight: 'bold', boxSizing: 'border-box' },
-  infoTransfer: { backgroundColor: '#dcfce7', color: '#15803d', padding: '10px', borderRadius: '6px', textAlign: 'center', fontSize: '14px', fontWeight: 'bold', margin: '12px 0' },
-  labelSmall: { fontSize: '12px', fontWeight: 'bold', color: '#475569', display: 'block', marginBottom: '4px' },
-  btnPrimary: { width: '100%', padding: '10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  btnSuccess: { width: '100%', padding: '10px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  btnSecondaryAction: { flex: 1, padding: '12px', backgroundColor: '#475569', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' },
-  btnPrimaryAction: { flex: 1.2, padding: '12px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' },
-  btnDanger: { width: '100%', padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  btnDangerTable: { backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' },
-  btnSaveInline: { backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold' },
-  btnDeleteCart: { backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '24px', height: '24px', fontWeight: 'bold' },
-  btnCierreMesAction: { backgroundColor: '#047857', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', boxShadow: '0 2px 6px rgba(0,0,0,0.15)' },
-  posGrid: { display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: '20px' },
-  posSection: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px' },
-  cartSection: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
-  productGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px', maxHeight: '60vh', overflowY: 'auto' },
-  productCard: { border: '1px solid #e2e8f0', padding: '12px', borderRadius: '8px', textAlign: 'center', backgroundColor: '#f8fafc' },
-  priceTag: { color: '#16a34a', fontWeight: 'bold', fontSize: '15px', margin: '2px 0' },
-  cartList: { flex: 1, overflowY: 'auto', margin: '15px 0' },
-  cartItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee', paddingBottom: '8px', marginBottom: '8px' },
-  qtyInput: { width: '50px', padding: '4px', textAlign: 'center', borderRadius: '4px', border: '1px solid #ccc' },
-  cartFooter: { borderTop: '2px solid #e2e8f0', paddingTop: '15px' },
-  totalRow: { display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: 'bold' },
-  changeRow: { display: 'flex', justifyContent: 'space-between', fontSize: '16px', fontWeight: 'bold', margin: '10px 0' },
-  table: { width: '100%', borderCollapse: 'collapse', marginTop: '15px', backgroundColor: '#fff', borderRadius: '8px', overflow: 'hidden' },
-  th: { padding: '12px', textAlign: 'left', backgroundColor: '#f1f5f9', borderBottom: '1px solid #e2e8f0' },
-  td: { padding: '12px', borderBottom: '1px solid #e2e8f0' },
-  tr: { borderBottom: '1px solid #e2e8f0' },
-  formInline: { backgroundColor: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '20px' },
-  formRow: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1.5fr auto', gap: '10px', marginTop: '10px' },
-  formRowProduct: { display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr auto', gap: '10px', marginTop: '10px' },
-  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '25px' },
-  kpiCard: { backgroundColor: '#fff', padding: '15px 18px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' },
-  kpiLabel: { fontSize: '12px', fontWeight: 'bold', color: '#64748b' },
-  kpiValue: { fontSize: '20px', fontWeight: 'bold', margin: '6px 0 2px 0' },
-  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
-  ticketBox: { backgroundColor: '#fff', width: '320px', maxHeight: '85vh', overflowY: 'auto', padding: '20px', borderRadius: '8px', fontFamily: 'monospace', boxShadow: '0 4px 10px rgba(0,0,0,0.3)', boxSizing: 'border-box' },
-  stickyModalFooter: { display: 'flex', gap: '10px', marginTop: '15px', position: 'sticky', bottom: 0, backgroundColor: '#fff', paddingTop: '10px', borderTop: '1px solid #eee' },
-  ticketDivider: { textAlign: 'center', margin: '8px 0', fontSize: '12px' },
-  ticketTable: { width: '100%', fontSize: '12px', borderCollapse: 'collapse' },
-  ticketFlexRow: { display: 'flex', justifyContent: 'space-between', margin: '4px 0' },
-  
-  // ESTILOS DE GESTIÓN DE TURNO
-  turnoInactivoBar: { backgroundColor: '#fee2e2', border: '1px solid #fca5a5', padding: '12px 18px', borderRadius: '8px', marginBottom: '15px' },
-  turnoActivoBar: { backgroundColor: '#f0fdf4', border: '1px solid #86efac', padding: '12px 18px', borderRadius: '8px', marginBottom: '15px' },
-  turnoFlexRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' },
-  inputBaseShift: { padding: '8px', width: '120px', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 'bold' },
-  btnStartShift: { backgroundColor: '#16a34a', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  btnCloseShift: { backgroundColor: '#dc2626', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  modalResumenBox: { backgroundColor: '#fff', width: '550px', maxHeight: '85vh', overflowY: 'auto', padding: '25px', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)' },
-  boxEfectivoEsperado: { backgroundColor: '#f0fdf4', border: '1px solid #86efac', padding: '10px', borderRadius: '6px', marginTop: '10px', textAlign: 'center' }
-};
