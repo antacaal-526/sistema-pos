@@ -321,7 +321,7 @@ app.post('/api/config', (req, res) => {
   });
 });
 
-// --- RUTA DE RESPALDO DE LA BASE DE DATOS ---
+// --- RUTA DE RESPALDO DE LA BASE DE DATOS (ANTES DEL COMODÍN) ---
 app.get('/api/backup-db', (req, res) => {
   const dbPath = path.join(__dirname, 'pos.db');
   res.download(dbPath, `pos_backup_${new Date().toISOString().slice(0, 10)}.db`, (err) => {
@@ -332,6 +332,7 @@ app.get('/api/backup-db', (req, res) => {
   });
 });
 
+// --- COMODÍN PARA REACT (SIEMPRE AL FINAL) ---
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
