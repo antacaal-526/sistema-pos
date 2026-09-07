@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-const API_URL = 'https://sistema-pos2026.onrender.com';
+const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -90,7 +90,7 @@ export default function App() {
 
   const loadConfig = async () => {
     try {
-      const res = await fetch(`${API}/api/config`);
+      const res = await fetch(`${API_URL}/api/config`);
       if (res.ok) {
         const data = await res.json();
         setStoreConfig(prev => ({ ...prev, ...data }));
@@ -101,7 +101,7 @@ export default function App() {
   const handleSaveConfig = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API}/api/config`, {
+      const res = await fetch(`${API_URL}/api/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(storeConfig)
@@ -117,35 +117,35 @@ export default function App() {
 
   const loadProducts = async () => {
     try {
-      const res = await fetch(`${API}/api/products`);
+      const res = await fetch(`${API_URL}/api/products`);
       if (res.ok) setProducts(await res.json());
     } catch (e) { console.error('Error cargando productos:', e); }
   };
 
   const loadTransactions = async () => {
     try {
-      const res = await fetch(`${API}/api/transactions`);
+      const res = await fetch(`${API_URL}/api/transactions`);
       if (res.ok) setTransactions(await res.json());
     } catch (e) { console.error('Error cargando transacciones:', e); }
   };
 
   const loadUsers = async () => {
     try {
-      const res = await fetch(`${API}/api/users`);
+      const res = await fetch(`${API_URL}/api/users`);
       if (res.ok) setUsersList(await res.json());
     } catch (e) { console.error('Error cargando usuarios:', e); }
   };
 
   const loadShifts = async () => {
     try {
-      const res = await fetch(`${API}/api/shifts`);
+      const res = await fetch(`${API_URL}/api/shifts`);
       if (res.ok) setShiftsList(await res.json());
     } catch (e) { console.error('Error cargando turnos:', e); }
   };
 
   const checkActiveShift = async (userName) => {
     try {
-      const res = await fetch(`${API}/api/shifts/active?user_name=${encodeURIComponent(userName)}`);
+      const res = await fetch(`${API_URL}/api/shifts/active?user_name=${encodeURIComponent(userName)}`);
       if (res.ok) {
         const data = await res.json();
         setActiveShift(data);
@@ -159,7 +159,7 @@ export default function App() {
     e.preventDefault();
     setLoginError('');
     try {
-      const res = await fetch(`${API}/api/login`, {
+      const res = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: loginUser, password: loginPass })
@@ -184,7 +184,7 @@ export default function App() {
   const handleOpenShift = async () => {
     const baseValue = parseFloat(shiftBaseInput) || 0;
     try {
-      const res = await fetch(`${API}/api/shifts/open`, {
+      const res = await fetch(`${API_URL}/api/shifts/open`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_name: currentUser.name, start_amount: baseValue })
@@ -205,7 +205,7 @@ export default function App() {
     if (!window.confirm('¿Desea cerrar el turno actual?')) return;
 
     try {
-      const res = await fetch(`${API}/api/shifts/close`, {
+      const res = await fetch(`${API_URL}/api/shifts/close`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shift_id: activeShift.id })
@@ -243,7 +243,7 @@ export default function App() {
   const handleProcessSale = async (saleType) => {
     if (cart.length === 0) return alert('El carrito está vacío');
     try {
-      const res = await fetch(`${API}/api/sales`, {
+      const res = await fetch(`${API_URL}/api/sales`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -294,7 +294,7 @@ export default function App() {
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API}/api/products`, {
+      const res = await fetch(`${API_URL}/api/products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newProd)
@@ -312,7 +312,7 @@ export default function App() {
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API}/api/products/${editingProduct.barcode}`, {
+      const res = await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingProduct)
@@ -329,7 +329,7 @@ export default function App() {
   const handleDeleteProduct = async (barcode, name) => {
     if (!window.confirm(`¿Está seguro de que desea eliminar "${name}" (CÓD: ${barcode})?`)) return;
     try {
-      const res = await fetch(`${API}/api/products/${barcode}`, { method: 'DELETE' });
+      const res = await fetch(`${API_URL}/api/products/${barcode}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok && data.success) {
         alert('🗑️ Producto eliminado correctamente');
@@ -343,7 +343,7 @@ export default function App() {
     if (!newTx.amount || parseFloat(newTx.amount) <= 0) return alert('Monto inválido');
 
     try {
-      const res = await fetch(`${API}/api/transactions`, {
+      const res = await fetch(`${API_URL}/api/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newTx, user_name: currentUser.name })
@@ -367,7 +367,7 @@ export default function App() {
     if (!window.confirm(msg)) return;
 
     try {
-      const res = await fetch(`${API}/api/transactions/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok && data.success) {
         alert('🗑️ Registro eliminado correctamente');
@@ -380,7 +380,7 @@ export default function App() {
   const handleSaveUser = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API}/api/users`, {
+      const res = await fetch(`${API_URL}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser)
@@ -400,7 +400,7 @@ export default function App() {
     if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return;
 
     try {
-      const res = await fetch(`${API}/api/users/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok && data.success) {
         alert('🗑️ Usuario eliminado correctamente');
