@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-const API = `http://${window.location.hostname}:3000`;
+const API_URL = 'https://sistema-pos2026.onrender.com';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
