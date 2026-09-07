@@ -9,6 +9,56 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ============================================================================
+// 🚨 RUTA DE DESCARGA DIRECTA DE LA BASE DE DATOS (DEBE IR AQUÍ ARRIBA) 🚨
+// ============================================================================
+app.get('/api/backup-db', (req, res) => {
+  try {
+    // 1. Definir posibles rutas donde Render o el entorno local pueden tener pos.db
+    const possiblePaths = [
+      path.join(__dirname, 'pos.db'),
+      path.join(__dirname, '../pos.db'),
+      path.join(process.cwd(), 'pos.db'),
+      '/opt/render/project/src/backend/pos.db',
+      '/opt/render/project/src/pos.db'
+    ];
+
+    let foundPath = null;
+
+    // 2. Buscar en cuál de las rutas existe el archivo realmente
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        foundPath = p;
+        break;
+      }
+    }
+
+    // 3. Si no se encuentra en ninguna parte, mostrar error en pantalla
+    if (!foundPath) {
+      return res.status(404).send(`
+        <h1>Error: Base de datos no encontrada</h1>
+        <p>Se buscaron las siguientes rutas pero el archivo pos.db no existe en ninguna:</p>
+        <ul>${possiblePaths.map(p => `<li>${p}</li>`).join('')}</ul>
+      `);
+    }
+
+    // 4. Si se encuentra, leer el archivo en crudo y forzar la descarga en el navegador
+    const fileBuffer = fs.readFileSync(foundPath);
+    const fileName = `pos_backup_${new Date().toISOString().slice(0, 10)}.db`;
+    
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    return res.send(fileBuffer);
+
+  } catch (error) {
+    console.error('Error crítico al intentar descargar:', error);
+    return res.status(500).send('Error interno del servidor al procesar la descarga.');
+  }
+});
+// ============================================================================
+
+
+// Archivos estáticos del Frontend
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // --- LOGIN ---
@@ -319,34 +369,6 @@ app.post('/api/config', (req, res) => {
         }
       }
     );
-  });
-});
-
-// --- RUTA DE RESPALDO DE LA BASE DE DATOS (ROBUSTA) ---
-app.get('/api/backup-db', (req, res) => {
-  let dbPath = path.join(__dirname, 'pos.db');
-  
-  if (!fs.existsSync(dbPath)) {
-    dbPath = path.join(__dirname, '../pos.db');
-  }
-  if (!fs.existsSync(dbPath)) {
-    dbPath = path.join(process.cwd(), 'pos.db');
-  }
-  if (!fs.existsSync(dbPath)) {
-    dbPath = '/opt/render/project/src/backend/pos.db';
-  }
-
-  if (!fs.existsSync(dbPath)) {
-    return res.status(404).json({ error: 'Archivo de base de datos no encontrado en el servidor' });
-  }
-
-  res.download(dbPath, `pos_backup_${new Date().toISOString().slice(0, 10)}.db`, (err) => {
-    if (err) {
-      console.error('Error al descargar la base de datos:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'No se pudo generar la copia de seguridad', details: err.message });
-      }
-    }
   });
 });
 
