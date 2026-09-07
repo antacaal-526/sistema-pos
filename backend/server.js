@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const db = require('./database');
 
 const app = express();
@@ -321,10 +322,24 @@ app.post('/api/config', (req, res) => {
   });
 });
 
-// --- RUTA DE RESPALDO DE LA BASE DE DATOS (ANTES DEL COMODÍN) ---
+// --- RUTA DE RESPALDO DE LA BASE DE DATOS (ROBUSTA) ---
 app.get('/api/backup-db', (req, res) => {
-  const dbPath = path.join(__dirname, 'pos.db');
+  let dbPath = path.join(__dirname, 'pos.db');
   
+  if (!fs.existsSync(dbPath)) {
+    dbPath = path.join(__dirname, '../pos.db');
+  }
+  if (!fs.existsSync(dbPath)) {
+    dbPath = path.join(process.cwd(), 'pos.db');
+  }
+  if (!fs.existsSync(dbPath)) {
+    dbPath = '/opt/render/project/src/backend/pos.db';
+  }
+
+  if (!fs.existsSync(dbPath)) {
+    return res.status(404).json({ error: 'Archivo de base de datos no encontrado en el servidor' });
+  }
+
   res.download(dbPath, `pos_backup_${new Date().toISOString().slice(0, 10)}.db`, (err) => {
     if (err) {
       console.error('Error al descargar la base de datos:', err);
