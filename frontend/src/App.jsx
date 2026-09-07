@@ -753,7 +753,10 @@ export default function App() {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Resumen Contable</h2>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button onClick={() => window.open(`${API_URL}/api/backup-db`, '_blank')} style={{ padding: '0.6rem 1rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    💾 Descargar Respaldo BD (.db)
+                  </button>
                   <button onClick={() => setShowTxModal(true)} style={{ padding: '0.6rem 1rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                     ➕ Registrar Ingreso / Egreso
                   </button>
