@@ -324,10 +324,13 @@ app.post('/api/config', (req, res) => {
 // --- RUTA DE RESPALDO DE LA BASE DE DATOS (ANTES DEL COMODÍN) ---
 app.get('/api/backup-db', (req, res) => {
   const dbPath = path.join(__dirname, 'pos.db');
+  
   res.download(dbPath, `pos_backup_${new Date().toISOString().slice(0, 10)}.db`, (err) => {
     if (err) {
       console.error('Error al descargar la base de datos:', err);
-      res.status(500).json({ error: 'No se pudo generar la copia de seguridad' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'No se pudo generar la copia de seguridad', details: err.message });
+      }
     }
   });
 });
