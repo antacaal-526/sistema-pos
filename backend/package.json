@@ -1,36 +1,14 @@
 {
-  "name": "terra-frutos-secos-pos",
+  "name": "terra-frutos-secos-backend",
   "version": "1.0.0",
-  "description": "Sistema POS e Inventario Terra Frutos Secos",
-  "main": "main.js",
+  "description": "Backend API para Sistema POS Terra Frutos Secos",
+  "main": "server.js",
   "scripts": {
-    "build:frontend": "npm --prefix frontend run build",
-    "build:win": "npm run build:frontend && electron-builder --win nsis"
+    "start": "node server.js"
   },
-  "devDependencies": {
-    "electron": "^30.0.0",
-    "electron-builder": "^24.13.3"
-  },
-  "build": {
-    "appId": "com.terra.pos",
-    "productName": "Terra Frutos Secos POS",
-    "directories": {
-      "output": "dist-installer"
-    },
-    "files": [
-      "main.js",
-      "backend/**/*",
-      "frontend/dist/**/*"
-    ],
-    "win": {
-      "target": "nsis"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Terra POS"
-    }
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "sqlite3": "^5.1.7"
   }
 }
