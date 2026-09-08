@@ -1,25 +1,80 @@
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const { createClient } = require('@libsql/client');
+const sqlite3 = require('sqlite3').verbose();
 
-let dbPath;
-try {
-  const { app } = require('electron');
-  const appPath = (app && typeof app.getPath === 'function') ? app.getPath('userData') : __dirname;
-  dbPath = path.join(appPath, 'pos.db');
-} catch (e) {
-  dbPath = path.join(__dirname, 'pos.db');
+const url = process.env.TURSO_DATABASE_URL;
+const authToken = process.env.TURSO_AUTH_TOKEN;
+
+let db;
+
+if (url && authToken) {
+  console.log('⚡ Conectando a Base de Datos en la Nube (Turso Cloud)...');
+  const client = createClient({ url, authToken });
+
+  db = {
+    isTurso: true,
+    run: function (sql, params = [], callback) {
+      if (typeof params === 'function') { callback = params; params = []; }
+      client.execute({ sql, args: params })
+        .then(res => {
+          const ctx = { lastID: Number(res.lastInsertRowid || 0), changes: res.rowsAffected };
+          if (callback) callback.call(ctx, null);
+        })
+        .catch(err => { if (callback) callback(err); });
+    },
+    get: function (sql, params = [], callback) {
+      if (typeof params === 'function') { callback = params; params = []; }
+      client.execute({ sql, args: params })
+        .then(res => {
+          const row = res.rows.length > 0 ? res.rows[0] : undefined;
+          if (callback) callback(null, row);
+        })
+        .catch(err => { if (callback) callback(err); });
+    },
+    all: function (sql, params = [], callback) {
+      if (typeof params === 'function') { callback = params; params = []; }
+      client.execute({ sql, args: params })
+        .then(res => {
+          if (callback) callback(null, res.rows);
+        })
+        .catch(err => { if (callback) callback(err); });
+    },
+    exec: function (sql, callback) {
+      const stmts = sql.split(';').filter(s => s.trim().length > 0);
+      client.batch(stmts.map(s => ({ sql: s, args: [] })), 'write')
+        .then(() => { if (callback) callback(null); })
+        .catch(err => { if (callback) callback(err); });
+    },
+    serialize: function (fn) { if (fn) fn(); },
+    prepare: function(sql) {
+      return {
+        run: (...args) => {
+          let cb = args.pop();
+          if (typeof cb !== 'function') { args.push(cb); cb = null; }
+          client.execute({ sql, args }).then(res => {
+            if (cb) cb.call({ lastID: Number(res.lastInsertRowid || 0), changes: res.rowsAffected }, null);
+          }).catch(err => { if (cb) cb(err); });
+        },
+        finalize: (cb) => { if (cb) cb(); }
+      };
+    }
+  };
+} else {
+  let dbPath;
+  try {
+    const { app } = require('electron');
+    const appPath = (app && typeof app.getPath === 'function') ? app.getPath('userData') : __dirname;
+    dbPath = path.join(appPath, 'pos.db');
+  } catch (e) {
+    dbPath = path.join(__dirname, 'pos.db');
+  }
+
+  console.log('📂 Conectando a la Base de Datos local (pos.db)...');
+  db = new sqlite3.Database(dbPath);
 }
 
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('❌ Error conectando a pos.db:', err.message);
-  } else {
-    console.log('✅ Base de datos pos.db conectada correctamente en:', dbPath);
-  }
-});
-
+// Inicialización de Tablas
 db.serialize(() => {
-  // 1. Usuarios
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,16 +85,10 @@ db.serialize(() => {
     )
   `);
 
-  db.run(`ALTER TABLE users ADD COLUMN name TEXT`, () => {});
-  db.run(`ALTER TABLE users ADD COLUMN password TEXT DEFAULT '1234'`, () => {});
-  db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'Cajero'`, () => {});
-
   db.run(`INSERT OR IGNORE INTO users (id, name, username, password, role) VALUES (1, 'Administrador Principal', 'admin', 'admin123', 'Administrador')`);
   db.run(`INSERT OR IGNORE INTO users (id, name, username, password, role) VALUES (2, 'Doña Rosa', 'rosa', '1234', 'Cajero')`);
   db.run(`INSERT OR IGNORE INTO users (id, name, username, password, role) VALUES (3, 'ANTHONY CARDENAS', 'ANTHONY', '0526', 'Administrador')`);
-  db.run(`UPDATE users SET password = '0526', role = 'Administrador', name = 'ANTHONY CARDENAS' WHERE username = 'ANTHONY'`);
 
-  // 2. Productos
   db.run(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +103,6 @@ db.serialize(() => {
     )
   `);
 
-  // 3. Turnos
   db.run(`
     CREATE TABLE IF NOT EXISTS shifts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +119,6 @@ db.serialize(() => {
     )
   `);
 
-  // 4. Ventas
   db.run(`
     CREATE TABLE IF NOT EXISTS sales (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,7 +139,6 @@ db.serialize(() => {
     )
   `);
 
-  // 5. Items Venta
   db.run(`
     CREATE TABLE IF NOT EXISTS sale_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,7 +152,6 @@ db.serialize(() => {
     )
   `);
 
-  // 6. Egresos
   db.run(`
     CREATE TABLE IF NOT EXISTS expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,7 +165,6 @@ db.serialize(() => {
     )
   `);
 
-  // 7. Transacciones
   db.run(`
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,25 +177,12 @@ db.serialize(() => {
     )
   `);
 
-  // 8. Configuración
   db.run(`
     CREATE TABLE IF NOT EXISTS config (
       key TEXT PRIMARY KEY,
       value TEXT
     )
   `);
-
-  // Cargar productos automáticos si la tabla está vacía
-  db.get("SELECT COUNT(*) as count FROM products", (err, row) => {
-    if (!err && row && row.count === 0) {
-      console.log('🌱 Poblando productos por primera vez en la base de datos...');
-      try {
-        require('./seed_excel_products');
-      } catch (e) {
-        console.error('Error al cargar seed_excel_products:', e.message);
-      }
-    }
-  });
 });
 
 module.exports = db;
