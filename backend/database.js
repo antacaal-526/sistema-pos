@@ -12,6 +12,24 @@ const authToken = process.env.TURSO_AUTH_TOKEN;
 
 let db;
 
+// Corregir comillas dobles por comillas simples para compatibilidad con el estándar SQL de Turso
+function fixSqlQuotes(sql) {
+  if (typeof sql !== 'string') return sql;
+
+  // Corregir textos entre comillas dobles dentro de VALUES (...)
+  let fixedSql = sql.replace(/VALUES\s*\(([^)]+)\)/gi, (match) => {
+    return match.replace(/"([^"]+)"/g, "'$1'");
+  });
+
+  // Corregir comparaciones como status = "abierto"
+  fixedSql = fixedSql.replace(/(=|!=|<|>)\s*"([^"]+)"/g, "$1 '$2'");
+
+  // Corregir palabras clave comunes del sistema
+  fixedSql = fixedSql.replace(/"(abierto|cerrado|Efectivo|Transferencia|General|Facturada|Cajero|Administrador|Consumidor Final|222222222222)"/gi, "'$1'");
+
+  return fixedSql;
+}
+
 function deepClean(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return Number(obj);
@@ -45,7 +63,8 @@ function sanitizeArgs(params) {
 
 function parseQueryArgs(rawArgs) {
   const args = Array.from(rawArgs);
-  const sql = args.shift();
+  let sql = args.shift();
+  sql = fixSqlQuotes(sql);
   
   let callback = null;
   if (args.length > 0 && typeof args[args.length - 1] === 'function') {
@@ -68,7 +87,6 @@ if (url && authToken) {
   console.log('⚡ Conectando a Base de Datos en la Nube (Turso Cloud)...');
   const client = createClient({ url, authToken });
 
-  // Inicialización de todas las tablas en Turso Cloud
   const initStatements = [
     `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,7 +226,8 @@ if (url && authToken) {
         });
     },
     exec: function (sql, callback) {
-      const stmts = sql.split(';').filter(s => s.trim().length > 0);
+      const cleanSql = fixSqlQuotes(sql);
+      const stmts = cleanSql.split(';').filter(s => s.trim().length > 0);
       client.batch(stmts.map(s => ({ sql: s, args: [] })), 'write')
         .then(() => { if (callback) callback(null); })
         .catch(err => {
@@ -218,12 +237,13 @@ if (url && authToken) {
     },
     serialize: function (fn) { if (fn) fn(); },
     prepare: function(sql) {
+      const cleanSql = fixSqlQuotes(sql);
       return {
         run: (...args) => {
           let cb = args.pop();
           if (typeof cb !== 'function') { args.push(cb); cb = null; }
           const cleanArgs = sanitizeArgs(args.length === 1 ? args[0] : args);
-          client.execute({ sql, args: cleanArgs }).then(res => {
+          client.execute({ sql: cleanSql, args: cleanArgs }).then(res => {
             const lastID = res.lastInsertRowid != null ? Number(res.lastInsertRowid) : 0;
             const changes = res.rowsAffected != null ? Number(res.rowsAffected) : 0;
             if (cb) cb.call({ lastID, changes }, null);
