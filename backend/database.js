@@ -2,7 +2,7 @@ const path = require('path');
 const { createClient } = require('@libsql/client');
 const sqlite3 = require('sqlite3').verbose();
 
-// Conversión global para prevenir fallos de JSON.stringify con BigInt en Node 22
+// Conversión global para prevenir fallos de JSON.stringify con BigInt en Express
 BigInt.prototype.toJSON = function () {
   return Number(this);
 };
@@ -12,7 +12,6 @@ const authToken = process.env.TURSO_AUTH_TOKEN;
 
 let db;
 
-// Limpieza recursiva de BigInt a Number en objetos y arreglos de resultados
 function deepClean(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return Number(obj);
@@ -44,16 +43,134 @@ function sanitizeArgs(params) {
   return params.map(v => (v === undefined ? null : typeof v === 'bigint' ? Number(v) : v));
 }
 
+function parseQueryArgs(rawArgs) {
+  const args = Array.from(rawArgs);
+  const sql = args.shift();
+  
+  let callback = null;
+  if (args.length > 0 && typeof args[args.length - 1] === 'function') {
+    callback = args.pop();
+  }
+
+  let params = [];
+  if (args.length === 1 && Array.isArray(args[0])) {
+    params = args[0];
+  } else if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
+    params = args[0];
+  } else {
+    params = args;
+  }
+
+  return { sql, params: sanitizeArgs(params), callback };
+}
+
 if (url && authToken) {
   console.log('⚡ Conectando a Base de Datos en la Nube (Turso Cloud)...');
   const client = createClient({ url, authToken });
 
+  // Inicialización de todas las tablas en Turso Cloud
+  const initStatements = [
+    `CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL DEFAULT '1234',
+      role TEXT NOT NULL DEFAULT 'Cajero'
+    )`,
+    `CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      barcode TEXT UNIQUE,
+      internal_code TEXT,
+      name TEXT,
+      category TEXT DEFAULT 'General',
+      cost_price REAL DEFAULT 0,
+      sale_price REAL DEFAULT 0,
+      stock INTEGER DEFAULT 0,
+      min_stock INTEGER DEFAULT 5
+    )`,
+    `CREATE TABLE IF NOT EXISTS shifts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      user_name TEXT NOT NULL,
+      start_amount REAL NOT NULL,
+      end_amount REAL DEFAULT 0,
+      cash_sales REAL DEFAULT 0,
+      transfer_sales REAL DEFAULT 0,
+      total_sales REAL DEFAULT 0,
+      status TEXT DEFAULT 'abierto',
+      opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      closed_at DATETIME
+    )`,
+    `CREATE TABLE IF NOT EXISTS cash_shifts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      user_name TEXT NOT NULL,
+      start_amount REAL NOT NULL,
+      end_amount REAL DEFAULT 0,
+      cash_sales REAL DEFAULT 0,
+      transfer_sales REAL DEFAULT 0,
+      total_sales REAL DEFAULT 0,
+      status TEXT DEFAULT 'abierto',
+      opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      closed_at DATETIME
+    )`,
+    `CREATE TABLE IF NOT EXISTS sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shift_id INTEGER,
+      user_name TEXT,
+      invoice_number TEXT,
+      customer_doc TEXT DEFAULT '222222222222',
+      customer_name TEXT DEFAULT 'Consumidor Final',
+      subtotal REAL NOT NULL,
+      tax_amount REAL DEFAULT 0,
+      total REAL NOT NULL,
+      payment_method TEXT DEFAULT 'Efectivo',
+      amount_paid REAL DEFAULT 0,
+      change_given REAL DEFAULT 0,
+      sale_type TEXT DEFAULT 'Facturada',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS sale_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id INTEGER,
+      product_barcode TEXT,
+      product_name TEXT,
+      quantity INTEGER,
+      unit_price REAL,
+      subtotal REAL
+    )`,
+    `CREATE TABLE IF NOT EXISTS expenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shift_id INTEGER,
+      user_name TEXT,
+      description TEXT NOT NULL,
+      amount REAL NOT NULL,
+      category TEXT DEFAULT 'General',
+      payment_method TEXT DEFAULT 'Efectivo',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      category TEXT DEFAULT 'General',
+      description TEXT,
+      amount REAL NOT NULL,
+      user_name TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS config (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )`
+  ];
+
+  Promise.all(initStatements.map(stmt => client.execute(stmt).catch(() => {})));
+
   db = {
     isTurso: true,
-    run: function (sql, params = [], callback) {
-      if (typeof params === 'function') { callback = params; params = []; }
-      const args = sanitizeArgs(params);
-      client.execute({ sql, args })
+    run: function (...rawArgs) {
+      const { sql, params, callback } = parseQueryArgs(rawArgs);
+      client.execute({ sql, args: params })
         .then(res => {
           const lastID = res.lastInsertRowid != null ? Number(res.lastInsertRowid) : 0;
           const changes = res.rowsAffected != null ? Number(res.rowsAffected) : 0;
@@ -61,34 +178,32 @@ if (url && authToken) {
           if (callback) callback.call(ctx, null);
         })
         .catch(err => {
-          console.error('❌ Error SQL (run):', err.message, '| SQL:', sql, '| Args:', args);
+          console.error('❌ Error SQL (run):', err.message, '| SQL:', sql, '| Args:', params);
           if (callback) callback(err);
         });
     },
-    get: function (sql, params = [], callback) {
-      if (typeof params === 'function') { callback = params; params = []; }
-      const args = sanitizeArgs(params);
-      client.execute({ sql, args })
+    get: function (...rawArgs) {
+      const { sql, params, callback } = parseQueryArgs(rawArgs);
+      client.execute({ sql, args: params })
         .then(res => {
           const rawRow = (res.rows && res.rows.length > 0) ? res.rows[0] : undefined;
           const row = deepClean(rawRow);
           if (callback) callback(null, row);
         })
         .catch(err => {
-          console.error('❌ Error SQL (get):', err.message, '| SQL:', sql, '| Args:', args);
+          console.error('❌ Error SQL (get):', err.message, '| SQL:', sql, '| Args:', params);
           if (callback) callback(err);
         });
     },
-    all: function (sql, params = [], callback) {
-      if (typeof params === 'function') { callback = params; params = []; }
-      const args = sanitizeArgs(params);
-      client.execute({ sql, args })
+    all: function (...rawArgs) {
+      const { sql, params, callback } = parseQueryArgs(rawArgs);
+      client.execute({ sql, args: params })
         .then(res => {
           const rows = deepClean(res.rows || []);
           if (callback) callback(null, rows);
         })
         .catch(err => {
-          console.error('❌ Error SQL (all):', err.message, '| SQL:', sql, '| Args:', args);
+          console.error('❌ Error SQL (all):', err.message, '| SQL:', sql, '| Args:', params);
           if (callback) callback(err, []);
         });
     },
@@ -135,7 +250,7 @@ if (url && authToken) {
   db = new sqlite3.Database(dbPath);
 }
 
-// Inicialización de Tablas
+// Inicialización de Tablas en SQLite local
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -212,8 +327,7 @@ db.serialize(() => {
       amount_paid REAL DEFAULT 0,
       change_given REAL DEFAULT 0,
       sale_type TEXT DEFAULT 'Facturada',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(shift_id) REFERENCES shifts(id)
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -225,8 +339,7 @@ db.serialize(() => {
       product_name TEXT,
       quantity INTEGER,
       unit_price REAL,
-      subtotal REAL,
-      FOREIGN KEY(sale_id) REFERENCES sales(id)
+      subtotal REAL
     )
   `);
 
