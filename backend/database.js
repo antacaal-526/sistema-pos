@@ -2,7 +2,7 @@ const path = require('path');
 const { createClient } = require('@libsql/client');
 const sqlite3 = require('sqlite3').verbose();
 
-// Solución global para evitar errores de serialización de BigInt en Express
+// Prevenir errores de serialización JSON con valores BigInt en Express
 BigInt.prototype.toJSON = function () {
   return Number(this);
 };
@@ -12,22 +12,39 @@ const authToken = process.env.TURSO_AUTH_TOKEN;
 
 let db;
 
-function sanitizeArgs(args) {
-  if (!Array.isArray(args)) return [];
-  return args.map(v => (v === undefined ? null : typeof v === 'bigint' ? Number(v) : v));
+function sanitizeArgs(params) {
+  if (params === undefined || params === null) return [];
+  if (typeof params === 'function') return [];
+  
+  // Si se pasa un valor individual (string, number, boolean) en lugar de un Array
+  if (typeof params !== 'object') {
+    return [typeof params === 'bigint' ? Number(params) : params];
+  }
+
+  // Si se pasa un objeto con parámetros nombrados
+  if (!Array.isArray(params)) {
+    const cleanObj = {};
+    for (const k in params) {
+      let v = params[k];
+      if (v === undefined) v = null;
+      if (typeof v === 'bigint') v = Number(v);
+      cleanObj[k] = v;
+    }
+    return cleanObj;
+  }
+
+  // Si se pasa un Array de parámetros
+  return params.map(v => (v === undefined ? null : typeof v === 'bigint' ? Number(v) : v));
 }
 
 function cleanRow(row) {
   if (!row || typeof row !== 'object') return row;
-  const newRow = {};
+  const plain = {};
   for (const key in row) {
-    if (typeof row[key] === 'bigint') {
-      newRow[key] = Number(row[key]);
-    } else {
-      newRow[key] = row[key];
-    }
+    const val = row[key];
+    plain[key] = typeof val === 'bigint' ? Number(val) : val;
   }
-  return newRow;
+  return plain;
 }
 
 if (url && authToken) {
@@ -42,12 +59,12 @@ if (url && authToken) {
       client.execute({ sql, args })
         .then(res => {
           const lastID = (res.lastInsertRowid !== undefined && res.lastInsertRowid !== null) ? Number(res.lastInsertRowid) : 0;
-          const changes = res.rowsAffected !== undefined && res.rowsAffected !== null ? Number(res.rowsAffected) : 0;
+          const changes = (res.rowsAffected !== undefined && res.rowsAffected !== null) ? Number(res.rowsAffected) : 0;
           const ctx = { lastID, changes };
           if (callback) callback.call(ctx, null);
         })
         .catch(err => {
-          console.error('Error SQL (run):', err.message, 'SQL:', sql);
+          console.error('Error SQL (run):', err.message, '| SQL:', sql, '| Args:', args);
           if (callback) callback(err);
         });
     },
@@ -60,7 +77,7 @@ if (url && authToken) {
           if (callback) callback(null, row);
         })
         .catch(err => {
-          console.error('Error SQL (get):', err.message, 'SQL:', sql);
+          console.error('Error SQL (get):', err.message, '| SQL:', sql, '| Args:', args);
           if (callback) callback(err);
         });
     },
@@ -73,7 +90,7 @@ if (url && authToken) {
           if (callback) callback(null, rows);
         })
         .catch(err => {
-          console.error('Error SQL (all):', err.message, 'SQL:', sql);
+          console.error('Error SQL (all):', err.message, '| SQL:', sql, '| Args:', args);
           if (callback) callback(err, []);
         });
     },
@@ -81,7 +98,10 @@ if (url && authToken) {
       const stmts = sql.split(';').filter(s => s.trim().length > 0);
       client.batch(stmts.map(s => ({ sql: s, args: [] })), 'write')
         .then(() => { if (callback) callback(null); })
-        .catch(err => { if (callback) callback(err); });
+        .catch(err => {
+          console.error('Error SQL (exec):', err.message);
+          if (callback) callback(err);
+        });
     },
     serialize: function (fn) { if (fn) fn(); },
     prepare: function(sql) {
@@ -89,12 +109,15 @@ if (url && authToken) {
         run: (...args) => {
           let cb = args.pop();
           if (typeof cb !== 'function') { args.push(cb); cb = null; }
-          const cleanArgs = sanitizeArgs(args);
+          const cleanArgs = sanitizeArgs(args.length === 1 ? args[0] : args);
           client.execute({ sql, args: cleanArgs }).then(res => {
             const lastID = (res.lastInsertRowid !== undefined && res.lastInsertRowid !== null) ? Number(res.lastInsertRowid) : 0;
-            const changes = res.rowsAffected !== undefined && res.rowsAffected !== null ? Number(res.rowsAffected) : 0;
+            const changes = (res.rowsAffected !== undefined && res.rowsAffected !== null) ? Number(res.rowsAffected) : 0;
             if (cb) cb.call({ lastID, changes }, null);
-          }).catch(err => { if (cb) cb(err); });
+          }).catch(err => {
+            console.error('Error SQL (prepare.run):', err.message);
+            if (cb) cb(err);
+          });
         },
         finalize: (cb) => { if (cb) cb(); }
       };
