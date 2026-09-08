@@ -2,10 +2,50 @@ const path = require('path');
 const { createClient } = require('@libsql/client');
 const sqlite3 = require('sqlite3').verbose();
 
+// Prevenir errores de serialización JSON con valores BigInt en Express
+BigInt.prototype.toJSON = function () {
+  return Number(this);
+};
+
 const url = process.env.TURSO_DATABASE_URL;
 const authToken = process.env.TURSO_AUTH_TOKEN;
 
 let db;
+
+function sanitizeArgs(params) {
+  if (params === undefined || params === null) return [];
+  if (typeof params === 'function') return [];
+  
+  // Si se pasa un valor individual (string, number, boolean) en lugar de un Array
+  if (typeof params !== 'object') {
+    return [typeof params === 'bigint' ? Number(params) : params];
+  }
+
+  // Si se pasa un objeto con parámetros nombrados
+  if (!Array.isArray(params)) {
+    const cleanObj = {};
+    for (const k in params) {
+      let v = params[k];
+      if (v === undefined) v = null;
+      if (typeof v === 'bigint') v = Number(v);
+      cleanObj[k] = v;
+    }
+    return cleanObj;
+  }
+
+  // Si se pasa un Array de parámetros
+  return params.map(v => (v === undefined ? null : typeof v === 'bigint' ? Number(v) : v));
+}
+
+function cleanRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const plain = {};
+  for (const key in row) {
+    const val = row[key];
+    plain[key] = typeof val === 'bigint' ? Number(val) : val;
+  }
+  return plain;
+}
 
 if (url && authToken) {
   console.log('⚡ Conectando a Base de Datos en la Nube (Turso Cloud)...');
@@ -15,35 +55,53 @@ if (url && authToken) {
     isTurso: true,
     run: function (sql, params = [], callback) {
       if (typeof params === 'function') { callback = params; params = []; }
-      client.execute({ sql, args: params })
+      const args = sanitizeArgs(params);
+      client.execute({ sql, args })
         .then(res => {
-          const ctx = { lastID: Number(res.lastInsertRowid || 0), changes: res.rowsAffected };
+          const lastID = (res.lastInsertRowid !== undefined && res.lastInsertRowid !== null) ? Number(res.lastInsertRowid) : 0;
+          const changes = (res.rowsAffected !== undefined && res.rowsAffected !== null) ? Number(res.rowsAffected) : 0;
+          const ctx = { lastID, changes };
           if (callback) callback.call(ctx, null);
         })
-        .catch(err => { if (callback) callback(err); });
+        .catch(err => {
+          console.error('Error SQL (run):', err.message, '| SQL:', sql, '| Args:', args);
+          if (callback) callback(err);
+        });
     },
     get: function (sql, params = [], callback) {
       if (typeof params === 'function') { callback = params; params = []; }
-      client.execute({ sql, args: params })
+      const args = sanitizeArgs(params);
+      client.execute({ sql, args })
         .then(res => {
-          const row = res.rows.length > 0 ? res.rows[0] : undefined;
+          const row = (res.rows && res.rows.length > 0) ? cleanRow(res.rows[0]) : undefined;
           if (callback) callback(null, row);
         })
-        .catch(err => { if (callback) callback(err); });
+        .catch(err => {
+          console.error('Error SQL (get):', err.message, '| SQL:', sql, '| Args:', args);
+          if (callback) callback(err);
+        });
     },
     all: function (sql, params = [], callback) {
       if (typeof params === 'function') { callback = params; params = []; }
-      client.execute({ sql, args: params })
+      const args = sanitizeArgs(params);
+      client.execute({ sql, args })
         .then(res => {
-          if (callback) callback(null, res.rows);
+          const rows = (res.rows || []).map(r => cleanRow(r));
+          if (callback) callback(null, rows);
         })
-        .catch(err => { if (callback) callback(err); });
+        .catch(err => {
+          console.error('Error SQL (all):', err.message, '| SQL:', sql, '| Args:', args);
+          if (callback) callback(err, []);
+        });
     },
     exec: function (sql, callback) {
       const stmts = sql.split(';').filter(s => s.trim().length > 0);
       client.batch(stmts.map(s => ({ sql: s, args: [] })), 'write')
         .then(() => { if (callback) callback(null); })
-        .catch(err => { if (callback) callback(err); });
+        .catch(err => {
+          console.error('Error SQL (exec):', err.message);
+          if (callback) callback(err);
+        });
     },
     serialize: function (fn) { if (fn) fn(); },
     prepare: function(sql) {
@@ -51,9 +109,15 @@ if (url && authToken) {
         run: (...args) => {
           let cb = args.pop();
           if (typeof cb !== 'function') { args.push(cb); cb = null; }
-          client.execute({ sql, args }).then(res => {
-            if (cb) cb.call({ lastID: Number(res.lastInsertRowid || 0), changes: res.rowsAffected }, null);
-          }).catch(err => { if (cb) cb(err); });
+          const cleanArgs = sanitizeArgs(args.length === 1 ? args[0] : args);
+          client.execute({ sql, args: cleanArgs }).then(res => {
+            const lastID = (res.lastInsertRowid !== undefined && res.lastInsertRowid !== null) ? Number(res.lastInsertRowid) : 0;
+            const changes = (res.rowsAffected !== undefined && res.rowsAffected !== null) ? Number(res.rowsAffected) : 0;
+            if (cb) cb.call({ lastID, changes }, null);
+          }).catch(err => {
+            console.error('Error SQL (prepare.run):', err.message);
+            if (cb) cb(err);
+          });
         },
         finalize: (cb) => { if (cb) cb(); }
       };
@@ -105,6 +169,22 @@ db.serialize(() => {
 
   db.run(`
     CREATE TABLE IF NOT EXISTS shifts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      user_name TEXT NOT NULL,
+      start_amount REAL NOT NULL,
+      end_amount REAL DEFAULT 0,
+      cash_sales REAL DEFAULT 0,
+      transfer_sales REAL DEFAULT 0,
+      total_sales REAL DEFAULT 0,
+      status TEXT DEFAULT 'abierto',
+      opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      closed_at DATETIME
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS cash_shifts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
       user_name TEXT NOT NULL,

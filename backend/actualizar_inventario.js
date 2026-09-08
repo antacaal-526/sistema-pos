@@ -1,245 +1,299 @@
-const path = require('path');
-const { createClient } = require('@libsql/client');
-const sqlite3 = require('sqlite3').verbose();
+const db = require('./database');
 
-// Solución global para evitar errores de serialización de BigInt en Express
-BigInt.prototype.toJSON = function () {
-  return Number(this);
-};
+const rawData = `CODIGO	PRODUCTO	STOCK_ACTUAL	PRECIO_VENTA
+1	AJONJOLI NATURAL 500 G	8	$13.000
+2	AJONJOLI TOSTADO 500 G	1	$13.500
+3	10 X 25 250 G	9	$6.800
+4	ALMENDRA NATURAL 500 G	10	$26.200
+5	DATIL 100 G	10	$5.000
+6	AVENA 500 G	6	$3.000
+7	GELATINA SIN SABOR 125G	8	$8.350
+8	GELATINA SIN SABOR 250 G	1	$16.100
+9	PIMIENTA NEGRA ENTERA 50 G	20	$4.050
+10	FROOTLOOPS 100 G	3	$2.600
+11	ARANDANOS 500 G	4	$19.800
+12	SEMILLA DE CALABAZA 250	10	$14.600
+13	AJONJOLI NATURAL 250 G	6	$6.800
+14	AJONJOLI TOSTADO 250 G	10	$7.050
+15	ALMENDRA DULCE 250 G	4	$8.100
+16	ALMENDRA NATURAL 250G	2	$13.400
+17	ARANDANOS 125 G	10	$5.400
+18	ARANDANOS 250 G	7	$10.200
+19	3/2 X 20 (50 UN )	20	$2.600
+20	BOLSA 30 KL	0	$700
+21	BOLSA 10 KL	0	$400
+22	BOLSA 2 KL	0	$200
+23	5 X 25 KILO	4	$26.000
+24	MACADAMIA 200G	5	$19.200
+26	PIMIENTA NEGRA ENTERA 125 G	0	$9.950
+27	ALMENDRA DULCE 125 G	1	$4.350
+28	ALMENDRA NATURAL 125 G	5	$7.000
+29	COCO DESHIDRATADO 250 G	0	$12.700
+30	PIMIENTA BLANCA MOLIDA 50 G	12	$3.650
+31	ALMENDRA DULCE 50 G	21	$1.900
+32	ALMENDRA NATURAL 50 G	12	$3.200
+33	ARANDANOS 50 G	26	$3.000
+34	AVELLANA 50G	0	$5.600
+35	AVELLANA 100G	5	$11.200
+36	3/2 X 20 100 UND	17	$4.000
+37	AVELLANA 150G	7	$16.350
+38	10 X 20 KILO	2	$26.000
+39	7 X 25 250 G	7	$6.800
+40	CURCUMA 250 G	4	$6.450
+41	4 X 20 250 G	4	$6.800
+42	4 X 20 ( 50 UN)	8	$2.700
+44	3/2 X 20 250 G	8	$6.800
+45	4 X 25 KILO	4	$26.000
+46	6 X 25 250 G	0	$6.800
+48	3/2 X 25 250 G	0	$6.800
+49	SEMILLAS GIRASOL CHOCOLATE 100	0	$6.000
+50	10 X 20 250 G	1	$6.800
+52	3/2 X 25 KILO	4	$26.000
+53	5/2 X 25 100 UND	3	$4.500
+54	CHOCO KRISPIS 100 G	2	$2.300
+55	3/2 X 25 100 UND	13	$4.000
+56	3/2 X 25 ( 50 UN)	6	$2.600
+57	3/2 X 20 KL	4	$26.000
+58	4 X 20 100 UND	11	$4.600
+59	CARDAMOMO 50 G	19	$3.700
+60	8 X 25 (250 G )	5	$6.800
+61	4 X 25 250 G	11	$6.800
+62	4 X 25 100 UND	13	$4.650
+63	4 X 25 (50 UN )	22	$2.750
+64	5/2 X 25 ( 250 G)	3	$6.800
+66	5/2 X 25 ( 50 UN)	6	$2.850
+68	5 X 25 250 G	10	$6.800
+69	5 X 25 100 UND	11	$4.450
+70	5 X 25 50UN	7	$2.800
+71	CLAVOS 50G	16	$5.400
+73	BOLSA DECORADA 6 X 15	8	$4.400
+74	PIEDRA CHOCOLATE 50G	10	$2.300
+77	PIEDRA CHOCOLATE 125G	4	$5.450
+78	PIEDRA CHOCOLATE X 250 G	1	$10.300
+79	4/2 X 25 250 G	5	$6.800
+81	BORRACHITOS DISPLAY	2	$18.800
+82	BORRACHITOS UN	9	$1.100
+85	UVA PASA 125G	9	$2.600
+87	CURCUMA 125 G	6	$3.500
+89	FLOR DE JAMAICA 70 G	22	$7.800
+91	MACADAMIA 100G	5	$10.000
+92	4/2 X 25 100 UND	6	$4.200
+93	4/2 X 25 ( 50 UN)	15	$2.750
+95	CIRUELA PASA 500 G	12	$19.900
+96	CIRUELA PASA 250 G	9	$10.250
+97	CIRUELA PASA 125 G	10	$5.400
+98	COCO DESHIDRATADO 125 G	0	$6.600
+100	SEMILLA DE CALABAZA 125 G	10	$7.600
+101	MORITAS 120 G	4	$4.000
+102	CANELA 25 G	45	$4.000
+105	AMARANTO 100 G	0	$3.800
+106	7 X 25 KILO	4	$26.000
+107	COCTEL FRUTOS SECOS 250 G	3	$8.600
+111	COCTEL FRUTOS SECOS 125 G	7	$4.600
+112	COCTEL FRUTOS SECOS 50 G	2	$2.000
+114	CORTEZA DE CERDO 500 G	50	$0
+122	ALMENDRA CHOCOLATE 50 G	13	$3.950
+126	MARAÑON 200 G	5	$17.400
+130	TURRON SURTIDO 6	7	$5.700
+133	CHOCO KRISPIS 400 G	10	$7.850
+134	CHOCO KRISPIS 200 G	6	$4.200
+135	5 X 20 250 G	9	$6.800
+136	COCO SIN AZUCAR 125 G	0	$6.600
+137	COCO SIN AZUCAR 250G	0	$10.000
+140	6 X 20 250 g	4	$6.800
+143	DULCE AJONJOLI X 100 UN	11	$16.650
+144	DULCE DE AJONJOLI 50 UN	12	$8.600
+145	DULCE AJONJOLI UN	125	$250
+153	NUEZ DEL NOGAL 200G	2	$15.500
+162	FROOTLOOPS 400 G	4	$8.600
+163	FROOTLOOPS 200 G	9	$4.600
+164	GOMA 1/2 LUNA 60 G	0	$2.200
+167	GOMA 1/2 LUNA 125 G	1	$4.750
+168	GOMA 1/2 LUNA 250 G	3	$8.950
+170	ARANDANO CUBIERTO CON YOGUR 125g	2	$6.700
+171	ARANDANO CUBIERTO CON YOGUR 50g	8	$3.000
+172	GRANOLA VERDE O INTEGRAL	27	$11.000
+178	GOMA MEDIA LUNA 500 G	4	$17.300
+182	HABAS PICANTES 500 G	4	$13.600
+184	HABAS PICANTE 250 G	3	$7.100
+185	HABAS 500 G	44	$13.600
+186	HABAS 250 G	18	$7.100
+187	HABAS 35 G	15	$1.500
+188	HABAS X 5 L	8	$66.500
+192	ALMENDRA DULCE 500 G	0	$15.600
+212	MIXTURA 125 G	19	$4.000
+214	LINAZA PEPA 500 G	9	$6.500
+215	LINAZA PEPA 250 G	4	$3.500
+216	LINAZA MOLIDA 500 G	2	$7.000
+217	LINAZA MOLIDA 250 G	4	$3.800
+226	MANI CHOCOLATE 220 G	1	$7.650
+227	MANI CHOCOLATE 120G	6	$4.800
+228	MANI CHOCOLATE 50 G	15	$2.200
+230	MANI ALMENDRADO 250 G	5	$5.300
+231	MANI ALMENDRADO 125 G	4	$2.950
+232	MANI ALMENDRADO 50 G	14	$1.350
+234	MANI DULCE CON AJONJOLI 500 G	36	$7.000
+235	MANI DULCE CON AJONJOLI 250 G	18	$3.800
+236	MANI DULCE 50 G	13	$1.400
+237	MANI CON SAL 500 G	50	$8.000
+238	MANI CON SAL 250 G	51	$4.400
+239	MANI CON SAL 50 G	23	$1.400
+240	MANI CON UVAS 500 G	35	$8.000
+241	MANI CON UVAS 250 G	45	$4.400
+242	MANI CON UVAS 50 G	13	$1.400
+243	MANI DULCE 500 G	3	$7.000
+244	MANI DULCE 250 G	32	$3.800
+245	MANI CHOCOLATE COLOR 50G	15	$2.200
+246	MANI NATURAL 500 G	29	$8.000
+247	MANI NATURAL 250 G	3	$4.400
+249	MANI CHOCOLATE COLOR 220 G	2	$7.650
+252	MANI CON UVAS X 5LB	6	$38.500
+254	CAJA DE UVA	0	$128.000
+253	MORITAS 50 G	4	$1.750
+257	MARAÑON 50G	2	$4.700
+258	MANI CON SAL X 5 LB	2	$38.500
+259	MANI CON SAL X @	0	$190.000
+262	MIEL	0	$2.800
+270	MANI DULCE CON AJONJOLI X 5 LB	3	$30.000
+271	MANI DULCE X 5 LB	-8	$30.000
+272	MANI CHOCOLATE COLOR 120G	4	$4.800
+274	DATIL 150G	10	$7.050
+279	NUEZ DEL BRASIL 500 G	0	$0
+280	NUEZ DEL BRASIL 200 G	6	$20.000
+281	NUEZ DEL BRASIL 100 G	0	$10.400
+282	NUEZ DEL BRASIL 50 G	6	$5.400
+283	MORITAS 500 G	4	$14.850
+284	MORITAS 220 G	5	$7.450
+286	MARAÑON 100 G	14	$9.100
+297	PATACON DULCE 400 G	15	$13.000
+298	PATACON DULCE 200 G	13	$6.800
+299	PATACON SALADO 90 G	7	$3.700
+300	PATACON SALADO 400 G	9	$13.000
+301	PATACON SAL 200 G	3	$6.800
+305	ALMENDRA CUBIERTO CON CHOCO	4	$7.300
+306	PISTACHOS 200 G	0	$19.800
+307	ANIS ESTRELLA X 50 G	31	$5.000
+308	ANIS EN GRANO X 50 g	22	$5.200
+310	QUINUA NATURAL 500 G	2	$9.000
+311	QUINUA NATURAL 250 G	10	$4.800
+312	QUINUA TOSTADA x 100g	9	$5.500
+314	PATACON DULCE 90 G	8	$3.700
+317	NUEZ DEL NOGAL 100 G	3	$8.100
+318	ROSQUILLAS 200G	25	$7.250
+319	ROSQUILLAS 40 G	-2	$1.800
+320	MAIZ PICANTTE 250 G	1	$9.900
+321	MAIZ PICANTE 500 G	5	$19.300
+322	MAIZ PICANTE 125 G	5	$5.200
+323	MAIZ NATURAL 500 G	4	$19.300
+324	MAIZ NATURAL 250 G	1	$9.900
+325	SEMILLA DE CHIA 500 G	8	$16.350
+326	SEMILLA DE CHIA 250 G	17	$8.500
+327	MAIZ NATURAL 125 G	2	$5.200
+328	SEMILLA DE CHIA125 G	13	$3.850
+331	SEMILLA DE GIRASOL 125 G	12	$3.000
+332	SEMILLA DE GIRASOL 250 G	4	$5.500
+335	SEMILLA DE GIRASOL CHOCO 50	6	$3.700
+340	TURRON SURTIDO X 12 UN	0	$10.800
+344	TOCINETA 200 G	0	$4.900
+345	TOCINETA 60 G	8	$1.800
+347	TOCINETA SURTIDA 500G	11	$6.800
+350	PISTACHOS 100G	0	$10.300
+351	TURRON 7 GRANOS UN	9	$1.200
+352	TURRON COCO UN	3	$1.200
+353	TURRON MANI UN	1	$1.200
+355	TURRON AJONJOLI UN	1	$1.200
+356	TURRON GRANOLA UN	2	$1.200
+357	TURRON QUINUA UN	1	$1.200
+361	TURRON DE QUINUA X 12 UN	0	$10.800
+363	TURRON DE COCO X 12 UN	0	$10.800
+364	TURRON GRANOLA X 12 UN	0	$10.800
+365	TURRON AJONJOLI X 12 UN	0	$10.800
+366	TURRON MANI X 12 UN	0	$10.800
+367	TURRON 7 GRANOS X 12 UN	0	$10.800
+368	TURRON MONTREAL UN	8	$1.800
+369	TURRON MONTREAL X 15 UN	0	$17.700
+379	UVA CHOCOLATE 220 G	2	$7.650
+380	UVA CHOCOLATE 120 G	10	$4.800
+381	UVA CHOCOLATE 50 G	4	$2.200
+382	UVA PASA 500 G	38	$8.300
+383	UVA PASA 250 G	5	$4.450
+384	UVA PASA 50 G	9	$1.500
+385	UVA CHOCO COLOR 220 G	7	$7.650
+386	UVA CHOCO COLOR 120 G	3	$4.800
+387	UVA CHOCOLATE COLOR 50 G	21	$2.200
+402	ZUCARITAS 400 G	10	$7.150
+403	ZUCARITAS 200 G	7	$3.800
+404	PATACON DULCE 50g	3	$2.300
+405	MAIZ PICANTE 50 G	6	$2.300
+406	MAIZ NATURAL 50 G	15	$2.300
+407	PATACON SALADO 50g	12	$2.300
+408	NUEZ DEL NOGAL 50 G	1	$4.200
+409	HABAS PICANTES 35G	5	$1.500
+410	MACADAMIA 50G	5	$5.200
+411	PATACON X 12 UNIDADES	0	$23.400
+412	MANI X 12 UNIDADES	0	$16.000
+413	CAFÉ CUMBRE 500G	0	$40.000
+416	ZUCARITAS 100G	10	$2.200
+417	haba x 12	0	$22.800
+418	huevos 50 g	5	$2.300
+419	huevos 100g	5	$4.550
+433	GRANOLA ROJA O DIETETICA	53	$11.000`;
 
-const url = process.env.TURSO_DATABASE_URL;
-const authToken = process.env.TURSO_AUTH_TOKEN;
+async function actualizar() {
+  console.log('📦 Procesando actualización de inventario...');
+  const lines = rawData.trim().split('\n');
+  let actualizados = 0;
+  let creados = 0;
 
-let db;
+  for (let line of lines) {
+    line = line.trim();
+    if (!line || line.startsWith('CODIGO')) continue;
 
-function sanitizeArgs(args) {
-  if (!Array.isArray(args)) return [];
-  return args.map(v => (v === undefined ? null : typeof v === 'bigint' ? Number(v) : v));
-}
+    const parts = line.split('\t').map(p => p.trim());
+    if (parts.length < 2) continue;
 
-function cleanRow(row) {
-  if (!row || typeof row !== 'object') return row;
-  const newRow = {};
-  for (const key in row) {
-    if (typeof row[key] === 'bigint') {
-      newRow[key] = Number(row[key]);
-    } else {
-      newRow[key] = row[key];
-    }
+    const barcode = parts[0];
+    const name = parts[1];
+    if (!name || name === '') continue;
+
+    const stock = parseInt(parts[2], 10) || 0;
+    let priceStr = parts[3] || '0';
+    priceStr = priceStr.replace(/\$/g, '').replace(/\./g, '').replace(/,/g, '.').trim();
+    const sale_price = parseFloat(priceStr) || 0;
+
+    await new Promise((resolve) => {
+      db.run(
+        `UPDATE products SET name = ?, stock = ?, sale_price = ? WHERE barcode = ?`,
+        [name, stock, sale_price, barcode],
+        function (err) {
+          if (err) {
+            console.error(`Error actualizando ${barcode}:`, err.message);
+            return resolve();
+          }
+          if (this && this.changes > 0) {
+            actualizados++;
+            resolve();
+          } else {
+            db.run(
+              `INSERT INTO products (barcode, internal_code, name, stock, sale_price, category, cost_price, min_stock) VALUES (?, ?, ?, ?, ?, 'General', 0, 5)`,
+              [barcode, barcode, name, stock, sale_price],
+              function (err2) {
+                if (err2) {
+                  console.error(`Error insertando ${barcode}:`, err2.message);
+                } else {
+                  creados++;
+                }
+                resolve();
+              }
+            );
+          }
+        }
+      );
+    });
   }
-  return newRow;
+
+  console.log(`✅ ¡Éxito! Se actualizaron ${actualizados} productos y se crearon ${creados} nuevos productos en Turso Cloud.`);
+  setTimeout(() => process.exit(0), 1000);
 }
 
-if (url && authToken) {
-  console.log('⚡ Conectando a Base de Datos en la Nube (Turso Cloud)...');
-  const client = createClient({ url, authToken });
-
-  db = {
-    isTurso: true,
-    run: function (sql, params = [], callback) {
-      if (typeof params === 'function') { callback = params; params = []; }
-      const args = sanitizeArgs(params);
-      client.execute({ sql, args })
-        .then(res => {
-          const lastID = (res.lastInsertRowid !== undefined && res.lastInsertRowid !== null) ? Number(res.lastInsertRowid) : 0;
-          const changes = res.rowsAffected !== undefined && res.rowsAffected !== null ? Number(res.rowsAffected) : 0;
-          const ctx = { lastID, changes };
-          if (callback) callback.call(ctx, null);
-        })
-        .catch(err => {
-          console.error('Error SQL (run):', err.message, 'SQL:', sql);
-          if (callback) callback(err);
-        });
-    },
-    get: function (sql, params = [], callback) {
-      if (typeof params === 'function') { callback = params; params = []; }
-      const args = sanitizeArgs(params);
-      client.execute({ sql, args })
-        .then(res => {
-          const row = (res.rows && res.rows.length > 0) ? cleanRow(res.rows[0]) : undefined;
-          if (callback) callback(null, row);
-        })
-        .catch(err => {
-          console.error('Error SQL (get):', err.message, 'SQL:', sql);
-          if (callback) callback(err);
-        });
-    },
-    all: function (sql, params = [], callback) {
-      if (typeof params === 'function') { callback = params; params = []; }
-      const args = sanitizeArgs(params);
-      client.execute({ sql, args })
-        .then(res => {
-          const rows = (res.rows || []).map(r => cleanRow(r));
-          if (callback) callback(null, rows);
-        })
-        .catch(err => {
-          console.error('Error SQL (all):', err.message, 'SQL:', sql);
-          if (callback) callback(err, []);
-        });
-    },
-    exec: function (sql, callback) {
-      const stmts = sql.split(';').filter(s => s.trim().length > 0);
-      client.batch(stmts.map(s => ({ sql: s, args: [] })), 'write')
-        .then(() => { if (callback) callback(null); })
-        .catch(err => { if (callback) callback(err); });
-    },
-    serialize: function (fn) { if (fn) fn(); },
-    prepare: function(sql) {
-      return {
-        run: (...args) => {
-          let cb = args.pop();
-          if (typeof cb !== 'function') { args.push(cb); cb = null; }
-          const cleanArgs = sanitizeArgs(args);
-          client.execute({ sql, args: cleanArgs }).then(res => {
-            const lastID = (res.lastInsertRowid !== undefined && res.lastInsertRowid !== null) ? Number(res.lastInsertRowid) : 0;
-            const changes = res.rowsAffected !== undefined && res.rowsAffected !== null ? Number(res.rowsAffected) : 0;
-            if (cb) cb.call({ lastID, changes }, null);
-          }).catch(err => { if (cb) cb(err); });
-        },
-        finalize: (cb) => { if (cb) cb(); }
-      };
-    }
-  };
-} else {
-  let dbPath;
-  try {
-    const { app } = require('electron');
-    const appPath = (app && typeof app.getPath === 'function') ? app.getPath('userData') : __dirname;
-    dbPath = path.join(appPath, 'pos.db');
-  } catch (e) {
-    dbPath = path.join(__dirname, 'pos.db');
-  }
-
-  console.log('📂 Conectando a la Base de Datos local (pos.db)...');
-  db = new sqlite3.Database(dbPath);
-}
-
-// Inicialización de Tablas
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL DEFAULT '1234',
-      role TEXT NOT NULL DEFAULT 'Cajero'
-    )
-  `);
-
-  db.run(`INSERT OR IGNORE INTO users (id, name, username, password, role) VALUES (1, 'Administrador Principal', 'admin', 'admin123', 'Administrador')`);
-  db.run(`INSERT OR IGNORE INTO users (id, name, username, password, role) VALUES (2, 'Doña Rosa', 'rosa', '1234', 'Cajero')`);
-  db.run(`INSERT OR IGNORE INTO users (id, name, username, password, role) VALUES (3, 'ANTHONY CARDENAS', 'ANTHONY', '0526', 'Administrador')`);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      barcode TEXT UNIQUE,
-      internal_code TEXT,
-      name TEXT,
-      category TEXT DEFAULT 'General',
-      cost_price REAL DEFAULT 0,
-      sale_price REAL DEFAULT 0,
-      stock INTEGER DEFAULT 0,
-      min_stock INTEGER DEFAULT 5
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS shifts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      user_name TEXT NOT NULL,
-      start_amount REAL NOT NULL,
-      end_amount REAL DEFAULT 0,
-      cash_sales REAL DEFAULT 0,
-      transfer_sales REAL DEFAULT 0,
-      total_sales REAL DEFAULT 0,
-      status TEXT DEFAULT 'abierto',
-      opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      closed_at DATETIME
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS cash_shifts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      user_name TEXT NOT NULL,
-      start_amount REAL NOT NULL,
-      end_amount REAL DEFAULT 0,
-      cash_sales REAL DEFAULT 0,
-      transfer_sales REAL DEFAULT 0,
-      total_sales REAL DEFAULT 0,
-      status TEXT DEFAULT 'abierto',
-      opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      closed_at DATETIME
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS sales (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      shift_id INTEGER,
-      user_name TEXT,
-      invoice_number TEXT,
-      customer_doc TEXT DEFAULT '222222222222',
-      customer_name TEXT DEFAULT 'Consumidor Final',
-      subtotal REAL NOT NULL,
-      tax_amount REAL DEFAULT 0,
-      total REAL NOT NULL,
-      payment_method TEXT DEFAULT 'Efectivo',
-      amount_paid REAL DEFAULT 0,
-      change_given REAL DEFAULT 0,
-      sale_type TEXT DEFAULT 'Facturada',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(shift_id) REFERENCES shifts(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS sale_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sale_id INTEGER,
-      product_barcode TEXT,
-      product_name TEXT,
-      quantity INTEGER,
-      unit_price REAL,
-      subtotal REAL,
-      FOREIGN KEY(sale_id) REFERENCES sales(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS expenses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      shift_id INTEGER,
-      user_name TEXT,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      category TEXT DEFAULT 'General',
-      payment_method TEXT DEFAULT 'Efectivo',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL,
-      category TEXT DEFAULT 'General',
-      description TEXT,
-      amount REAL NOT NULL,
-      user_name TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS config (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    )
-  `);
-});
-
-module.exports = db;
+actualizar();
