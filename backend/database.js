@@ -2,7 +2,7 @@ const path = require('path');
 const { createClient } = require('@libsql/client');
 const sqlite3 = require('sqlite3').verbose();
 
-// Prevenir errores de serialización JSON con valores BigInt en Express
+// Conversión global para prevenir fallos de JSON.stringify con BigInt en Node 22
 BigInt.prototype.toJSON = function () {
   return Number(this);
 };
@@ -12,39 +12,36 @@ const authToken = process.env.TURSO_AUTH_TOKEN;
 
 let db;
 
+// Limpieza recursiva de BigInt a Number en objetos y arreglos de resultados
+function deepClean(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'bigint') return Number(obj);
+  if (typeof obj !== 'object') return obj;
+
+  if (Array.isArray(obj)) {
+    return obj.map(deepClean);
+  }
+
+  const cleaned = {};
+  for (const key of Object.keys(obj)) {
+    cleaned[key] = deepClean(obj[key]);
+  }
+  return cleaned;
+}
+
 function sanitizeArgs(params) {
   if (params === undefined || params === null) return [];
   if (typeof params === 'function') return [];
   
-  // Si se pasa un valor individual (string, number, boolean) en lugar de un Array
   if (typeof params !== 'object') {
     return [typeof params === 'bigint' ? Number(params) : params];
   }
 
-  // Si se pasa un objeto con parámetros nombrados
   if (!Array.isArray(params)) {
-    const cleanObj = {};
-    for (const k in params) {
-      let v = params[k];
-      if (v === undefined) v = null;
-      if (typeof v === 'bigint') v = Number(v);
-      cleanObj[k] = v;
-    }
-    return cleanObj;
+    return deepClean(params);
   }
 
-  // Si se pasa un Array de parámetros
   return params.map(v => (v === undefined ? null : typeof v === 'bigint' ? Number(v) : v));
-}
-
-function cleanRow(row) {
-  if (!row || typeof row !== 'object') return row;
-  const plain = {};
-  for (const key in row) {
-    const val = row[key];
-    plain[key] = typeof val === 'bigint' ? Number(val) : val;
-  }
-  return plain;
 }
 
 if (url && authToken) {
@@ -58,13 +55,13 @@ if (url && authToken) {
       const args = sanitizeArgs(params);
       client.execute({ sql, args })
         .then(res => {
-          const lastID = (res.lastInsertRowid !== undefined && res.lastInsertRowid !== null) ? Number(res.lastInsertRowid) : 0;
-          const changes = (res.rowsAffected !== undefined && res.rowsAffected !== null) ? Number(res.rowsAffected) : 0;
+          const lastID = res.lastInsertRowid != null ? Number(res.lastInsertRowid) : 0;
+          const changes = res.rowsAffected != null ? Number(res.rowsAffected) : 0;
           const ctx = { lastID, changes };
           if (callback) callback.call(ctx, null);
         })
         .catch(err => {
-          console.error('Error SQL (run):', err.message, '| SQL:', sql, '| Args:', args);
+          console.error('❌ Error SQL (run):', err.message, '| SQL:', sql, '| Args:', args);
           if (callback) callback(err);
         });
     },
@@ -73,11 +70,12 @@ if (url && authToken) {
       const args = sanitizeArgs(params);
       client.execute({ sql, args })
         .then(res => {
-          const row = (res.rows && res.rows.length > 0) ? cleanRow(res.rows[0]) : undefined;
+          const rawRow = (res.rows && res.rows.length > 0) ? res.rows[0] : undefined;
+          const row = deepClean(rawRow);
           if (callback) callback(null, row);
         })
         .catch(err => {
-          console.error('Error SQL (get):', err.message, '| SQL:', sql, '| Args:', args);
+          console.error('❌ Error SQL (get):', err.message, '| SQL:', sql, '| Args:', args);
           if (callback) callback(err);
         });
     },
@@ -86,11 +84,11 @@ if (url && authToken) {
       const args = sanitizeArgs(params);
       client.execute({ sql, args })
         .then(res => {
-          const rows = (res.rows || []).map(r => cleanRow(r));
+          const rows = deepClean(res.rows || []);
           if (callback) callback(null, rows);
         })
         .catch(err => {
-          console.error('Error SQL (all):', err.message, '| SQL:', sql, '| Args:', args);
+          console.error('❌ Error SQL (all):', err.message, '| SQL:', sql, '| Args:', args);
           if (callback) callback(err, []);
         });
     },
@@ -99,7 +97,7 @@ if (url && authToken) {
       client.batch(stmts.map(s => ({ sql: s, args: [] })), 'write')
         .then(() => { if (callback) callback(null); })
         .catch(err => {
-          console.error('Error SQL (exec):', err.message);
+          console.error('❌ Error SQL (exec):', err.message);
           if (callback) callback(err);
         });
     },
@@ -111,11 +109,11 @@ if (url && authToken) {
           if (typeof cb !== 'function') { args.push(cb); cb = null; }
           const cleanArgs = sanitizeArgs(args.length === 1 ? args[0] : args);
           client.execute({ sql, args: cleanArgs }).then(res => {
-            const lastID = (res.lastInsertRowid !== undefined && res.lastInsertRowid !== null) ? Number(res.lastInsertRowid) : 0;
-            const changes = (res.rowsAffected !== undefined && res.rowsAffected !== null) ? Number(res.rowsAffected) : 0;
+            const lastID = res.lastInsertRowid != null ? Number(res.lastInsertRowid) : 0;
+            const changes = res.rowsAffected != null ? Number(res.rowsAffected) : 0;
             if (cb) cb.call({ lastID, changes }, null);
           }).catch(err => {
-            console.error('Error SQL (prepare.run):', err.message);
+            console.error('❌ Error SQL (prepare.run):', err.message);
             if (cb) cb(err);
           });
         },
