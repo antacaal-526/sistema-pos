@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-// Mantener el servidor de Render activo enviando una señal cada 5 minutos
-  useEffect(() => {
-    const keepAliveInterval = setInterval(() => {
-      fetch(`${API_URL}/api/ping`).catch(err => console.log('Ping fallido:', err));
-    }, 5 * 60 * 1000); // 5 minutos
 
-    return () => clearInterval(keepAliveInterval);
-  }, []);
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
 export default function App() {
+  // 1. Mantener el servidor de Render activo enviando un ping cada 5 minutos
+  useEffect(() => {
+    const keepAliveInterval = setInterval(() => {
+      fetch(`${API_URL}/api/ping`).catch(err => console.log('Ping fallido:', err));
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(keepAliveInterval);
+  }, []);
+
+  // Estados generales
   const [currentUser, setCurrentUser] = useState(null);
   const [activeShift, setActiveShift] = useState(null);
   const [showShiftModal, setShowShiftModal] = useState(false);
@@ -18,7 +21,7 @@ export default function App() {
   const [shiftBaseInput, setShiftBaseInput] = useState('');
   const [activeTab, setActiveTab] = useState('pos');
 
-  // Configuración
+  // Configuración de Tienda / DIAN / Recibo
   const [storeConfig, setStoreConfig] = useState({
     razon_social: 'TERRA FRUTOS SECOS',
     nit: '40044029-8',
@@ -35,7 +38,7 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // POS
+  // POS / Ventas
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
@@ -63,12 +66,12 @@ export default function App() {
 
   // Reportes
   const [shiftsList, setShiftsList] = useState([]);
-  const [reportType, setReportType] = useState('daily');
   const [filterUser, setFilterUser] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [printShiftData, setPrintShiftData] = useState(null);
 
+  // Cargar usuario guardado
   useEffect(() => {
     const savedUser = localStorage.getItem('pos_user');
     if (savedUser) {
@@ -81,6 +84,7 @@ export default function App() {
     }
   }, []);
 
+  // Cargar datos iniciales tras inicio de sesión
   useEffect(() => {
     if (currentUser) {
       checkActiveShift(currentUser.name);
@@ -92,6 +96,7 @@ export default function App() {
     }
   }, [currentUser]);
 
+  // --- MÉTODOS DE API ---
   const loadConfig = async () => {
     try {
       const res = await fetch(`${API_URL}/api/config`);
@@ -225,6 +230,7 @@ export default function App() {
     } catch (e) { alert('Error al cerrar el turno'); }
   };
 
+  // --- CARRITO Y VENTAS ---
   const addToCart = (p) => {
     if (!activeShift) { alert('⚠️ Debe iniciar un turno para poder vender.'); setShowShiftModal(true); return; }
     const exist = cart.find(x => x.barcode === p.barcode);
@@ -299,6 +305,7 @@ export default function App() {
     } catch (e) { alert('Error de conexión al registrar la venta'); }
   };
 
+  // --- ACCIONES DE INVENTARIO Y OTROS ---
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
     try {
@@ -417,6 +424,7 @@ export default function App() {
     } catch (e) { alert('Error conectando al servidor'); }
   };
 
+  // Cálculos de reportes y contabilidad
   const filteredDailyShifts = shiftsList.filter(s => {
     const matchesUser = filterUser ? s.user_name.toLowerCase().includes(filterUser.toLowerCase()) : true;
     const matchesDate = filterDate ? (s.opened_at && s.opened_at.startsWith(filterDate)) : true;
@@ -455,6 +463,7 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // --- VISTA LOGIN ---
   if (!currentUser) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#121824' }}>
@@ -476,6 +485,7 @@ export default function App() {
 
   return (
     <>
+      {/* VISTA DE IMPRESIÓN IMPERCEPTIBLE EN PANTALLA */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -545,7 +555,9 @@ export default function App() {
         ) : null}
       </div>
 
+      {/* VISTA PRINCIPAL DEL SISTEMA POS */}
       <div className="no-print" style={{ display: 'flex', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif' }}>
+        {/* BARRA LATERAL (SIDEBAR) */}
         <div style={{ width: '240px', background: '#1e293b', padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #334155' }}>
           <div>
             <h3 style={{ color: '#38bdf8', fontSize: '1.1rem', margin: '0 0 1rem 0' }}>🌱 {storeConfig.razon_social}</h3>
@@ -588,7 +600,9 @@ export default function App() {
           <button onClick={handleLogout} style={{ width: '100%', padding: '0.6rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>🔒 Cerrar Sesión</button>
         </div>
 
+        {/* ÁREA PRINCIPAL DE TRABAJO */}
         <div style={{ flex: 1, padding: '1.5rem', overflowY: 'auto' }}>
+          {/* TAB: POS / CAJA */}
           {activeTab === 'pos' && (
             <div style={{ display: 'flex', gap: '1rem', height: '100%' }}>
               <div style={{ flex: 1 }}>
@@ -655,6 +669,7 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: INVENTARIO */}
           {activeTab === 'inventory' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -692,18 +707,14 @@ export default function App() {
                         <td style={{ padding: '0.75rem' }}>{p.name}</td>
                         <td style={{ padding: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString()}</td>
                         <td style={{ padding: '0.75rem' }}>
-                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: p.stock <= (p.min_stock || 3) ? '#991b1b' : '#166534', color: '#fff' }}>
-                            {p.stock} unidades
+                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: p.stock <= (p.min_stock || 3) ? '#991b1b' : '#166534' }}>
+                            {p.stock}
                           </span>
                         </td>
-                        <td style={{ padding: '0.75rem', color: '#94a3b8' }}>{p.min_stock || 3} unidades</td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center', display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                          <button onClick={() => setEditingProduct({ ...p })} style={{ padding: '0.4rem 0.8rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-                            ✏️ Modificar
-                          </button>
-                          <button onClick={() => handleDeleteProduct(p.barcode, p.name)} style={{ padding: '0.4rem 0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-                            🗑️ Eliminar
-                          </button>
+                        <td style={{ padding: '0.75rem' }}>{p.min_stock || 3}</td>
+                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                          <button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer', marginRight: '0.5rem' }}>✏️ Editar</button>
+                          <button onClick={() => handleDeleteProduct(p.barcode, p.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Eliminar</button>
                         </td>
                       </tr>
                     ))}
@@ -712,45 +723,41 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: AGOTADOS */}
           {activeTab === 'out_of_stock' && (
             <div>
-              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Productos Agotados o Stock Bajo (&le; Mínimo)</h2>
-
+              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Productos Agotados o Stock Bajo</h2>
               <input
                 type="text"
-                placeholder="🔍 Buscar producto agotado o crítico..."
+                placeholder="🔍 Buscar agotados por código o nombre..."
                 value={outSearch}
                 onChange={(e) => setOutSearch(e.target.value)}
                 style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }}
               />
-
               <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
                 <thead>
                   <tr style={{ background: '#334155', textAlign: 'left' }}>
                     <th style={{ padding: '0.75rem' }}>Código</th>
-                    <th style={{ padding: '0.75rem' }}>Producto</th>
+                    <th style={{ padding: '0.75rem' }}>Nombre</th>
+                    <th style={{ padding: '0.75rem' }}>Precio Venta</th>
                     <th style={{ padding: '0.75rem' }}>Stock Actual</th>
-                    <th style={{ padding: '0.75rem' }}>Stock Mínimo</th>
-                    <th style={{ padding: '0.75rem' }}>Estado</th>
+                    <th style={{ padding: '0.75rem' }}>Mínimo</th>
+                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {products
                     .filter(p => p.stock <= (p.min_stock || 3))
                     .filter(p => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch))
-                    .sort((a, b) => a.stock - b.stock)
                     .map(p => (
                       <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
                         <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
                         <td style={{ padding: '0.75rem' }}>{p.name}</td>
-                        <td style={{ padding: '0.75rem', fontWeight: 'bold', color: p.stock === 0 ? '#f87171' : '#f59e0b' }}>
-                          {p.stock}
-                        </td>
-                        <td style={{ padding: '0.75rem', color: '#94a3b8' }}>{p.min_stock || 3}</td>
-                        <td style={{ padding: '0.75rem' }}>
-                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: p.stock === 0 ? '#dc2626' : '#d97706', color: '#fff', fontSize: '0.8rem', fontWeight: 'bold' }}>
-                            {p.stock === 0 ? 'AGOTADO' : 'STOCK CRÍTICO'}
-                          </span>
+                        <td style={{ padding: '0.75rem' }}>${p.sale_price?.toLocaleString()}</td>
+                        <td style={{ padding: '0.75rem', color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td>
+                        <td style={{ padding: '0.75rem' }}>{p.min_stock || 3}</td>
+                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                          <button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>🔄 Reponer Stock</button>
                         </td>
                       </tr>
                     ))}
@@ -759,54 +766,36 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: CONTABILIDAD */}
           {activeTab === 'accounting' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Resumen Contable</h2>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <button onClick={() => window.open(`${API_URL}/api/backup-db`, '_blank')} style={{ padding: '0.6rem 1rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                    💾 Descargar Respaldo BD (.db)
-                  </button>
-                  <button onClick={() => setShowTxModal(true)} style={{ padding: '0.6rem 1rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                    ➕ Registrar Ingreso / Egreso
-                  </button>
-                  <button onClick={handleExportCSV} style={{ padding: '0.6rem 1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                    📥 Descargar Reporte (Excel / CSV)
-                  </button>
-                  <button onClick={() => window.print()} style={{ padding: '0.6rem 1rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                    🖨️ Imprimir PDF
-                  </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Contabilidad y Caja General</h2>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={handleExportCSV} style={{ padding: '0.6rem 1rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>📥 Exportar Excel (CSV)</button>
+                  <button onClick={() => setShowTxModal(true)} style={{ padding: '0.6rem 1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>➕ Nuevo Ingreso/Egreso</button>
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>VALOR TOTAL INVENTARIO</p>
-                  <h3 style={{ color: '#38bdf8', fontSize: '1.3rem', marginTop: '0.4rem' }}>
-                    ${inventoryValue.toLocaleString()}
-                  </h3>
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #22c55e' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL INGRESOS</span>
+                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${totalIncomes.toLocaleString()}</h3>
                 </div>
-                <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>TOTAL INGRESOS</p>
-                  <h3 style={{ color: '#22c55e', fontSize: '1.3rem', marginTop: '0.4rem' }}>
-                    ${totalIncomes.toLocaleString()}
-                  </h3>
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #ef4444' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL EGRESOS / GASTOS</span>
+                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#ef4444' }}>${totalExpenses.toLocaleString()}</h3>
                 </div>
-                <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>TOTAL EGRESOS</p>
-                  <h3 style={{ color: '#f87171', fontSize: '1.3rem', marginTop: '0.4rem' }}>
-                    ${totalExpenses.toLocaleString()}
-                  </h3>
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #38bdf8' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>BALANCE NETO</span>
+                  <h3 style={{ margin: '0.5rem 0 0 0', color: netBalance >= 0 ? '#38bdf8' : '#ef4444' }}>${netBalance.toLocaleString()}</h3>
                 </div>
-                <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>BALANCE NETO</p>
-                  <h3 style={{ color: netBalance >= 0 ? '#4ade80' : '#f87171', fontSize: '1.3rem', marginTop: '0.4rem' }}>
-                    ${netBalance.toLocaleString()}
-                  </h3>
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #eab308' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>VALOR EN INVENTARIO</span>
+                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#eab308' }}>${inventoryValue.toLocaleString()}</h3>
                 </div>
               </div>
 
-              <h3 style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '0.5rem' }}>📜 Historial de Ingresos y Egresos</h3>
               <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
                 <thead>
                   <tr style={{ background: '#334155', textAlign: 'left' }}>
@@ -820,77 +809,19 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>No hay movimientos registrados.</td>
-                    </tr>
-                  ) : (
-                    transactions.map((t) => (
-                      <tr key={t.id} style={{ borderBottom: '1px solid #334155' }}>
-                        <td style={{ padding: '0.75rem', fontSize: '0.85rem', color: '#94a3b8' }}>{t.created_at || new Date().toLocaleString()}</td>
-                        <td style={{ padding: '0.75rem' }}>
-                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: t.type === 'Ingreso' ? '#166534' : '#991b1b', color: '#fff', fontSize: '0.8rem', fontWeight: 'bold' }}>
-                            {t.type}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.75rem' }}>{t.category}</td>
-                        <td style={{ padding: '0.75rem' }}>{t.description}</td>
-                        <td style={{ padding: '0.75rem', fontWeight: 'bold', color: t.type === 'Ingreso' ? '#22c55e' : '#f87171' }}>
-                          ${t.amount?.toLocaleString()}
-                        </td>
-                        <td style={{ padding: '0.75rem', fontSize: '0.85rem', color: '#94a3b8' }}>{t.user_name}</td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                          <button
-                            onClick={() => handleDeleteTransaction(t.id, t.description, t.category)}
-                            style={{ padding: '0.3rem 0.6rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' }}
-                          >
-                            🗑️ Eliminar
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {activeTab === 'employees' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>👥 Gestión de Empleados y Permisos</h2>
-                <button onClick={() => setShowUserModal(true)} style={{ padding: '0.6rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                  ➕ Registrar Nuevo Empleado
-                </button>
-              </div>
-
-              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
-                <thead>
-                  <tr style={{ background: '#334155', textAlign: 'left' }}>
-                    <th style={{ padding: '0.75rem' }}>ID</th>
-                    <th style={{ padding: '0.75rem' }}>Nombre Completo</th>
-                    <th style={{ padding: '0.75rem' }}>Nombre de Usuario</th>
-                    <th style={{ padding: '0.75rem' }}>Rol / Permisos</th>
-                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {usersList.map((u) => (
-                    <tr key={u.id} style={{ borderBottom: '1px solid #334155' }}>
-                      <td style={{ padding: '0.75rem', color: '#94a3b8' }}>#{u.id}</td>
-                      <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{u.name}</td>
-                      <td style={{ padding: '0.75rem' }}>{u.username}</td>
+                  {transactions.map(t => (
+                    <tr key={t.id} style={{ borderBottom: '1px solid #334155' }}>
+                      <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>{t.created_at}</td>
                       <td style={{ padding: '0.75rem' }}>
-                        <span style={{ padding: '0.2rem 0.6rem', borderRadius: '4px', background: u.role === 'Administrador' ? '#1d4ed8' : '#0284c7', color: '#fff', fontSize: '0.8rem', fontWeight: 'bold' }}>
-                          🔑 {u.role}
-                        </span>
+                        <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: t.type === 'Ingreso' ? '#166534' : '#991b1b', fontSize: '0.8rem' }}>{t.type}</span>
                       </td>
+                      <td style={{ padding: '0.75rem' }}>{t.category}</td>
+                      <td style={{ padding: '0.75rem' }}>{t.description}</td>
+                      <td style={{ padding: '0.75rem', fontWeight: 'bold', color: t.type === 'Ingreso' ? '#22c55e' : '#ef4444' }}>${t.amount?.toLocaleString()}</td>
+                      <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>{t.user_name}</td>
                       <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                        <button
-                          onClick={() => handleDeleteUser(u.id, u.name)}
-                          style={{ padding: '0.35rem 0.7rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
-                        >
-                          🗑️ Eliminar
+                        <button onClick={() => handleDeleteTransaction(t.id, t.description, t.category)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
+                          {t.category === 'Venta POS' ? '❌ Anular Venta' : '🗑️ Eliminar'}
                         </button>
                       </td>
                     </tr>
@@ -900,351 +831,257 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'reports' && (
+          {/* TAB: EMPLEADOS */}
+          {activeTab === 'employees' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📊 Reportes Generales y Cierres de Turno</h2>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button onClick={() => setReportType('daily')} style={{ padding: '0.6rem 1rem', background: reportType === 'daily' ? '#2563eb' : '#334155', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                    📅 Reporte Diario / Turnos
-                  </button>
-                  <button onClick={() => setReportType('monthly')} style={{ padding: '0.6rem 1rem', background: reportType === 'monthly' ? '#2563eb' : '#334155', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                    📆 Reporte Mensual
-                  </button>
-                </div>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>👥 Gestión de Empleados y Usuarios</h2>
+                <button onClick={() => setShowUserModal(true)} style={{ padding: '0.6rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>➕ Registrar Nuevo Usuario</button>
               </div>
 
-              {reportType === 'daily' && (
-                <div>
-                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Filtrar por Empleado / Administrador:</label>
-                      <input type="text" placeholder="Ej: Anthony, Doña Rosa..." value={filterUser} onChange={(e) => setFilterUser(e.target.value)} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Filtrar por Fecha:</label>
-                      <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }} />
-                    </div>
-                  </div>
-
-                  <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
-                    <thead>
-                      <tr style={{ background: '#334155', textAlign: 'left' }}>
-                        <th style={{ padding: '0.75rem' }}>ID Turno</th>
-                        <th style={{ padding: '0.75rem' }}>Empleado / Usuario</th>
-                        <th style={{ padding: '0.75rem' }}>Apertura</th>
-                        <th style={{ padding: '0.75rem' }}>Cierre</th>
-                        <th style={{ padding: '0.75rem' }}>Base Inicial</th>
-                        <th style={{ padding: '0.75rem' }}>Vtas. Efectivo</th>
-                        <th style={{ padding: '0.75rem' }}>Vtas. Nequi/Trans.</th>
-                        <th style={{ padding: '0.75rem' }}>Total Vendido</th>
-                        <th style={{ padding: '0.75rem' }}>Estado</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'center' }}>Ticket</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredDailyShifts.length === 0 ? (
-                        <tr><td colSpan="10" style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>No hay turnos registrados con los filtros seleccionados.</td></tr>
-                      ) : (
-                        filteredDailyShifts.map(s => (
-                          <tr key={s.id} style={{ borderBottom: '1px solid #334155' }}>
-                            <td style={{ padding: '0.75rem', color: '#94a3b8' }}>#{s.id}</td>
-                            <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{s.user_name}</td>
-                            <td style={{ padding: '0.75rem', fontSize: '0.8rem', color: '#94a3b8' }}>{s.opened_at}</td>
-                            <td style={{ padding: '0.75rem', fontSize: '0.8rem', color: '#94a3b8' }}>{s.closed_at || 'Activo'}</td>
-                            <td style={{ padding: '0.75rem', color: '#eab308' }}>${s.start_amount?.toLocaleString()}</td>
-                            <td style={{ padding: '0.75rem', color: '#22c55e' }}>${s.cash_sales?.toLocaleString() || 0}</td>
-                            <td style={{ padding: '0.75rem', color: '#38bdf8' }}>${s.transfer_sales?.toLocaleString() || 0}</td>
-                            <td style={{ padding: '0.75rem', fontWeight: 'bold', color: '#4ade80' }}>${s.total_sales?.toLocaleString() || 0}</td>
-                            <td style={{ padding: '0.75rem' }}>
-                              <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: s.status === 'abierto' ? '#166534' : '#334155', color: '#fff', fontSize: '0.75rem' }}>
-                                {s.status.toUpperCase()}
-                              </span>
-                            </td>
-                            <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                              <button onClick={() => handlePrintShiftReport(s)} style={{ padding: '0.3rem 0.6rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' }}>
-                                🖨️ Imprimir
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {reportType === 'monthly' && (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                    <label style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Seleccionar Mes / Año:</label>
-                    <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                    <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                      <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>TURNOS REGISTRADOS</p>
-                      <h3 style={{ color: '#38bdf8', fontSize: '1.4rem', marginTop: '0.4rem' }}>{monthlyShifts.length} turnos</h3>
-                    </div>
-                    <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                      <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>VENTAS EFECTIVO</p>
-                      <h3 style={{ color: '#22c55e', fontSize: '1.4rem', marginTop: '0.4rem' }}>${monthlyCash.toLocaleString()}</h3>
-                    </div>
-                    <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                      <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>VENTAS NEQUI / TRANSF.</p>
-                      <h3 style={{ color: '#38bdf8', fontSize: '1.4rem', marginTop: '0.4rem' }}>${monthlyTransfer.toLocaleString()}</h3>
-                    </div>
-                    <div style={{ background: '#1e293b', padding: '1.2rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                      <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: 0 }}>TOTAL ACUMULADO MES</p>
-                      <h3 style={{ color: '#4ade80', fontSize: '1.4rem', marginTop: '0.4rem' }}>${monthlyTotal.toLocaleString()}</h3>
-                    </div>
-                  </div>
-
-                  <h3 style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '0.5rem' }}>📋 Desglose de Turnos en {selectedMonth}</h3>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
-                    <thead>
-                      <tr style={{ background: '#334155', textAlign: 'left' }}>
-                        <th style={{ padding: '0.75rem' }}>Fecha / Hora</th>
-                        <th style={{ padding: '0.75rem' }}>Empleado / Usuario</th>
-                        <th style={{ padding: '0.75rem' }}>Efectivo</th>
-                        <th style={{ padding: '0.75rem' }}>Transferencia</th>
-                        <th style={{ padding: '0.75rem' }}>Total Turno</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {monthlyShifts.length === 0 ? (
-                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>No hay datos de ventas registrados para el mes seleccionado.</td></tr>
-                      ) : (
-                        monthlyShifts.map(s => (
-                          <tr key={s.id} style={{ borderBottom: '1px solid #334155' }}>
-                            <td style={{ padding: '0.75rem', fontSize: '0.85rem', color: '#94a3b8' }}>{s.opened_at}</td>
-                            <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{s.user_name}</td>
-                            <td style={{ padding: '0.75rem', color: '#22c55e' }}>${s.cash_sales?.toLocaleString() || 0}</td>
-                            <td style={{ padding: '0.75rem', color: '#38bdf8' }}>${s.transfer_sales?.toLocaleString() || 0}</td>
-                            <td style={{ padding: '0.75rem', fontWeight: 'bold', color: '#4ade80' }}>${s.total_sales?.toLocaleString() || 0}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
+                <thead>
+                  <tr style={{ background: '#334155', textAlign: 'left' }}>
+                    <th style={{ padding: '0.75rem' }}>Nombre Completo</th>
+                    <th style={{ padding: '0.75rem' }}>Nombre de Usuario</th>
+                    <th style={{ padding: '0.75rem' }}>Rol</th>
+                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usersList.map(u => (
+                    <tr key={u.id} style={{ borderBottom: '1px solid #334155' }}>
+                      <td style={{ padding: '0.75rem' }}><strong>{u.name}</strong></td>
+                      <td style={{ padding: '0.75rem' }}>{u.username}</td>
+                      <td style={{ padding: '0.75rem' }}>
+                        <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: u.role === 'Administrador' ? '#1e40af' : '#334155', fontSize: '0.8rem' }}>{u.role}</span>
+                      </td>
+                      <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                        <button onClick={() => handleDeleteUser(u.id, u.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Eliminar</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
-          {activeTab === 'dian' && (
+          {/* TAB: REPORTES */}
+          {activeTab === 'reports' && (
             <div>
-              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>⚙️ Configuración DIAN y Personalización de Recibo</h2>
-              <form onSubmit={handleSaveConfig} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', border: '1px solid #334155', maxWidth: '600px' }}>
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Razón Social / Nombre Comercial:</label>
-                  <input
-                    type="text"
-                    required
-                    value={storeConfig.razon_social}
-                    onChange={(e) => setStoreConfig({ ...storeConfig, razon_social: e.target.value })}
-                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
-                  />
-                </div>
+              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>📊 Reportes de Turnos y Ventas</h2>
 
+              {/* FILTROS DIARIOS */}
+              <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 1rem 0', color: '#e2e8f0' }}>📅 Consulta de Turnos Diarios</h4>
                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>NIT / Cédula:</label>
-                    <input
-                      type="text"
-                      required
-                      value={storeConfig.nit}
-                      onChange={(e) => setStoreConfig({ ...storeConfig, nit: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
-                    />
+                  <input type="text" placeholder="Filtrar por nombre de cajero..." value={filterUser} onChange={(e) => setFilterUser(e.target.value)} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', flex: 1 }} />
+                  <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+                </div>
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', background: '#0f172a', borderRadius: '6px', overflow: 'hidden' }}>
+                  <thead>
+                    <tr style={{ background: '#334155', textAlign: 'left', fontSize: '0.85rem' }}>
+                      <th style={{ padding: '0.6rem' }}>ID</th>
+                      <th style={{ padding: '0.6rem' }}>Cajero</th>
+                      <th style={{ padding: '0.6rem' }}>Apertura</th>
+                      <th style={{ padding: '0.6rem' }}>Cierre</th>
+                      <th style={{ padding: '0.6rem' }}>Base</th>
+                      <th style={{ padding: '0.6rem' }}>Efectivo</th>
+                      <th style={{ padding: '0.6rem' }}>Transf.</th>
+                      <th style={{ padding: '0.6rem' }}>Total Ventas</th>
+                      <th style={{ padding: '0.6rem', textAlign: 'center' }}>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredDailyShifts.map(s => (
+                      <tr key={s.id} style={{ borderBottom: '1px solid #1e293b', fontSize: '0.85rem' }}>
+                        <td style={{ padding: '0.6rem' }}>#{s.id}</td>
+                        <td style={{ padding: '0.6rem' }}><strong>{s.user_name}</strong></td>
+                        <td style={{ padding: '0.6rem' }}>{s.opened_at}</td>
+                        <td style={{ padding: '0.6rem' }}>{s.closed_at || 'En curso'}</td>
+                        <td style={{ padding: '0.6rem' }}>${s.start_amount?.toLocaleString()}</td>
+                        <td style={{ padding: '0.6rem', color: '#4ade80' }}>${s.cash_sales?.toLocaleString()}</td>
+                        <td style={{ padding: '0.6rem', color: '#38bdf8' }}>${s.transfer_sales?.toLocaleString()}</td>
+                        <td style={{ padding: '0.6rem', fontWeight: 'bold' }}>${s.total_sales?.toLocaleString()}</td>
+                        <td style={{ padding: '0.6rem', textAlign: 'center' }}>
+                          <button onClick={() => handlePrintShiftReport(s)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🖨️ Reimprimir</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* RESUMEN MENSUAL */}
+              <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h4 style={{ margin: 0, color: '#e2e8f0' }}>📆 Consolidados Mensuales</h4>
+                  <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} style={{ padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                  <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>VENTAS EFECTIVO DEL MES</span>
+                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#4ade80' }}>${monthlyCash.toLocaleString()}</h3>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Teléfono / Celular:</label>
-                    <input
-                      type="text"
-                      required
-                      value={storeConfig.telefono}
-                      onChange={(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })}
-                      style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
-                    />
+                  <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>VENTAS TRANSFERENCIAS DEL MES</span>
+                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#38bdf8' }}>${monthlyTransfer.toLocaleString()}</h3>
+                  </div>
+                  <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', borderLeft: '4px solid #22c55e' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL FACTURADO EN EL MES</span>
+                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${monthlyTotal.toLocaleString()}</h3>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
 
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Dirección:</label>
-                  <input
-                    type="text"
-                    required
-                    value={storeConfig.direccion}
-                    onChange={(e) => setStoreConfig({ ...storeConfig, direccion: e.target.value })}
-                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
-                  />
+          {/* TAB: CONFIGURACIÓN DIAN */}
+          {activeTab === 'dian' && (
+            <div style={{ maxWidth: '600px' }}>
+              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>⚙️ Configuración del Negocio y Documento POS (DIAN)</h2>
+              <form onSubmit={handleSaveConfig} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Razón Social / Nombre Comercial:</label>
+                  <input type="text" value={storeConfig.razon_social} onChange={(e) => setStoreConfig({ ...storeConfig, razon_social: e.target.value })} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.2rem' }} required />
                 </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Descripción de Actividad / Encabezado:</label>
-                  <input
-                    type="text"
-                    value={storeConfig.actividad}
-                    onChange={(e) => setStoreConfig({ ...storeConfig, actividad: e.target.value })}
-                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
-                  />
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>NIT / Documento Identificación:</label>
+                  <input type="text" value={storeConfig.nit} onChange={(e) => setStoreConfig({ ...storeConfig, nit: e.target.value })} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.2rem' }} required />
                 </div>
-
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Mensaje al Pie del Recibo:</label>
-                  <input
-                    type="text"
-                    value={storeConfig.footer_msg}
-                    onChange={(e) => setStoreConfig({ ...storeConfig, footer_msg: e.target.value })}
-                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.3rem' }}
-                  />
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Dirección Física:</label>
+                  <input type="text" value={storeConfig.direccion} onChange={(e) => setStoreConfig({ ...storeConfig, direccion: e.target.value })} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.2rem' }} required />
                 </div>
-
-                <button type="submit" style={{ width: '100%', padding: '0.75rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>
-                  💾 Guardar Cambios de Configuración
-                </button>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Teléfono de Contacto:</label>
+                  <input type="text" value={storeConfig.telefono} onChange={(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.2rem' }} required />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Actividad Económica / Texto Encabezado:</label>
+                  <textarea value={storeConfig.actividad} onChange={(e) => setStoreConfig({ ...storeConfig, actividad: e.target.value })} rows={2} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.2rem' }} required />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Mensaje del Pie de Página de Recibo:</label>
+                  <input type="text" value={storeConfig.footer_msg} onChange={(e) => setStoreConfig({ ...storeConfig, footer_msg: e.target.value })} style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginTop: '0.2rem' }} required />
+                </div>
+                <button type="submit" style={{ padding: '0.75rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', marginTop: '0.5rem' }}>💾 Guardar Cambios en Servidor</button>
               </form>
             </div>
           )}
         </div>
       </div>
 
-      {showUserModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <form onSubmit={handleSaveUser} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
-            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>➕ Registrar Nuevo Empleado</h3>
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Nombre Completo:</label>
-            <input type="text" required placeholder="Ej: Doña Rosa" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+      {/* MODAL: APERTURA DE TURNO */}
+      {showShiftModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '320px', color: '#fff' }}>
+            <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>☀️ Abrir Turno de Caja</h3>
+            <label style={{ fontSize: '0.85rem' }}>Monto Base Inicial en Caja ($):</label>
+            <input type="number" value={shiftBaseInput} onChange={(e) => setShiftBaseInput(e.target.value)} placeholder="Ej: 50000" style={{ width: '100%', padding: '0.5rem', margin: '0.5rem 0 1rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={handleOpenShift} style={{ flex: 1, padding: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Iniciar</button>
+              <button onClick={() => setShowShiftModal(false)} style={{ flex: 1, padding: '0.5rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Usuario de Acceso:</label>
-            <input type="text" required placeholder="Ej: rosa" value={newUser.username} onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+      {/* MODAL: RESUMEN DE CIERRE DE TURNO */}
+      {shiftSummary && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff' }}>
+            <h3 style={{ margin: '0 0 0.5rem 0', color: '#4ade80' }}>🔴 Turno Cerrado</h3>
+            <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', fontSize: '0.9rem', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Base Inicial:</span><span>${shiftSummary.start_amount?.toLocaleString()}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Ventas Efectivo:</span><span style={{ color: '#4ade80' }}>${shiftSummary.cash_sales?.toLocaleString()}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Ventas Transferencia:</span><span style={{ color: '#38bdf8' }}>${shiftSummary.transfer_sales?.toLocaleString()}</span></div>
+              <hr style={{ borderColor: '#334155', margin: '0.5rem 0' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>Total Vendido:</span><span>${shiftSummary.total_sales?.toLocaleString()}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#4ade80', marginTop: '0.4rem' }}><span>Efectivo en Caja:</span><span>${shiftSummary.end_amount?.toLocaleString()}</span></div>
+            </div>
+            <button onClick={() => setShiftSummary(null)} style={{ width: '100%', padding: '0.5rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar</button>
+          </div>
+        </div>
+      )}
 
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Contraseña:</label>
-            <input type="password" required value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Rol / Permisos:</label>
-            <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
-              <option value="Cajero">🛒 Cajero (Solo POS)</option>
-              <option value="Administrador">🔑 Administrador (Acceso Total)</option>
-            </select>
-
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button type="button" onClick={() => setShowUserModal(false)} style={{ flex: 1, padding: '0.6rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
-              <button type="submit" style={{ flex: 1, padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar Empleado</button>
+      {/* MODAL: REGISTRAR PRODUCTO */}
+      {showAddModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <form onSubmit={handleSaveNewProduct} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Ingresar Producto</h3>
+            <input type="text" placeholder="Código de Barras / ID" value={newProd.barcode} onChange={(e) => setNewProd({ ...newProd, barcode: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Nombre del Producto" value={newProd.name} onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="number" placeholder="Precio de Venta ($)" value={newProd.sale_price} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="number" placeholder="Stock Inicial" value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="number" placeholder="Stock Mínimo (Alerta)" value={newProd.min_stock} onChange={(e) => setNewProd({ ...newProd, min_stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button type="submit" style={{ flex: 1, padding: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar</button>
+              <button type="button" onClick={() => setShowAddModal(false)} style={{ flex: 1, padding: '0.5rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
             </div>
           </form>
         </div>
       )}
 
+      {/* MODAL: EDITAR PRODUCTO */}
+      {editingProduct && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <form onSubmit={handleUpdateProduct} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar / Reponer Stock</h3>
+            <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Código: {editingProduct.barcode}</label>
+            <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio de Venta ($):</label>
+            <input type="number" value={editingProduct.sale_price} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Actual:</label>
+            <input type="number" value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Mínimo:</label>
+            <input type="number" value={editingProduct.min_stock || 3} onChange={(e) => setEditingProduct({ ...editingProduct, min_stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button type="submit" style={{ flex: 1, padding: '0.5rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Actualizar</button>
+              <button type="button" onClick={() => setEditingProduct(null)} style={{ flex: 1, padding: '0.5rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL: NUEVA TRANSACCIÓN (CONTABILIDAD) */}
       {showTxModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <form onSubmit={handleSaveTransaction} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
-            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>➕ Registrar Movimiento Financiero</h3>
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Tipo de Movimiento:</label>
-            <select value={newTx.type} onChange={(e) => setNewTx({ ...newTx, type: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <form onSubmit={handleSaveTransaction} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Registro Contable</h3>
+            <select value={newTx.type} onChange={(e) => setNewTx({ ...newTx, type: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
               <option value="Ingreso">🟢 Ingreso</option>
               <option value="Egreso">🔴 Egreso / Gasto</option>
             </select>
-
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Categoría:</label>
-            <input type="text" placeholder="Ej: Proveedores, Arriendo, Servicios" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Descripción / Concepto:</label>
-            <input type="text" placeholder="Detalle del movimiento" value={newTx.description} onChange={(e) => setNewTx({ ...newTx, description: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Monto ($):</label>
-            <input type="number" required value={newTx.amount} onChange={(e) => setNewTx({ ...newTx, amount: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button type="button" onClick={() => setShowTxModal(false)} style={{ flex: 1, padding: '0.6rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
-              <button type="submit" style={{ flex: 1, padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar Movimiento</button>
+            <input type="text" placeholder="Categoría (Ej: Servicios, Proveedores, Varios)" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Descripción breve" value={newTx.description} onChange={(e) => setNewTx({ ...newTx, description: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="number" placeholder="Monto ($)" value={newTx.amount} onChange={(e) => setNewTx({ ...newTx, amount: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button type="submit" style={{ flex: 1, padding: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar</button>
+              <button type="button" onClick={() => setShowTxModal(false)} style={{ flex: 1, padding: '0.5rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
             </div>
           </form>
         </div>
       )}
 
-      {showAddModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <form onSubmit={handleSaveNewProduct} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
-            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>➕ Ingresar Nuevo Producto</h3>
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Código de Barras / ID:</label>
-            <input type="text" required value={newProd.barcode} onChange={(e) => setNewProd({ ...newProd, barcode: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Nombre del Producto:</label>
-            <input type="text" required value={newProd.name} onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Precio de Venta ($):</label>
-            <input type="number" required value={newProd.sale_price} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Stock Inicial:</label>
-                <input type="number" required value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Stock Mínimo:</label>
-                <input type="number" required value={newProd.min_stock} onChange={(e) => setNewProd({ ...newProd, min_stock: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button type="button" onClick={() => setShowAddModal(false)} style={{ flex: 1, padding: '0.6rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
-              <button type="submit" style={{ flex: 1, padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {editingProduct && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <form onSubmit={handleUpdateProduct} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
-            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>✏️ Modificar Producto (CÓD: {editingProduct.barcode})</h3>
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Nombre del Producto:</label>
-            <input type="text" required value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-            <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Precio de Venta ($):</label>
-            <input type="number" required value={editingProduct.sale_price} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Stock Actual:</label>
-                <input type="number" required value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Stock Mínimo:</label>
-                <input type="number" required value={editingProduct.min_stock || 3} onChange={(e) => setEditingProduct({ ...editingProduct, min_stock: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button type="button" onClick={() => setEditingProduct(null)} style={{ flex: 1, padding: '0.6rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
-              <button type="submit" style={{ flex: 1, padding: '0.6rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Actualizar</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {showShiftModal && (
+      {/* MODAL: NUEVO EMPLEADO / USUARIO */}
+      {showUserModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#fff', color: '#000', padding: '1.5rem', borderRadius: '8px', width: '320px', textAlign: 'center' }}>
-            <h3>☀️ Iniciar Turno ({currentUser.name})</h3>
-            <input type="number" placeholder="Base Inicial ($)" value={shiftBaseInput} onChange={(e) => setShiftBaseInput(e.target.value)} style={{ width: '100%', padding: '0.75rem', margin: '1rem 0', fontSize: '1.1rem', borderRadius: '4px', border: '1px solid #ccc' }} />
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => setShowShiftModal(false)} style={{ flex: 1, padding: '0.5rem', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={handleOpenShift} style={{ flex: 1, padding: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ ABRIR TURNO</button>
+          <form onSubmit={handleSaveUser} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>👤 Nuevo Usuario</h3>
+            <input type="text" placeholder="Nombre Completo" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Usuario para Iniciar Sesión" value={newUser.username} onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="password" placeholder="Contraseña" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
+              <option value="Cajero">Cajero</option>
+              <option value="Administrador">Administrador</option>
+            </select>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button type="submit" style={{ flex: 1, padding: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Crear Usuario</button>
+              <button type="button" onClick={() => setShowUserModal(false)} style={{ flex: 1, padding: '0.5rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {shiftSummary && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100 }}>
-          <div style={{ background: '#1e293b', color: '#fff', padding: '2rem', borderRadius: '8px', width: '360px', border: '1px solid #334155' }}>
-            <h3 style={{ color: '#38bdf8', textAlign: 'center', margin: '0 0 1rem 0' }}>📄 INFORME DE CIERRE DE TURNO</h3>
-            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Vendedor: <strong>{currentUser.name}</strong></p>
-            <hr style={{ borderColor: '#334155', margin: '1rem 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>Base Inicial:</span><strong style={{ color: '#eab308' }}>${shiftSummary.startBase?.toLocaleString()}</strong></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>Ventas Efectivo:</span><strong style={{ color: '#22c55e' }}>${shiftSummary.cashSales?.toLocaleString()}</strong></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>Ventas Transferencia:</span><strong style={{ color: '#38bdf8' }}>${shiftSummary.transferSales?.toLocaleString()}</strong></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontWeight: 'bold' }}><span>TOTAL VENDIDO:</span><span style={{ color: '#4ade80' }}>${shiftSummary.totalSales?.toLocaleString()}</span></div>
-            <hr style={{ borderColor: '#334155', margin: '1rem 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', fontSize: '1.05rem', fontWeight: 'bold' }}><span>TOTAL EN CAJA:</span><span style={{ color: '#38bdf8' }}>${shiftSummary.totalCashInBox?.toLocaleString()}</span></div>
-            <button onClick={() => setShiftSummary(null)} style={{ width: '100%', padding: '0.75rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar y Finalizar</button>
-          </div>
+          </form>
         </div>
       )}
     </>
