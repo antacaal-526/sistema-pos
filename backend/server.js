@@ -8,7 +8,10 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-
+// Ruta para mantener despierto el servidor en Render
+app.get('/api/ping', (req, res) => {
+  res.send('pong');
+});
 // ============================================================================
 // RUTA DE DESCARGA DIRECTA DE LA BASE DE DATOS
 // ============================================================================

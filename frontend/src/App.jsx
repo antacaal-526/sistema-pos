@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
+// Mantener el servidor de Render activo enviando una señal cada 5 minutos
+  useEffect(() => {
+    const keepAliveInterval = setInterval(() => {
+      fetch(`${API_URL}/api/ping`).catch(err => console.log('Ping fallido:', err));
+    }, 5 * 60 * 1000); // 5 minutos
 
+    return () => clearInterval(keepAliveInterval);
+  }, []);
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
 export default function App() {
