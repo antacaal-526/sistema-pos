@@ -4,7 +4,7 @@ import './App.css';
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
 export default function App() {
-  // 1. Mantener el servidor de Render activo enviando un ping cada 5 minutos
+  // Mantener el servidor de Render activo
   useEffect(() => {
     const keepAliveInterval = setInterval(() => {
       fetch(`${API_URL}/api/ping`).catch(err => console.log('Ping fallido:', err));
@@ -84,7 +84,7 @@ export default function App() {
     }
   }, []);
 
-  // Cargar datos iniciales tras inicio de sesión
+  // Cargar datos iniciales
   useEffect(() => {
     if (currentUser) {
       checkActiveShift(currentUser.name);
@@ -604,72 +604,127 @@ export default function App() {
         <div style={{ flex: 1, padding: '1.5rem', overflowY: 'auto' }}>
           {/* TAB: POS / CAJA */}
           {activeTab === 'pos' && (
-            <div style={{ display: 'flex', gap: '1rem', height: '100%' }}>
-              <div style={{ flex: 1 }}>
-                <input type="text" placeholder="🔍 Buscar por código o nombre..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '1rem', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', gap: '1.25rem', height: '100%' }}>
+              {/* Lado Izquierdo: Buscador y Grilla de Productos */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar por código o nombre..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }}
+                />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem', maxHeight: 'calc(100vh - 130px)', overflowY: 'auto', paddingRight: '4px' }}>
                   {products
                     .filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search))
                     .map(p => (
-                      <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer' }}>
-                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
-                        <h4 style={{ margin: '0.25rem 0', fontSize: '0.85rem' }}>{p.name}</h4>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
-                          <strong style={{ color: '#22c55e' }}>${p.sale_price?.toLocaleString()}</strong>
-                          <span style={{ fontSize: '0.7rem', background: '#334155', padding: '0.2rem 0.4rem', borderRadius: '4px' }}>Stock: {p.stock}</span>
+                      <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '0.85rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer', transition: 'all 0.15s ease' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
+                        <h4 style={{ margin: '0.35rem 0', fontSize: '0.95rem', lineHeight: '1.2' }}>{p.name}</h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem' }}>
+                          <strong style={{ color: '#22c55e', fontSize: '1.05rem' }}>${p.sale_price?.toLocaleString()}</strong>
+                          <span style={{ fontSize: '0.75rem', background: '#334155', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>Stock: {p.stock}</span>
                         </div>
                       </div>
                     ))}
                 </div>
               </div>
 
-              <div style={{ width: '340px', background: '#1e293b', borderRadius: '8px', padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              {/* Lado Derecho: Carrito de Venta Más Grande (Ancho ampliado a 440px) */}
+              <div style={{ width: '440px', background: '#1e293b', borderRadius: '10px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)' }}>
                 <div>
-                  <h3 style={{ margin: '0 0 1rem 0' }}>🛒 Carrito de Venta ({cart.length})</h3>
-                  <div style={{ fontSize: '0.8rem', marginBottom: '1rem' }}>
-                    <label>CLIENTE:</label>
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
-                      <input type="text" value={customerDoc} onChange={(e) => setCustomerDoc(e.target.value)} style={{ width: '50%', padding: '0.3rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-                      <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={{ width: '50%', padding: '0.3rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+                  <h3 style={{ margin: '0 0 1.2rem 0', fontSize: '1.2rem', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.6rem' }}>
+                    🛒 Carrito de Venta ({cart.length})
+                  </h3>
+
+                  {/* Datos del Cliente */}
+                  <div style={{ fontSize: '0.85rem', marginBottom: '1.2rem' }}>
+                    <label style={{ color: '#94a3b8', fontWeight: 'bold' }}>CLIENTE:</label>
+                    <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.3rem' }}>
+                      <input
+                        type="text"
+                        value={customerDoc}
+                        onChange={(e) => setCustomerDoc(e.target.value)}
+                        placeholder="NIT / CC"
+                        style={{ width: '45%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }}
+                      />
+                      <input
+                        type="text"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        placeholder="Nombre"
+                        style={{ width: '55%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }}
+                      />
                     </div>
                   </div>
 
-                  <div style={{ maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {/* Lista de Items en Carrito */}
+                  <div style={{ maxHeight: 'calc(100vh - 420px)', minHeight: '180px', overflowY: 'auto', paddingRight: '6px' }}>
                     {cart.map(item => (
-                      <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', background: '#0f172a', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem' }}>
-                        <div style={{ flex: 1, marginRight: '0.5rem' }}>
-                          <strong>{item.name}</strong><br />
-                          <span style={{ color: '#22c55e' }}>${(item.sale_price * item.quantity).toLocaleString()}</span>
+                      <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.6rem 0.8rem', borderRadius: '6px', fontSize: '0.9rem', border: '1px solid #1e293b' }}>
+                        <div style={{ flex: 1, marginRight: '0.6rem' }}>
+                          <strong style={{ fontSize: '0.9rem' }}>{item.name}</strong><br />
+                          <span style={{ color: '#22c55e', fontWeight: 'bold', fontSize: '0.85rem' }}>${(item.sale_price * item.quantity).toLocaleString()}</span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                          <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.1rem 0.4rem', borderRadius: '3px', cursor: 'pointer' }}>-</button>
-                          <span style={{ margin: '0 0.3rem', fontWeight: 'bold' }}>{item.quantity}</span>
-                          <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.1rem 0.4rem', borderRadius: '3px', cursor: 'pointer' }}>+</button>
-                          <button onClick={() => removeFromCart(item.barcode)} title="Eliminar producto" style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', padding: '0.1rem 0.4rem', cursor: 'pointer', marginLeft: '0.3rem', fontWeight: 'bold' }}>❌</button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.2rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>-</button>
+                          <span style={{ margin: '0 0.4rem', fontWeight: 'bold', fontSize: '0.95rem' }}>{item.quantity}</span>
+                          <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.2rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>+</button>
+                          <button onClick={() => removeFromCart(item.barcode)} title="Eliminar producto" style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', padding: '0.2rem 0.5rem', cursor: 'pointer', marginLeft: '0.4rem', fontWeight: 'bold' }}>❌</button>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div style={{ marginTop: '1rem' }}>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                    <span>Total:</span><span style={{ color: '#22c55e' }}>${totalCart.toLocaleString()}</span>
+                {/* Totales y Botones de Pago */}
+                <div style={{ marginTop: '1.2rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
+                    <span>Total:</span>
+                    <span style={{ color: '#22c55e' }}>${totalCart.toLocaleString()}</span>
                   </div>
-                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ width: '100%', padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '4px' }}>
+
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.6rem', borderRadius: '6px', fontSize: '0.95rem' }}
+                  >
                     <option value="Efectivo">💵 Efectivo</option>
                     <option value="Nequi / Transferencia">📱 Nequi / Transferencia</option>
                   </select>
-                  <input type="number" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} placeholder={`Recibido: $${totalCart.toLocaleString()}`} style={{ width: '100%', padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '4px' }} />
-                  <div style={{ fontSize: '0.85rem', marginBottom: '1rem', color: '#4ade80' }}>Devueltas: <strong>${changeGiven.toLocaleString()}</strong></div>
-                  <button onClick={() => handleProcessSale('Registrada')} style={{ width: '100%', padding: '0.6rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', marginBottom: '0.5rem', cursor: 'pointer', fontWeight: 'bold' }}>📑 Solo Registrar Venta</button>
-                  <button onClick={() => handleProcessSale('Facturada')} style={{ width: '100%', padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>🧾 Facturar e Imprimir DIAN</button>
+
+                  <input
+                    type="number"
+                    value={amountPaid}
+                    onChange={(e) => setAmountPaid(e.target.value)}
+                    placeholder={`Recibido: $${totalCart.toLocaleString()}`}
+                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.6rem', borderRadius: '6px', fontSize: '0.95rem' }}
+                  />
+
+                  <div style={{ fontSize: '0.95rem', marginBottom: '1.2rem', color: '#4ade80', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Devueltas:</span>
+                    <strong>${changeGiven.toLocaleString()}</strong>
+                  </div>
+
+                  <button
+                    onClick={() => handleProcessSale('Registrada')}
+                    style={{ width: '100%', padding: '0.75rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', marginBottom: '0.6rem', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.95rem' }}
+                  >
+                    📑 Solo Registrar Venta
+                  </button>
+
+                  <button
+                    onClick={() => handleProcessSale('Facturada')}
+                    style={{ width: '100%', padding: '0.85rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem' }}
+                  >
+                    🧾 Facturar e Imprimir DIAN
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB: INVENTARIO */}
+          {/* TAB: INVENTARIO (Ordenado por Stock Relativo al Mínimo) */}
           {activeTab === 'inventory' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -678,6 +733,10 @@ export default function App() {
                   ➕ Ingresar Nuevo Producto
                 </button>
               </div>
+
+              <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 1rem 0' }}>
+                ℹ️ Los productos están ordenados automáticamente mostrando primero aquellos con menor stock respecto a su mínimo establecido.
+              </p>
 
               <input
                 type="text"
@@ -701,23 +760,31 @@ export default function App() {
                 <tbody>
                   {products
                     .filter(p => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch))
-                    .map(p => (
-                      <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
-                        <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
-                        <td style={{ padding: '0.75rem' }}>{p.name}</td>
-                        <td style={{ padding: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString()}</td>
-                        <td style={{ padding: '0.75rem' }}>
-                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: p.stock <= (p.min_stock || 3) ? '#991b1b' : '#166534' }}>
-                            {p.stock}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.75rem' }}>{p.min_stock || 3}</td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                          <button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer', marginRight: '0.5rem' }}>✏️ Editar</button>
-                          <button onClick={() => handleDeleteProduct(p.barcode, p.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Eliminar</button>
-                        </td>
-                      </tr>
-                    ))}
+                    // Ordenamiento: Menor stock relativo al mínimo va arriba (stock - min_stock)
+                    .sort((a, b) => (a.stock - (a.min_stock || 3)) - (b.stock - (b.min_stock || 3)))
+                    .map(p => {
+                      const minVal = p.min_stock || 3;
+                      const isLow = p.stock <= minVal;
+                      return (
+                        <tr key={p.barcode} style={{ borderBottom: '1px solid #334155', background: isLow ? 'rgba(239, 68, 68, 0.08)' : 'transparent' }}>
+                          <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
+                          <td style={{ padding: '0.75rem' }}>
+                            {p.name} {isLow && <span style={{ color: '#f87171', fontSize: '0.75rem', fontWeight: 'bold' }}>(⚠️ Stock Bajo)</span>}
+                          </td>
+                          <td style={{ padding: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString()}</td>
+                          <td style={{ padding: '0.75rem' }}>
+                            <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: isLow ? '#991b1b' : '#166534', fontWeight: 'bold' }}>
+                              {p.stock}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem' }}>{minVal}</td>
+                          <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                            <button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer', marginRight: '0.5rem' }}>✏️ Editar</button>
+                            <button onClick={() => handleDeleteProduct(p.barcode, p.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Eliminar</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -749,6 +816,7 @@ export default function App() {
                   {products
                     .filter(p => p.stock <= (p.min_stock || 3))
                     .filter(p => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch))
+                    .sort((a, b) => (a.stock - (a.min_stock || 3)) - (b.stock - (b.min_stock || 3)))
                     .map(p => (
                       <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
                         <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
