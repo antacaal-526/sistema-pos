@@ -10,12 +10,13 @@ app.use(cors());
 app.use(express.json());
 
 // ============================================================================
-// 🚨 RUTA DE DESCARGA DIRECTA DE LA BASE DE DATOS (DEBE IR AQUÍ ARRIBA) 🚨
+// RUTA DE DESCARGA DIRECTA DE LA BASE DE DATOS
 // ============================================================================
 app.get('/api/backup-db', (req, res) => {
   try {
-    // 1. Definir posibles rutas donde Render o el entorno local pueden tener pos.db
+    const mainDbPath = db.dbPath;
     const possiblePaths = [
+      mainDbPath,
       path.join(__dirname, 'pos.db'),
       path.join(__dirname, '../pos.db'),
       path.join(process.cwd(), 'pos.db'),
@@ -24,25 +25,21 @@ app.get('/api/backup-db', (req, res) => {
     ];
 
     let foundPath = null;
-
-    // 2. Buscar en cuál de las rutas existe el archivo realmente
     for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
+      if (p && fs.existsSync(p)) {
         foundPath = p;
         break;
       }
     }
 
-    // 3. Si no se encuentra en ninguna parte, mostrar error en pantalla
     if (!foundPath) {
       return res.status(404).send(`
         <h1>Error: Base de datos no encontrada</h1>
-        <p>Se buscaron las siguientes rutas pero el archivo pos.db no existe en ninguna:</p>
+        <p>Se buscaron las siguientes rutas pero el archivo pos.db no existe aún o no se ha creado:</p>
         <ul>${possiblePaths.map(p => `<li>${p}</li>`).join('')}</ul>
       `);
     }
 
-    // 4. Si se encuentra, leer el archivo en crudo y forzar la descarga en el navegador
     const fileBuffer = fs.readFileSync(foundPath);
     const fileName = `pos_backup_${new Date().toISOString().slice(0, 10)}.db`;
     
@@ -51,12 +48,10 @@ app.get('/api/backup-db', (req, res) => {
     return res.send(fileBuffer);
 
   } catch (error) {
-    console.error('Error crítico al intentar descargar:', error);
+    console.error('Error al intentar descargar respaldo:', error);
     return res.status(500).send('Error interno del servidor al procesar la descarga.');
   }
 });
-// ============================================================================
-
 
 // Archivos estáticos del Frontend
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
@@ -202,7 +197,7 @@ app.post('/api/shifts/close', (req, res) => {
 app.get('/api/products', (req, res) => {
   db.all('SELECT * FROM products ORDER BY CAST(barcode AS INTEGER) ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
+    res.json(rows || []);
   });
 });
 
@@ -251,33 +246,71 @@ app.post('/api/sales', (req, res) => {
   const prefijo = 'TF';
   const invNumber = `${prefijo}-${Date.now().toString().slice(-6)}`;
 
-  db.run(
-    `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-    [shift_id || null, user_name || 'ANTHONY CARDENAS', invNumber, customer_doc || '222222222222', customer_name || 'Consumidor Final', total, total, payment_method || 'Efectivo', amount_paid || total, change_given || 0, sale_type || 'Facturada'],
-    function (errSale) {
-      if (errSale) return res.status(500).json({ error: errSale.message });
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
 
-      const saleId = this.lastID;
+    db.run(
+      `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+      [
+        shift_id || null,
+        user_name || 'ANTHONY CARDENAS',
+        invNumber,
+        customer_doc || '222222222222',
+        customer_name || 'Consumidor Final',
+        total,
+        total,
+        payment_method || 'Efectivo',
+        amount_paid || total,
+        change_given || 0,
+        sale_type || 'Facturada'
+      ],
+      function (errSale) {
+        if (errSale) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ error: errSale.message });
+        }
 
-      items.forEach((item) => {
-        db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode]);
-        db.run('INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
-          [saleId, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price]
+        const saleId = this.lastID;
+        let hasError = false;
+
+        const stmtStock = db.prepare('UPDATE products SET stock = stock - ? WHERE barcode = ?');
+        const stmtItem = db.prepare('INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)');
+
+        for (const item of items) {
+          stmtStock.run([item.quantity, item.barcode], (err) => { if (err) hasError = true; });
+          stmtItem.run([saleId, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price], (err) => { if (err) hasError = true; });
+        }
+
+        stmtStock.finalize();
+        stmtItem.finalize();
+
+        if (hasError) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ error: 'Error procesando los artículos del carrito' });
+        }
+
+        db.run(
+          `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
+          [`Venta POS Factura #${invNumber} (${payment_method})`, total, user_name || 'ANTHONY CARDENAS'],
+          (errTx) => {
+            if (errTx) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: errTx.message });
+            }
+
+            db.run('COMMIT', (errCommit) => {
+              if (errCommit) return res.status(500).json({ error: errCommit.message });
+              res.json({ success: true, saleId, invoice_number: invNumber });
+            });
+          }
         );
-      });
-
-      db.run(
-        `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
-        [`Venta POS Factura #${invNumber} (${payment_method})`, total, user_name || 'ANTHONY CARDENAS']
-      );
-
-      res.json({ success: true, saleId, invoice_number: invNumber });
-    }
-  );
+      }
+    );
+  });
 });
 
-// --- MOVIMIENTOS CONTABLES (INGRESOS Y EGRESOS) ---
+// --- MOVIMIENTOS CONTABLES ---
 app.get('/api/transactions', (req, res) => {
   db.all('SELECT * FROM transactions ORDER BY id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -362,7 +395,7 @@ app.post('/api/config', (req, res) => {
     db.run(
       `INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [key, config[key]],
-      (err) => {
+      () => {
         completed++;
         if (completed === keys.length) {
           res.json({ success: true });
@@ -372,7 +405,7 @@ app.post('/api/config', (req, res) => {
   });
 });
 
-// --- COMODÍN PARA REACT (SIEMPRE AL FINAL) ---
+// --- COMODÍN PARA REACT ---
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });

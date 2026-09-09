@@ -11,7 +11,7 @@ export default function App() {
   const [shiftBaseInput, setShiftBaseInput] = useState('');
   const [activeTab, setActiveTab] = useState('pos');
 
-  // Datos de Configuración del Negocio
+  // Configuración
   const [storeConfig, setStoreConfig] = useState({
     razon_social: 'TERRA FRUTOS SECOS',
     nit: '40044029-8',
@@ -21,7 +21,6 @@ export default function App() {
     footer_msg: '¡Gracias por su compra!'
   });
 
-  // Datos de Factura para Impresión
   const [lastInvoice, setLastInvoice] = useState(null);
 
   // Login
@@ -29,7 +28,7 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Productos y Carrito POS
+  // POS
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
@@ -55,7 +54,7 @@ export default function App() {
   const [showUserModal, setShowUserModal] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'Cajero' });
 
-  // Reportes y Turnos
+  // Reportes
   const [shiftsList, setShiftsList] = useState([]);
   const [reportType, setReportType] = useState('daily');
   const [filterUser, setFilterUser] = useState('');
@@ -63,7 +62,6 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [printShiftData, setPrintShiftData] = useState(null);
 
-  // Carga inicial y control de sesión activa
   useEffect(() => {
     const savedUser = localStorage.getItem('pos_user');
     if (savedUser) {
@@ -76,7 +74,6 @@ export default function App() {
     }
   }, []);
 
-  // Carga de datos únicamente cuando hay un usuario autenticado
   useEffect(() => {
     if (currentUser) {
       checkActiveShift(currentUser.name);
@@ -234,6 +231,10 @@ export default function App() {
   const updateQty = (barcode, qty) => {
     if (qty <= 0) setCart(cart.filter(x => x.barcode !== barcode));
     else setCart(cart.map(x => x.barcode === barcode ? { ...x, quantity: qty } : x));
+  };
+
+  const removeFromCart = (barcode) => {
+    setCart(cart.filter(x => x.barcode !== barcode));
   };
 
   const totalCart = cart.reduce((s, i) => s + (i.sale_price * i.quantity), 0);
@@ -585,10 +586,9 @@ export default function App() {
             <div style={{ display: 'flex', gap: '1rem', height: '100%' }}>
               <div style={{ flex: 1 }}>
                 <input type="text" placeholder="🔍 Buscar por código o nombre..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '1rem', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
                   {products
                     .filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search))
-                    .slice(0, 40)
                     .map(p => (
                       <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer' }}>
                         <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
@@ -602,9 +602,9 @@ export default function App() {
                 </div>
               </div>
 
-              <div style={{ width: '320px', background: '#1e293b', borderRadius: '8px', padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div style={{ width: '340px', background: '#1e293b', borderRadius: '8px', padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
-                  <h3 style={{ margin: '0 0 1rem 0' }}>🛒 Carrito de Venta</h3>
+                  <h3 style={{ margin: '0 0 1rem 0' }}>🛒 Carrito de Venta ({cart.length})</h3>
                   <div style={{ fontSize: '0.8rem', marginBottom: '1rem' }}>
                     <label>CLIENTE:</label>
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
@@ -613,32 +613,36 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                  <div style={{ maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
                     {cart.map(item => (
-                      <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', background: '#0f172a', padding: '0.4rem', borderRadius: '4px', fontSize: '0.8rem' }}>
-                        <div><strong>{item.name}</strong><br /><span style={{ color: '#22c55e' }}>${item.sale_price.toLocaleString()}</span></div>
-                        <div>
-                          <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.1rem 0.4rem' }}>-</button>
-                          <span style={{ margin: '0 0.4rem' }}>{item.quantity}</span>
-                          <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.1rem 0.4rem' }}>+</button>
+                      <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', background: '#0f172a', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem' }}>
+                        <div style={{ flex: 1, marginRight: '0.5rem' }}>
+                          <strong>{item.name}</strong><br />
+                          <span style={{ color: '#22c55e' }}>${(item.sale_price * item.quantity).toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                          <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.1rem 0.4rem', borderRadius: '3px', cursor: 'pointer' }}>-</button>
+                          <span style={{ margin: '0 0.3rem', fontWeight: 'bold' }}>{item.quantity}</span>
+                          <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.1rem 0.4rem', borderRadius: '3px', cursor: 'pointer' }}>+</button>
+                          <button onClick={() => removeFromCart(item.barcode)} title="Eliminar producto" style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', padding: '0.1rem 0.4rem', cursor: 'pointer', marginLeft: '0.3rem', fontWeight: 'bold' }}>❌</button>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div>
+                <div style={{ marginTop: '1rem' }}>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                     <span>Total:</span><span style={{ color: '#22c55e' }}>${totalCart.toLocaleString()}</span>
                   </div>
-                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ width: '100%', padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem' }}>
+                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ width: '100%', padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '4px' }}>
                     <option value="Efectivo">💵 Efectivo</option>
                     <option value="Nequi / Transferencia">📱 Nequi / Transferencia</option>
                   </select>
-                  <input type="number" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} placeholder={`Recibido: $${totalCart.toLocaleString()}`} style={{ width: '100%', padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem' }} />
+                  <input type="number" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} placeholder={`Recibido: $${totalCart.toLocaleString()}`} style={{ width: '100%', padding: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '4px' }} />
                   <div style={{ fontSize: '0.85rem', marginBottom: '1rem', color: '#4ade80' }}>Devueltas: <strong>${changeGiven.toLocaleString()}</strong></div>
-                  <button onClick={() => handleProcessSale('Registrada')} style={{ width: '100%', padding: '0.6rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', marginBottom: '0.5rem', cursor: 'pointer' }}>📑 Solo Registrar Venta</button>
-                  <button onClick={() => handleProcessSale('Facturada')} style={{ width: '100%', padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>🧾 Facturar e Imprimir DIAN</button>
+                  <button onClick={() => handleProcessSale('Registrada')} style={{ width: '100%', padding: '0.6rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', marginBottom: '0.5rem', cursor: 'pointer', fontWeight: 'bold' }}>📑 Solo Registrar Venta</button>
+                  <button onClick={() => handleProcessSale('Facturada')} style={{ width: '100%', padding: '0.6rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>🧾 Facturar e Imprimir DIAN</button>
                 </div>
               </div>
             </div>
@@ -647,7 +651,7 @@ export default function App() {
           {activeTab === 'inventory' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Gestión de Inventario</h2>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Gestión de Inventario ({products.length} productos)</h2>
                 <button onClick={() => setShowAddModal(true)} style={{ padding: '0.6rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                   ➕ Ingresar Nuevo Producto
                 </button>
@@ -675,7 +679,6 @@ export default function App() {
                 <tbody>
                   {products
                     .filter(p => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch))
-                    .slice(0, 50)
                     .map(p => (
                       <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
                         <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
@@ -1097,7 +1100,6 @@ export default function App() {
               </form>
             </div>
           )}
-
         </div>
       </div>
 
@@ -1105,7 +1107,6 @@ export default function App() {
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
           <form onSubmit={handleSaveUser} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
             <h3 style={{ color: '#38bdf8', marginTop: 0 }}>➕ Registrar Nuevo Empleado</h3>
-            
             <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Nombre Completo:</label>
             <input type="text" required placeholder="Ej: Doña Rosa" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
 
@@ -1133,7 +1134,6 @@ export default function App() {
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
           <form onSubmit={handleSaveTransaction} style={{ background: '#1e293b', color: '#fff', padding: '1.5rem', borderRadius: '8px', width: '380px', border: '1px solid #334155' }}>
             <h3 style={{ color: '#38bdf8', marginTop: 0 }}>➕ Registrar Movimiento Financiero</h3>
-            
             <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Tipo de Movimiento:</label>
             <select value={newTx.type} onChange={(e) => setNewTx({ ...newTx, type: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
               <option value="Ingreso">🟢 Ingreso</option>
@@ -1141,7 +1141,7 @@ export default function App() {
             </select>
 
             <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Categoría:</label>
-            <input type="text" placeholder="Ej: Proveedores, Arriendo, Servicios, Inyección capital" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <input type="text" placeholder="Ej: Proveedores, Arriendo, Servicios" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
 
             <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Descripción / Concepto:</label>
             <input type="text" placeholder="Detalle del movimiento" value={newTx.description} onChange={(e) => setNewTx({ ...newTx, description: e.target.value })} style={{ width: '100%', padding: '0.5rem', margin: '0.2rem 0 0.8rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
