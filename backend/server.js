@@ -14,30 +14,16 @@ app.use(express.json());
 // ============================================================================
 app.get('/api/backup-db', (req, res) => {
   try {
-    const mainDbPath = db.dbPath;
     const possiblePaths = [
-      mainDbPath,
       path.join(__dirname, 'pos.db'),
       path.join(__dirname, '../pos.db'),
-      path.join(process.cwd(), 'pos.db'),
-      '/opt/render/project/src/backend/pos.db',
-      '/opt/render/project/src/pos.db'
+      path.join(process.cwd(), 'pos.db')
     ];
 
-    let foundPath = null;
-    for (const p of possiblePaths) {
-      if (p && fs.existsSync(p)) {
-        foundPath = p;
-        break;
-      }
-    }
+    let foundPath = possiblePaths.find(p => fs.existsSync(p));
 
     if (!foundPath) {
-      return res.status(404).send(`
-        <h1>Error: Base de datos no encontrada</h1>
-        <p>Se buscaron las siguientes rutas pero el archivo pos.db no existe aún o no se ha creado:</p>
-        <ul>${possiblePaths.map(p => `<li>${p}</li>`).join('')}</ul>
-      `);
+      return res.status(404).send('<h1>Base de datos en la nube (Turso) activa.</h1>');
     }
 
     const fileBuffer = fs.readFileSync(foundPath);
@@ -120,8 +106,8 @@ app.get('/api/shifts', (req, res) => {
 app.get('/api/shifts/active', (req, res) => {
   const userName = req.query.user_name ? req.query.user_name.trim() : null;
   const query = userName 
-    ? 'SELECT * FROM shifts WHERE LOWER(user_name) = LOWER(?) AND status = "abierto" ORDER BY id DESC LIMIT 1'
-    : 'SELECT * FROM shifts WHERE status = "abierto" ORDER BY id DESC LIMIT 1';
+    ? "SELECT * FROM shifts WHERE LOWER(user_name) = LOWER(?) AND status = 'abierto' ORDER BY id DESC LIMIT 1"
+    : "SELECT * FROM shifts WHERE status = 'abierto' ORDER BY id DESC LIMIT 1";
 
   db.get(query, userName ? [userName] : [], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -135,7 +121,7 @@ app.post('/api/shifts/open', (req, res) => {
   const base = parseFloat(start_amount) || 0;
 
   db.run(
-    'INSERT INTO shifts (user_name, start_amount, status) VALUES (?, ?, "abierto")',
+    "INSERT INTO shifts (user_name, start_amount, status) VALUES (?, ?, 'abierto')",
     [usuario, base],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
@@ -171,7 +157,7 @@ app.post('/api/shifts/close', (req, res) => {
         const totalCashInBox = startBase + cashSales;
 
         db.run(
-          `UPDATE shifts SET status = "cerrado", end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          `UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = CURRENT_TIMESTAMP WHERE id = ?`,
           [totalCashInBox, cashSales, transferSales, totalSales, shift_id],
           function (errClose) {
             if (errClose) return res.status(500).json({ error: errClose.message });
@@ -237,8 +223,8 @@ app.delete('/api/products/:barcode', (req, res) => {
   });
 });
 
-// --- VENTAS E INTEGRACIÓN AUTOMÁTICA CON CONTABILIDAD ---
-app.post('/api/sales', (req, res) => {
+// --- VENTAS E INTEGRACIÓN AUTOMÁTICA CON CONTABILIDAD (COMPATIBLE CON TURSO) ---
+app.post('/api/sales', async (req, res) => {
   const { shift_id, user_name, customer_doc, customer_name, items, total, payment_method, amount_paid, change_given, sale_type } = req.body;
 
   if (!items || items.length === 0) return res.status(400).json({ error: 'Carrito vacío' });
@@ -246,68 +232,72 @@ app.post('/api/sales', (req, res) => {
   const prefijo = 'TF';
   const invNumber = `${prefijo}-${Date.now().toString().slice(-6)}`;
 
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
-
-    db.run(
-      `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-      [
-        shift_id || null,
-        user_name || 'ANTHONY CARDENAS',
-        invNumber,
-        customer_doc || '222222222222',
-        customer_name || 'Consumidor Final',
-        total,
-        total,
-        payment_method || 'Efectivo',
-        amount_paid || total,
-        change_given || 0,
-        sale_type || 'Facturada'
-      ],
-      function (errSale) {
-        if (errSale) {
-          db.run('ROLLBACK');
-          return res.status(500).json({ error: errSale.message });
+  try {
+    // 1. Insertar la venta
+    const saleRes = await new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        [
+          shift_id || null,
+          user_name || 'ANTHONY CARDENAS',
+          invNumber,
+          customer_doc || '222222222222',
+          customer_name || 'Consumidor Final',
+          total,
+          total,
+          payment_method || 'Efectivo',
+          amount_paid || total,
+          change_given || 0,
+          sale_type || 'Facturada'
+        ],
+        function (err) {
+          if (err) reject(err);
+          else resolve(this);
         }
+      );
+    });
 
-        const saleId = this.lastID;
-        let hasError = false;
+    const saleId = saleRes.lastID;
 
-        const stmtStock = db.prepare('UPDATE products SET stock = stock - ? WHERE barcode = ?');
-        const stmtItem = db.prepare('INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)');
+    // 2. Actualizar stock e insertar items del carrito
+    for (const item of items) {
+      await new Promise((resolve, reject) => {
+        db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
 
-        for (const item of items) {
-          stmtStock.run([item.quantity, item.barcode], (err) => { if (err) hasError = true; });
-          stmtItem.run([saleId, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price], (err) => { if (err) hasError = true; });
-        }
-
-        stmtStock.finalize();
-        stmtItem.finalize();
-
-        if (hasError) {
-          db.run('ROLLBACK');
-          return res.status(500).json({ error: 'Error procesando los artículos del carrito' });
-        }
-
+      await new Promise((resolve, reject) => {
         db.run(
-          `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
-          [`Venta POS Factura #${invNumber} (${payment_method})`, total, user_name || 'ANTHONY CARDENAS'],
-          (errTx) => {
-            if (errTx) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ error: errTx.message });
-            }
-
-            db.run('COMMIT', (errCommit) => {
-              if (errCommit) return res.status(500).json({ error: errCommit.message });
-              res.json({ success: true, saleId, invoice_number: invNumber });
-            });
+          'INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
+          [saleId, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price],
+          (err) => {
+            if (err) reject(err);
+            else resolve();
           }
         );
-      }
-    );
-  });
+      });
+    }
+
+    // 3. Registrar movimiento contable
+    await new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
+        [`Venta POS Factura #${invNumber} (${payment_method})`, total, user_name || 'ANTHONY CARDENAS'],
+        (err) => {
+          if (err) reject(err);
+          else resolve();
+        }
+      );
+    });
+
+    return res.json({ success: true, saleId, invoice_number: invNumber });
+  } catch (err) {
+    console.error('Error procesando la venta:', err);
+    return res.status(500).json({ error: err.message || 'Error procesando la venta' });
+  }
 });
 
 // --- MOVIMIENTOS CONTABLES ---

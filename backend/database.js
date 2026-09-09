@@ -8,6 +8,7 @@ const turso = createClient({
   authToken: authToken,
 });
 
+// Convierte valores BigInt a Number para evitar fallos de serialización JSON en Express
 function sanitizeRow(row) {
   if (!row) return row;
   const sanitized = {};
@@ -21,6 +22,7 @@ function sanitizeRow(row) {
   return sanitized;
 }
 
+// Adaptador de base de datos compatible con Turso
 const db = {
   get: async (sql, params = [], callback) => {
     try {
