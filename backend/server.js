@@ -3,7 +3,6 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
-const nodemailer = require('nodemailer');
 const db = require('./database');
 
 const app = express();
@@ -11,23 +10,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Configuración SMTP con TLS directo en puerto 465 forzando IPv4 nativo
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // SSL directo (evita bloqueos de STARTTLS en Render)
-  family: 4,    // Forzar IPv4
-  tls: {
-    servername: 'smtp.gmail.com',
-    rejectUnauthorized: false
-  },
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
-
-// Generación de PDF de la factura en memoria (Buffer)
+// Generación del PDF en memoria (Buffer)
 function createInvoicePDFBuffer(invoice, config) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 36 });
@@ -46,7 +29,7 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
     doc.moveDown(0.5);
 
-    // Datos del comprobante
+    // Datos de la factura
     doc.fontSize(10).font('Helvetica-Bold').text(`FACTURA POS: #${invoice.invoice_number}`);
     doc.font('Helvetica').fontSize(9);
     doc.text(`Fecha: ${new Date().toLocaleString('es-CO')}`);
@@ -55,7 +38,7 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text(`Método de Pago: ${invoice.payment_method}`);
     doc.moveDown(0.8);
 
-    // Tabla de items
+    // Tabla de productos
     doc.font('Helvetica-Bold');
     doc.text('Descripción', 36, doc.y, { width: 260 });
     const headerY = doc.y - 11;
@@ -91,12 +74,67 @@ function createInvoicePDFBuffer(invoice, config) {
   });
 }
 
-// Ruta ping keep-alive
+// Envío de correo mediante API HTTP de Brevo (Puerto 443 HTTPS - Cero bloqueos)
+async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, pdfBuffer, config) {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) {
+    console.warn('BREVO_API_KEY no está configurada en Render.');
+    return;
+  }
+
+  const payload = {
+    sender: {
+      name: config.razon_social || 'TERRA FRUTOS SECOS',
+      email: process.env.EMAIL_USER || 'terratunja2026@gmail.com'
+    },
+    to: [
+      {
+        email: toEmail,
+        name: customerName || 'Cliente'
+      }
+    ],
+    subject: `Factura de Venta #${invoiceNumber} - ${config.razon_social || 'TERRA FRUTOS SECOS'}`,
+    htmlContent: `
+      <div style="font-family: sans-serif; color: #333; line-height: 1.5;">
+        <h2>🌱 ${config.razon_social || 'TERRA FRUTOS SECOS'}</h2>
+        <p>Hola <strong>${customerName || 'Cliente'}</strong>,</p>
+        <p>Adjuntamos el comprobante electrónico en formato PDF correspondiente a tu compra por valor de <strong>$${Number(total).toLocaleString('es-CO')}</strong>.</p>
+        <p>Número de Factura: <strong>#${invoiceNumber}</strong></p>
+        <hr style="border: 0; border-top: 1px solid #ddd;" />
+        <p style="font-size: 0.85rem; color: #777;">${config.direccion || ''} | Tel: ${config.telefono || ''}</p>
+      </div>
+    `,
+    attachment: [
+      {
+        name: `Factura_${invoiceNumber}.pdf`,
+        content: pdfBuffer.toString('base64')
+      }
+    ]
+  };
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': apiKey.trim(),
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(JSON.stringify(result));
+  }
+  console.log(`Factura #${invoiceNumber} enviada por Brevo HTTP API a: ${toEmail}`);
+}
+
+// Ping keep-alive
 app.get('/api/ping', (req, res) => {
   res.send('pong');
 });
 
-// Descarga de backup local
+// Descarga respaldo local
 app.get('/api/backup-db', (req, res) => {
   try {
     const possiblePaths = [
@@ -123,7 +161,7 @@ app.get('/api/backup-db', (req, res) => {
   }
 });
 
-// Archivos estáticos del Frontend
+// Frontend estático
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // --- LOGIN ---
@@ -311,7 +349,7 @@ app.delete('/api/products/:barcode', (req, res) => {
   });
 });
 
-// --- VENTAS Y ENVÍO POR CORREO ---
+// --- VENTAS Y ENVÍO DE FACTURA HTTP ---
 app.post('/api/sales', async (req, res) => {
   const {
     shift_id,
@@ -392,7 +430,7 @@ app.post('/api/sales', async (req, res) => {
       );
     });
 
-    // Envío en segundo plano
+    // Envío seguro por HTTP API en segundo plano
     if (customer_email && customer_email.trim()) {
       (async () => {
         try {
@@ -424,24 +462,16 @@ app.post('/api/sales', async (req, res) => {
             configObj
           );
 
-          if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-            await transporter.sendMail({
-              from: `"${configObj.razon_social}" <${process.env.EMAIL_USER}>`,
-              to: customer_email.trim(),
-              subject: `Factura de Venta #${invNumber} - ${configObj.razon_social}`,
-              text: `Hola ${customer_name || 'Cliente'}, adjuntamos la factura correspondiente a tu compra por valor de $${Number(total).toLocaleString('es-CO')}.`,
-              attachments: [
-                {
-                  filename: `Factura_${invNumber}.pdf`,
-                  content: pdfBuffer,
-                  contentType: 'application/pdf'
-                }
-              ]
-            });
-            console.log(`Factura #${invNumber} enviada con éxito a ${customer_email}`);
-          }
+          await sendInvoiceByBrevo(
+            customer_email.trim(),
+            customer_name,
+            invNumber,
+            total,
+            pdfBuffer,
+            configObj
+          );
         } catch (emailErr) {
-          console.error('Error enviando correo con PDF:', emailErr);
+          console.error('Error enviando correo por Brevo HTTP API:', emailErr.message);
         }
       })();
     }
@@ -453,7 +483,7 @@ app.post('/api/sales', async (req, res) => {
   }
 });
 
-// --- MOVIMIENTOS CONTABLES ---
+// --- CONTABILIDAD ---
 app.get('/api/transactions', (req, res) => {
   db.all('SELECT * FROM transactions ORDER BY id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -568,7 +598,7 @@ app.post('/api/config', (req, res) => {
   });
 });
 
-// Comodín para React
+// Comodín React
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
