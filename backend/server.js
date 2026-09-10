@@ -234,7 +234,7 @@ app.delete('/api/products/:barcode', (req, res) => {
   });
 });
 
-// --- VENTAS E INTEGRACIÓN AUTOMÁTICA CON CONTABILIDAD (COMPATIBLE CON TURSO) ---
+// --- VENTAS E INTEGRACIÓN AUTOMÁTICA CON CONTABILIDAD ---
 app.post('/api/sales', async (req, res) => {
   const { shift_id, user_name, customer_doc, customer_name, items, description, total, payment_method, amount_paid, change_given, sale_type } = req.body;
 
@@ -243,7 +243,6 @@ app.post('/api/sales', async (req, res) => {
   const prefijo = 'TF';
   const invNumber = `${prefijo}-${Date.now().toString().slice(-6)}`;
 
-  // Usar la descripción detallada del carrito o la por defecto si no viene
   const txDescription = description || `Venta POS Factura #${invNumber} (${payment_method})`;
 
   try {
@@ -295,7 +294,7 @@ app.post('/api/sales', async (req, res) => {
       });
     }
 
-    // 3. Registrar movimiento contable con el desglose de productos
+    // 3. Registrar movimiento contable
     await new Promise((resolve, reject) => {
       db.run(
         `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
@@ -338,31 +337,53 @@ app.post('/api/transactions', (req, res) => {
 
 app.delete('/api/transactions/:id', (req, res) => {
   const { id } = req.params;
+  const numericId = parseInt(id, 10);
 
-  db.get('SELECT * FROM transactions WHERE id = ?', [id], (err, tx) => {
-    if (err || !tx) return res.status(400).json({ error: 'Movimiento no encontrado' });
+  if (isNaN(numericId)) {
+    return res.status(400).json({ error: 'ID de movimiento inválido' });
+  }
 
+  db.get('SELECT * FROM transactions WHERE id = ?', [numericId], (err, tx) => {
+    if (err || !tx) {
+      return res.status(400).json({ error: 'Movimiento no encontrado' });
+    }
+
+    // Si es una venta del POS, reponer stock y eliminar registros asociados
     if (tx.category === 'Venta POS' && tx.description.includes('Factura #')) {
       const parts = tx.description.split('Factura #');
       if (parts[1]) {
-        const invNumber = parts[1].split(' ')[0].trim();
+        const invNumber = parts[1].split(' ')[0].trim().replace(/[^a-zA-Z0-9-]/g, '');
+
         db.get('SELECT id FROM sales WHERE invoice_number = ?', [invNumber], (errSale, sale) => {
-          if (sale) {
+          if (sale && sale.id) {
             db.all('SELECT product_barcode, quantity FROM sale_items WHERE sale_id = ?', [sale.id], (errItems, items) => {
-              if (items) {
+              if (items && items.length > 0) {
                 items.forEach((item) => {
                   db.run('UPDATE products SET stock = stock + ? WHERE barcode = ?', [item.quantity, item.product_barcode]);
                 });
               }
-              db.run('DELETE FROM sale_items WHERE sale_id = ?', [sale.id]);
-              db.run('DELETE FROM sales WHERE id = ?', [sale.id]);
+              db.run('DELETE FROM sale_items WHERE sale_id = ?', [sale.id], () => {
+                db.run('DELETE FROM sales WHERE id = ?', [sale.id], () => {
+                  db.run('DELETE FROM transactions WHERE id = ?', [numericId], (errDel) => {
+                    if (errDel) return res.status(500).json({ error: errDel.message });
+                    return res.json({ success: true });
+                  });
+                });
+              });
+            });
+          } else {
+            db.run('DELETE FROM transactions WHERE id = ?', [numericId], (errDel) => {
+              if (errDel) return res.status(500).json({ error: errDel.message });
+              return res.json({ success: true });
             });
           }
         });
+        return;
       }
     }
 
-    db.run('DELETE FROM transactions WHERE id = ?', [id], function (errDel) {
+    // Para registros contables varios
+    db.run('DELETE FROM transactions WHERE id = ?', [numericId], function (errDel) {
       if (errDel) return res.status(500).json({ error: errDel.message });
       res.json({ success: true });
     });
