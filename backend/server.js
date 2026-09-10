@@ -11,19 +11,23 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Configuración compatible con Render (fuerza IPv4 y puerto 587):
+// Configuración SMTP con TLS directo en puerto 465 forzando IPv4 nativo
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // Requiere STARTTLS
-  family: 4,     // Fuerza el uso exclusivo de IPv4 (evita ENETUNREACH)
+  port: 465,
+  secure: true, // SSL directo (evita bloqueos de STARTTLS en Render)
+  family: 4,    // Forzar IPv4
+  tls: {
+    servername: 'smtp.gmail.com',
+    rejectUnauthorized: false
+  },
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
   }
 });
 
-// Función para generar el PDF de la factura en memoria (Buffer)
+// Generación de PDF de la factura en memoria (Buffer)
 function createInvoicePDFBuffer(invoice, config) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 36 });
@@ -33,7 +37,7 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
 
-    // Encabezado del negocio
+    // Encabezado
     doc.fontSize(16).font('Helvetica-Bold').text(config.razon_social || 'TERRA FRUTOS SECOS', { align: 'center' });
     doc.fontSize(9).font('Helvetica').text(config.actividad || '', { align: 'center' });
     doc.text(`NIT: ${config.nit || ''} | TEL: ${config.telefono || ''}`, { align: 'center' });
@@ -42,7 +46,7 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
     doc.moveDown(0.5);
 
-    // Datos del comprobante y cliente
+    // Datos del comprobante
     doc.fontSize(10).font('Helvetica-Bold').text(`FACTURA POS: #${invoice.invoice_number}`);
     doc.font('Helvetica').fontSize(9);
     doc.text(`Fecha: ${new Date().toLocaleString('es-CO')}`);
@@ -51,7 +55,7 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text(`Método de Pago: ${invoice.payment_method}`);
     doc.moveDown(0.8);
 
-    // Tabla de productos
+    // Tabla de items
     doc.font('Helvetica-Bold');
     doc.text('Descripción', 36, doc.y, { width: 260 });
     const headerY = doc.y - 11;
@@ -87,12 +91,12 @@ function createInvoicePDFBuffer(invoice, config) {
   });
 }
 
-// Ruta para mantener despierto el servidor en Render
+// Ruta ping keep-alive
 app.get('/api/ping', (req, res) => {
   res.send('pong');
 });
 
-// Descarga de backup local (si existe)
+// Descarga de backup local
 app.get('/api/backup-db', (req, res) => {
   try {
     const possiblePaths = [
@@ -307,7 +311,7 @@ app.delete('/api/products/:barcode', (req, res) => {
   });
 });
 
-// --- VENTAS, FACTURACIÓN Y ENVÍO POR CORREO ---
+// --- VENTAS Y ENVÍO POR CORREO ---
 app.post('/api/sales', async (req, res) => {
   const {
     shift_id,
@@ -331,7 +335,6 @@ app.post('/api/sales', async (req, res) => {
   const txDescription = description || `Venta POS Factura #${invNumber} (${payment_method})`;
 
   try {
-    // 1. Insertar venta
     const saleRes = await new Promise((resolve, reject) => {
       db.run(
         `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type)
@@ -358,7 +361,6 @@ app.post('/api/sales', async (req, res) => {
 
     const saleId = saleRes.lastID;
 
-    // 2. Actualizar stock e items de venta
     for (const item of items) {
       await new Promise((resolve, reject) => {
         db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => {
@@ -379,7 +381,6 @@ app.post('/api/sales', async (req, res) => {
       });
     }
 
-    // 3. Registrar transacción contable
     await new Promise((resolve, reject) => {
       db.run(
         `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
@@ -391,7 +392,7 @@ app.post('/api/sales', async (req, res) => {
       );
     });
 
-    // 4. Envío de factura en PDF por correo electrónico en segundo plano
+    // Envío en segundo plano
     if (customer_email && customer_email.trim()) {
       (async () => {
         try {
@@ -428,7 +429,7 @@ app.post('/api/sales', async (req, res) => {
               from: `"${configObj.razon_social}" <${process.env.EMAIL_USER}>`,
               to: customer_email.trim(),
               subject: `Factura de Venta #${invNumber} - ${configObj.razon_social}`,
-              text: `Hola ${customer_name || 'Cliente'}, adjuntamos la factura electrónica correspondiente a tu compra por valor de $${Number(total).toLocaleString('es-CO')}.`,
+              text: `Hola ${customer_name || 'Cliente'}, adjuntamos la factura correspondiente a tu compra por valor de $${Number(total).toLocaleString('es-CO')}.`,
               attachments: [
                 {
                   filename: `Factura_${invNumber}.pdf`,
@@ -437,7 +438,7 @@ app.post('/api/sales', async (req, res) => {
                 }
               ]
             });
-            console.log(`Factura #${invNumber} enviada a ${customer_email}`);
+            console.log(`Factura #${invNumber} enviada con éxito a ${customer_email}`);
           }
         } catch (emailErr) {
           console.error('Error enviando correo con PDF:', emailErr);
