@@ -11,9 +11,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Configuración del transporte de correo (Gmail)
+// Configuración compatible con Render (fuerza IPv4 y puerto 587):
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // Requiere STARTTLS
+  family: 4,     // Fuerza el uso exclusivo de IPv4 (evita ENETUNREACH)
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
