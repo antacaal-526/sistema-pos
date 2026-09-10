@@ -1,9 +1,10 @@
 const { createClient } = require('@libsql/client');
 
-const url = process.env.TURSO_DATABASE_URL;
-const authToken = process.env.TURSO_AUTH_TOKEN;
+const url = process.env.TURSO_DATABASE_URL ? process.env.TURSO_DATABASE_URL.trim() : '';
+const authToken = process.env.TURSO_AUTH_TOKEN ? process.env.TURSO_AUTH_TOKEN.trim() : '';
 
-// Conexión segura a Turso (o archivo local si no está configurado)
+console.log("Configuración Turso URL:", url ? url.substring(0, 30) + "..." : "¡URL VACÍA O NO DETECTADA!");
+
 const turso = createClient({
   url: url || "file:pos.db",
   authToken: authToken,
@@ -23,7 +24,6 @@ function sanitizeRow(row) {
   return sanitized;
 }
 
-// Adaptador de base de datos para Turso
 const db = {
   get: async (sql, params = [], callback) => {
     try {
