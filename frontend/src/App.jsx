@@ -3,7 +3,7 @@ import './App.css';
 
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
-// Funciones auxiliares para formato de moneda Pesos Colombianos (COP)
+// Funciones auxiliares para formato COP
 const formatCOP = (val) => {
   if (val === null || val === undefined || val === '') return '';
   const cleanNum = String(val).replace(/\D/g, '');
@@ -18,10 +18,10 @@ const parseCOP = (val) => {
 };
 
 export default function App() {
-  // Mantener el servidor de Render activo
+  // Keep-alive en Render
   useEffect(() => {
     const keepAliveInterval = setInterval(() => {
-      fetch(`${API_URL}/api/ping`).catch(err => console.log('Ping fallido:', err));
+      fetch(`${API_URL}/api/ping`).catch((err) => console.log('Ping fallido:', err));
     }, 5 * 60 * 1000);
 
     return () => clearInterval(keepAliveInterval);
@@ -35,7 +35,7 @@ export default function App() {
   const [shiftBaseInput, setShiftBaseInput] = useState('');
   const [activeTab, setActiveTab] = useState('pos');
 
-  // Configuración de Tienda / DIAN / Recibo
+  // Configuración de Tienda
   const [storeConfig, setStoreConfig] = useState({
     razon_social: 'TERRA FRUTOS SECOS',
     nit: '40044029-8',
@@ -52,7 +52,7 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // POS / Ventas
+  // POS / Carrito
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
@@ -60,6 +60,7 @@ export default function App() {
   const [amountPaid, setAmountPaid] = useState('');
   const [customerDoc, setCustomerDoc] = useState('222222222222');
   const [customerName, setCustomerName] = useState('Consumidor Final');
+  const [customerEmail, setCustomerEmail] = useState('');
 
   // Inventario y Agotados
   const [invSearch, setInvSearch] = useState('');
@@ -85,7 +86,6 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [printShiftData, setPrintShiftData] = useState(null);
 
-  // Cargar usuario guardado
   useEffect(() => {
     const savedUser = localStorage.getItem('pos_user');
     if (savedUser) {
@@ -98,7 +98,6 @@ export default function App() {
     }
   }, []);
 
-  // Cargar datos iniciales
   useEffect(() => {
     if (currentUser) {
       checkActiveShift(currentUser.name);
@@ -110,15 +109,16 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // --- MÉTODOS DE API ---
   const loadConfig = async () => {
     try {
       const res = await fetch(`${API_URL}/api/config`);
       if (res.ok) {
         const data = await res.json();
-        setStoreConfig(prev => ({ ...prev, ...data }));
+        setStoreConfig((prev) => ({ ...prev, ...data }));
       }
-    } catch (e) { console.error('Error cargando configuración:', e); }
+    } catch (e) {
+      console.error('Error cargando configuración:', e);
+    }
   };
 
   const handleSaveConfig = async (e) => {
@@ -133,49 +133,60 @@ export default function App() {
       if (res.ok && data.success) {
         alert('⚙️ Configuración del Recibo y DIAN actualizada correctamente');
       } else {
-        alert('⚠️ Error al guardar la configuración');
+        alert('⚠️ Error al guardar configuración');
       }
-    } catch (e) { alert('Error conectando con el servidor'); }
+    } catch (e) {
+      alert('Error conectando con el servidor');
+    }
   };
 
   const loadProducts = async () => {
     try {
       const res = await fetch(`${API_URL}/api/products`);
       if (res.ok) setProducts(await res.json());
-    } catch (e) { console.error('Error cargando productos:', e); }
+    } catch (e) {
+      console.error('Error cargando productos:', e);
+    }
   };
 
   const loadTransactions = async () => {
     try {
       const res = await fetch(`${API_URL}/api/transactions`);
       if (res.ok) setTransactions(await res.json());
-    } catch (e) { console.error('Error cargando transacciones:', e); }
+    } catch (e) {
+      console.error('Error cargando transacciones:', e);
+    }
   };
 
   const loadUsers = async () => {
     try {
       const res = await fetch(`${API_URL}/api/users`);
       if (res.ok) setUsersList(await res.json());
-    } catch (e) { console.error('Error cargando usuarios:', e); }
+    } catch (e) {
+      console.error('Error cargando usuarios:', e);
+    }
   };
 
   const loadShifts = async () => {
     try {
       const res = await fetch(`${API_URL}/api/shifts`);
       if (res.ok) setShiftsList(await res.json());
-    } catch (e) { console.error('Error cargando turnos:', e); }
+    } catch (e) {
+      console.error('Error cargando turnos:', e);
+    }
   };
 
   const checkActiveShift = async (userName) => {
     try {
       const res = await fetch(`${API_URL}/api/shifts/active?user_name=${encodeURIComponent(userName)}`);
       if (res.ok) {
-        const data = await res.json();
-        setActiveShift(data);
+        setActiveShift(await res.json());
       } else {
         setActiveShift(null);
       }
-    } catch (e) { console.error('Error verificando turno:', e); }
+    } catch (e) {
+      console.error('Error verificando turno:', e);
+    }
   };
 
   const handleLogin = async (e) => {
@@ -194,7 +205,9 @@ export default function App() {
       } else {
         setLoginError(data.error || 'Credenciales incorrectas');
       }
-    } catch (e) { setLoginError('Error de conexión con el servidor'); }
+    } catch (e) {
+      setLoginError('Error de conexión con el servidor');
+    }
   };
 
   const handleLogout = () => {
@@ -220,7 +233,9 @@ export default function App() {
         loadShifts();
         alert(`☀️ Turno iniciado con base de $${baseValue.toLocaleString('es-CO')}`);
       }
-    } catch (e) { alert('Error al abrir el turno'); }
+    } catch (e) {
+      alert('Error al abrir turno');
+    }
   };
 
   const handleCloseShift = async () => {
@@ -235,37 +250,41 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        const summaryData = data.summary || data.shift || data;
-        setShiftSummary(summaryData);
+        setShiftSummary(data.summary || data.shift || data);
         setActiveShift(null);
         loadShifts();
       } else {
         alert('⚠️ No se pudo cerrar el turno');
       }
-    } catch (e) { alert('Error al cerrar el turno'); }
+    } catch (e) {
+      alert('Error al cerrar el turno');
+    }
   };
 
-  // --- CARRITO Y VENTAS ---
   const addToCart = (p) => {
-    if (!activeShift) { alert('⚠️ Debe iniciar un turno para poder vender.'); setShowShiftModal(true); return; }
-    const exist = cart.find(x => x.barcode === p.barcode);
+    if (!activeShift) {
+      alert('⚠️ Debe iniciar un turno para poder vender.');
+      setShowShiftModal(true);
+      return;
+    }
+    const exist = cart.find((x) => x.barcode === p.barcode);
     if (exist) {
-      setCart(cart.map(x => x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x));
+      setCart(cart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)));
     } else {
       setCart([...cart, { ...p, quantity: 1 }]);
     }
   };
 
   const updateQty = (barcode, qty) => {
-    if (qty <= 0) setCart(cart.filter(x => x.barcode !== barcode));
-    else setCart(cart.map(x => x.barcode === barcode ? { ...x, quantity: qty } : x));
+    if (qty <= 0) setCart(cart.filter((x) => x.barcode !== barcode));
+    else setCart(cart.map((x) => (x.barcode === barcode ? { ...x, quantity: qty } : x)));
   };
 
   const removeFromCart = (barcode) => {
-    setCart(cart.filter(x => x.barcode !== barcode));
+    setCart(cart.filter((x) => x.barcode !== barcode));
   };
 
-  const totalCart = cart.reduce((s, i) => s + (i.sale_price * i.quantity), 0);
+  const totalCart = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
   const numericAmountPaid = parseCOP(amountPaid);
   const received = numericAmountPaid > 0 ? numericAmountPaid : totalCart;
   const changeGiven = received >= totalCart ? received - totalCart : 0;
@@ -274,7 +293,7 @@ export default function App() {
     if (cart.length === 0) return alert('El carrito está vacío');
 
     const detailedDescription = cart
-      .map(i => `${i.quantity}x ${i.name} ($${(i.sale_price * i.quantity).toLocaleString('es-CO')})`)
+      .map((i) => `${i.quantity}x ${i.name} ($${(i.sale_price * i.quantity).toLocaleString('es-CO')})`)
       .join(', ');
 
     try {
@@ -286,6 +305,7 @@ export default function App() {
           user_name: currentUser.name,
           customer_doc: customerDoc,
           customer_name: customerName,
+          customer_email: customerEmail,
           items: cart,
           description: detailedDescription,
           total: totalCart,
@@ -311,7 +331,7 @@ export default function App() {
         };
 
         setLastInvoice(invoiceData);
-        alert(`✅ Venta Registrada con Éxito. Factura #: ${data.invoice_number}`);
+        alert(`✅ Venta Registrada con Éxito. Factura #: ${data.invoice_number}${customerEmail ? ' (Enviada al correo)' : ''}`);
 
         if (saleType === 'Facturada') {
           setTimeout(() => window.print(), 300);
@@ -319,18 +339,20 @@ export default function App() {
 
         setCart([]);
         setAmountPaid('');
+        setCustomerEmail('');
         loadProducts();
         loadTransactions();
       } else {
         alert(`⚠️ ${data.error || 'Error procesando la venta'}`);
       }
-    } catch (e) { alert('Error de conexión al registrar la venta'); }
+    } catch (e) {
+      alert('Error de conexión al registrar la venta');
+    }
   };
 
-  // --- ACCIONES DE INVENTARIO Y OTROS ---
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
-    const productPayload = {
+    const payload = {
       ...newProd,
       sale_price: parseCOP(newProd.sale_price),
       stock: parseCOP(newProd.stock),
@@ -341,21 +363,25 @@ export default function App() {
       const res = await fetch(`${API_URL}/api/products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(productPayload)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert('✅ Producto registrado correctamente');
+        alert('✅ Producto registrado');
         setNewProd({ barcode: '', name: '', sale_price: '', stock: '', min_stock: '3' });
         setShowAddModal(false);
         loadProducts();
-      } else { alert(`⚠️ ${data.error}`); }
-    } catch (e) { alert('Error conectando al servidor'); }
+      } else {
+        alert(`⚠️ ${data.error}`);
+      }
+    } catch (e) {
+      alert('Error conectando al servidor');
+    }
   };
 
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
-    const productPayload = {
+    const payload = {
       ...editingProduct,
       sale_price: parseCOP(editingProduct.sale_price),
       stock: parseCOP(editingProduct.stock),
@@ -366,15 +392,19 @@ export default function App() {
       const res = await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(productPayload)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert('✅ Producto actualizado correctamente');
+        alert('✅ Producto actualizado');
         setEditingProduct(null);
         loadProducts();
-      } else { alert(`⚠️ ${data.error}`); }
-    } catch (e) { alert('Error conectando al servidor'); }
+      } else {
+        alert(`⚠️ ${data.error}`);
+      }
+    } catch (e) {
+      alert('Error conectando al servidor');
+    }
   };
 
   const handleDeleteProduct = async (barcode, name) => {
@@ -383,10 +413,14 @@ export default function App() {
       const res = await fetch(`${API_URL}/api/products/${barcode}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert('🗑️ Producto eliminado correctamente');
+        alert('🗑️ Producto eliminado');
         loadProducts();
-      } else { alert(`⚠️ ${data.error}`); }
-    } catch (e) { alert('Error conectando al servidor'); }
+      } else {
+        alert(`⚠️ ${data.error}`);
+      }
+    } catch (e) {
+      alert('Error conectando al servidor');
+    }
   };
 
   const handleSaveTransaction = async (e) => {
@@ -402,18 +436,22 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert(`✅ ${newTx.type} registrado correctamente`);
+        alert(`✅ ${newTx.type} registrado`);
         setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' });
         setShowTxModal(false);
         loadTransactions();
-      } else { alert(`⚠️ ${data.error}`); }
-    } catch (e) { alert('Error conectando al servidor'); }
+      } else {
+        alert(`⚠️ ${data.error}`);
+      }
+    } catch (e) {
+      alert('Error conectando al servidor');
+    }
   };
 
   const handleDeleteTransaction = async (id, description, category) => {
     const isSale = category === 'Venta POS';
     const msg = isSale
-      ? `¿Desea anular la venta "${description}"? Esto eliminará el ingreso contable y repondrá las unidades vendidas al stock.`
+      ? `¿Desea anular la venta "${description}"? Esto repondrá las unidades al stock.`
       : `¿Está seguro de eliminar el registro contable "${description}"?`;
 
     if (!window.confirm(msg)) return;
@@ -422,11 +460,15 @@ export default function App() {
       const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert('🗑️ Registro eliminado correctamente');
+        alert('🗑️ Registro eliminado');
         loadTransactions();
         loadProducts();
-      } else { alert(`⚠️ ${data.error || 'Error al eliminar el registro'}`); }
-    } catch (e) { alert('Error conectando al servidor'); }
+      } else {
+        alert(`⚠️ ${data.error || 'Error al eliminar'}`);
+      }
+    } catch (e) {
+      alert('Error conectando al servidor');
+    }
   };
 
   const handleSaveUser = async (e) => {
@@ -439,12 +481,16 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert('👤 Empleado / Usuario creado correctamente');
+        alert('👤 Empleado creado');
         setNewUser({ name: '', username: '', password: '', role: 'Cajero' });
         setShowUserModal(false);
         loadUsers();
-      } else { alert(`⚠️ ${data.error || 'Error al registrar usuario'}`); }
-    } catch (e) { alert('Error conectando al servidor'); }
+      } else {
+        alert(`⚠️ ${data.error}`);
+      }
+    } catch (e) {
+      alert('Error conectando al servidor');
+    }
   };
 
   const handleDeleteUser = async (id, name) => {
@@ -455,20 +501,23 @@ export default function App() {
       const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert('🗑️ Usuario eliminado correctamente');
+        alert('🗑️ Usuario eliminado');
         loadUsers();
-      } else { alert(`⚠️ ${data.error || 'Error al eliminar usuario'}`); }
-    } catch (e) { alert('Error conectando al servidor'); }
+      } else {
+        alert(`⚠️ ${data.error}`);
+      }
+    } catch (e) {
+      alert('Error conectando al servidor');
+    }
   };
 
-  // Cálculos de reportes y contabilidad
-  const filteredDailyShifts = shiftsList.filter(s => {
+  const filteredDailyShifts = shiftsList.filter((s) => {
     const matchesUser = filterUser ? s.user_name.toLowerCase().includes(filterUser.toLowerCase()) : true;
-    const matchesDate = filterDate ? (s.opened_at && s.opened_at.startsWith(filterDate)) : true;
+    const matchesDate = filterDate ? s.opened_at && s.opened_at.startsWith(filterDate) : true;
     return matchesUser && matchesDate;
   });
 
-  const monthlyShifts = shiftsList.filter(s => s.opened_at && s.opened_at.startsWith(selectedMonth));
+  const monthlyShifts = shiftsList.filter((s) => s.opened_at && s.opened_at.startsWith(selectedMonth));
   const monthlyCash = monthlyShifts.reduce((acc, s) => acc + (s.cash_sales || 0), 0);
   const monthlyTransfer = monthlyShifts.reduce((acc, s) => acc + (s.transfer_sales || 0), 0);
   const monthlyTotal = monthlyShifts.reduce((acc, s) => acc + (s.total_sales || 0), 0);
@@ -478,23 +527,20 @@ export default function App() {
     setTimeout(() => window.print(), 300);
   };
 
-  const totalIncomes = transactions.filter(t => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
-  const totalExpenses = transactions.filter(t => t.type === 'Egreso').reduce((acc, t) => acc + (t.amount || 0), 0);
+  const totalIncomes = transactions.filter((t) => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
+  const totalExpenses = transactions.filter((t) => t.type === 'Egreso').reduce((acc, t) => acc + (t.amount || 0), 0);
   const netBalance = totalIncomes - totalExpenses;
-  const inventoryValue = products.reduce((acc, p) => acc + ((p.sale_price || 0) * (p.stock || 0)), 0);
+  const inventoryValue = products.reduce((acc, p) => acc + (p.sale_price || 0) * (p.stock || 0), 0);
 
   const handleExportCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n";
-
-    transactions.forEach(t => {
+    let csvContent = 'data:text/csv;charset=utf-8,';
+    csvContent += 'FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n';
+    transactions.forEach((t) => {
       csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`;
     });
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Reporte_Contable_TerraFrutosSecos_${new Date().toISOString().slice(0,10)}.csv`);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `Reporte_Contable_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -505,7 +551,6 @@ export default function App() {
     return isNaN(num) ? '0' : num.toLocaleString('es-CO');
   };
 
-  // --- VISTA LOGIN ---
   if (!currentUser) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#121824' }}>
@@ -527,7 +572,7 @@ export default function App() {
 
   return (
     <>
-      {/* VISTA DE IMPRESIÓN IMPERCEPTIBLE EN PANTALLA */}
+      {/* VISTA DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -542,14 +587,8 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Efectivo:</span><span>${getShiftValFormatted(printShiftData.cash_sales)}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Transferencia:</span><span>${getShiftValFormatted(printShiftData.transfer_sales)}</span></div>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}>
-              <span>TOTAL VENDIDO:</span>
-              <span>${getShiftValFormatted(printShiftData.total_sales)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}>
-              <span>TOTAL EN CAJA:</span>
-              <span>${getShiftValFormatted(printShiftData.end_amount)}</span>
-            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}><span>TOTAL VENDIDO:</span><span>${getShiftValFormatted(printShiftData.total_sales)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}><span>TOTAL EN CAJA:</span><span>${getShiftValFormatted(printShiftData.end_amount)}</span></div>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
           </div>
         ) : lastInvoice ? (
@@ -572,22 +611,15 @@ export default function App() {
               <tbody>
                 {lastInvoice.items.map((it, idx) => (
                   <tr key={idx}>
-                    <td style={{ verticalAlign: 'top', padding: '1px 0' }}>
-                      {it.quantity}x {it.name.substring(0, 16)}
-                    </td>
-                    <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '1px 0', fontWeight: 'bold' }}>
-                      ${(it.quantity * it.sale_price).toLocaleString('es-CO')}
-                    </td>
+                    <td style={{ verticalAlign: 'top', padding: '1px 0' }}>{it.quantity}x {it.name.substring(0, 16)}</td>
+                    <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '1px 0', fontWeight: 'bold' }}>${(it.quantity * it.sale_price).toLocaleString('es-CO')}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
 
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}>
-              <span>TOTAL:</span>
-              <span>${lastInvoice.total.toLocaleString('es-CO')}</span>
-            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}><span>TOTAL:</span><span>${lastInvoice.total.toLocaleString('es-CO')}</span></div>
             <p style={{ margin: '1px 0', fontSize: '9px' }}>Pago: {lastInvoice.paymentMethod}</p>
             <p style={{ margin: '1px 0', fontSize: '9px' }}>Recibido: ${lastInvoice.received.toLocaleString('es-CO')}</p>
             <p style={{ margin: '1px 0', fontSize: '9px' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString('es-CO')}</p>
@@ -597,9 +629,9 @@ export default function App() {
         ) : null}
       </div>
 
-      {/* VISTA PRINCIPAL DEL SISTEMA POS */}
+      {/* VISTA PRINCIPAL */}
       <div className="no-print" style={{ display: 'flex', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif' }}>
-        {/* BARRA LATERAL (SIDEBAR) */}
+        {/* BARRA LATERAL */}
         <div style={{ width: '240px', background: '#1e293b', padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #334155' }}>
           <div>
             <h3 style={{ color: '#38bdf8', fontSize: '1.1rem', margin: '0 0 1rem 0' }}>🌱 {storeConfig.razon_social}</h3>
@@ -642,12 +674,11 @@ export default function App() {
           <button onClick={handleLogout} style={{ width: '100%', padding: '0.6rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>🔒 Cerrar Sesión</button>
         </div>
 
-        {/* ÁREA PRINCIPAL DE TRABAJO */}
+        {/* ÁREA DE TRABAJO */}
         <div style={{ flex: 1, padding: '1.5rem', overflowY: 'auto' }}>
-          {/* TAB: POS / CAJA */}
+          {/* TAB: POS */}
           {activeTab === 'pos' && (
             <div style={{ display: 'flex', gap: '1.25rem', height: '100%' }}>
-              {/* Buscador y Grilla de Productos */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <input
                   type="text"
@@ -658,9 +689,9 @@ export default function App() {
                 />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem', maxHeight: 'calc(100vh - 130px)', overflowY: 'auto', paddingRight: '4px' }}>
                   {products
-                    .filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search))
-                    .map(p => (
-                      <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '0.85rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer', transition: 'all 0.15s ease' }}>
+                    .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search))
+                    .map((p) => (
+                      <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '0.85rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer' }}>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
                         <h4 style={{ margin: '0.35rem 0', fontSize: '0.95rem', lineHeight: '1.2' }}>{p.name}</h4>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem' }}>
@@ -672,57 +703,60 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Carrito de Venta Optimizado */}
-              <div style={{ width: '440px', background: '#1e293b', borderRadius: '10px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)' }}>
+              {/* Panel de Carrito */}
+              <div style={{ width: '440px', background: '#1e293b', borderRadius: '10px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155' }}>
                 <div>
                   <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.2rem', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>
                     🛒 Carrito de Venta ({cart.length})
                   </h3>
 
-                  {/* Datos del Cliente */}
-                  <div style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
+                  <div style={{ fontSize: '0.85rem', marginBottom: '0.8rem' }}>
                     <label style={{ color: '#94a3b8', fontWeight: 'bold' }}>CLIENTE:</label>
-                    <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.3rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem' }}>
                       <input
                         type="text"
                         value={customerDoc}
                         onChange={(e) => setCustomerDoc(e.target.value)}
                         placeholder="NIT / CC"
-                        style={{ width: '45%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }}
+                        style={{ width: '40%', padding: '0.45rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }}
                       />
                       <input
                         type="text"
                         value={customerName}
                         onChange={(e) => setCustomerName(e.target.value)}
                         placeholder="Nombre"
-                        style={{ width: '55%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }}
+                        style={{ width: '60%', padding: '0.45rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }}
                       />
                     </div>
+                    <input
+                      type="email"
+                      value={customerEmail}
+                      onChange={(e) => setCustomerEmail(e.target.value)}
+                      placeholder="📧 Correo para envío de factura PDF (opcional)"
+                      style={{ width: '100%', padding: '0.45rem', marginTop: '0.4rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }}
+                    />
                   </div>
 
-                  {/* Lista de Items en Carrito */}
-                  <div style={{ maxHeight: 'calc(100vh - 400px)', minHeight: '160px', overflowY: 'auto', paddingRight: '6px' }}>
-                    {cart.map(item => (
-                      <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.6rem 0.8rem', borderRadius: '6px', fontSize: '0.9rem', border: '1px solid #1e293b' }}>
+                  <div style={{ maxHeight: 'calc(100vh - 430px)', minHeight: '150px', overflowY: 'auto', paddingRight: '6px' }}>
+                    {cart.map((item) => (
+                      <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.6rem 0.8rem', borderRadius: '6px', fontSize: '0.9rem' }}>
                         <div style={{ flex: 1, marginRight: '0.6rem' }}>
                           <strong style={{ fontSize: '0.9rem' }}>{item.name}</strong><br />
                           <span style={{ color: '#22c55e', fontWeight: 'bold', fontSize: '0.85rem' }}>${(item.sale_price * item.quantity).toLocaleString('es-CO')}</span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                          <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.2rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>-</button>
-                          <span style={{ margin: '0 0.4rem', fontWeight: 'bold', fontSize: '0.95rem' }}>{item.quantity}</span>
-                          <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.2rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>+</button>
-                          <button onClick={() => removeFromCart(item.barcode)} title="Eliminar producto" style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', padding: '0.2rem 0.5rem', cursor: 'pointer', marginLeft: '0.4rem', fontWeight: 'bold' }}>❌</button>
+                          <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.2rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>-</button>
+                          <span style={{ margin: '0 0.4rem', fontWeight: 'bold' }}>{item.quantity}</span>
+                          <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.2rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+</button>
+                          <button onClick={() => removeFromCart(item.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', padding: '0.2rem 0.5rem', cursor: 'pointer', marginLeft: '0.4rem' }}>❌</button>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Totales y Botones Lado a Lado */}
-                <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid #334155' }}>
-                  {/* Total con tamaño igualado al de Devueltas (0.95rem) */}
-                  <div style={{ fontSize: '0.95rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+                <div style={{ marginTop: '0.8rem', paddingTop: '0.6rem', borderTop: '1px solid #334155' }}>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                     <span>Total:</span>
                     <span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span>
                   </div>
@@ -730,7 +764,7 @@ export default function App() {
                   <select
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value)}
-                    style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '6px', fontSize: '0.9rem' }}
+                    style={{ width: '100%', padding: '0.45rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.45rem', borderRadius: '6px', fontSize: '0.85rem' }}
                   >
                     <option value="Efectivo">💵 Efectivo</option>
                     <option value="Nequi / Transferencia">📱 Nequi / Transferencia</option>
@@ -741,27 +775,24 @@ export default function App() {
                     value={formatCOP(amountPaid)}
                     onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))}
                     placeholder={`Recibido: $${totalCart.toLocaleString('es-CO')}`}
-                    style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '6px', fontSize: '0.9rem' }}
+                    style={{ width: '100%', padding: '0.45rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.45rem', borderRadius: '6px', fontSize: '0.85rem' }}
                   />
 
-                  {/* Devueltas con tamaño 0.95rem */}
-                  <div style={{ fontSize: '0.95rem', marginBottom: '0.8rem', color: '#4ade80', display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: '0.95rem', marginBottom: '0.6rem', color: '#4ade80', display: 'flex', justifyContent: 'space-between' }}>
                     <span>Devueltas:</span>
                     <strong>${changeGiven.toLocaleString('es-CO')}</strong>
                   </div>
 
-                  {/* Botones de Acción Lado a Lado para optimizar espacio */}
-                  <div style={{ display: 'flex', gap: '0.6rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button
                       onClick={() => handleProcessSale('Registrada')}
-                      style={{ flex: 1, padding: '0.75rem 0.5rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}
+                      style={{ flex: 1, padding: '0.7rem 0.5rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
                     >
                       📑 Registrar
                     </button>
-
                     <button
                       onClick={() => handleProcessSale('Facturada')}
-                      style={{ flex: 1, padding: '0.75rem 0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}
+                      style={{ flex: 1, padding: '0.7rem 0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
                     >
                       🧾 Facturar
                     </button>
@@ -780,10 +811,6 @@ export default function App() {
                   ➕ Ingresar Nuevo Producto
                 </button>
               </div>
-
-              <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 1rem 0' }}>
-                ℹ️ Los productos están ordenados automáticamente mostrando primero aquellos con menor stock respecto a su mínimo establecido.
-              </p>
 
               <input
                 type="text"
@@ -806,9 +833,9 @@ export default function App() {
                 </thead>
                 <tbody>
                   {products
-                    .filter(p => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch))
+                    .filter((p) => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch))
                     .sort((a, b) => (a.stock - (a.min_stock || 3)) - (b.stock - (b.min_stock || 3)))
-                    .map(p => {
+                    .map((p) => {
                       const minVal = p.min_stock || 3;
                       const isLow = p.stock <= minVal;
                       return (
@@ -860,10 +887,10 @@ export default function App() {
                 </thead>
                 <tbody>
                   {products
-                    .filter(p => p.stock <= (p.min_stock || 3))
-                    .filter(p => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch))
+                    .filter((p) => p.stock <= (p.min_stock || 3))
+                    .filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch))
                     .sort((a, b) => (a.stock - (a.min_stock || 3)) - (b.stock - (b.min_stock || 3)))
-                    .map(p => (
+                    .map((p) => (
                       <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
                         <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
                         <td style={{ padding: '0.75rem' }}>{p.name}</td>
@@ -923,7 +950,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map(t => (
+                  {transactions.map((t) => (
                     <tr key={t.id} style={{ borderBottom: '1px solid #334155' }}>
                       <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>{t.created_at}</td>
                       <td style={{ padding: '0.75rem' }}>
@@ -965,7 +992,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {usersList.map(u => (
+                  {usersList.map((u) => (
                     <tr key={u.id} style={{ borderBottom: '1px solid #334155' }}>
                       <td style={{ padding: '0.75rem' }}><strong>{u.name}</strong></td>
                       <td style={{ padding: '0.75rem' }}>{u.username}</td>
@@ -987,7 +1014,6 @@ export default function App() {
             <div>
               <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>📊 Reportes de Turnos y Ventas</h2>
 
-              {/* FILTROS DIARIOS */}
               <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
                 <h4 style={{ margin: '0 0 1rem 0', color: '#e2e8f0' }}>📅 Consulta de Turnos Diarios</h4>
                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
@@ -1010,7 +1036,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredDailyShifts.map(s => (
+                    {filteredDailyShifts.map((s) => (
                       <tr key={s.id} style={{ borderBottom: '1px solid #1e293b', fontSize: '0.85rem' }}>
                         <td style={{ padding: '0.6rem' }}>#{s.id}</td>
                         <td style={{ padding: '0.6rem' }}><strong>{s.user_name}</strong></td>
@@ -1029,7 +1055,6 @@ export default function App() {
                 </table>
               </div>
 
-              {/* RESUMEN MENSUAL */}
               <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                   <h4 style={{ margin: 0, color: '#e2e8f0' }}>📆 Consolidados Mensuales</h4>
@@ -1089,7 +1114,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* MODAL: APERTURA DE TURNO CON FORMATO COP */}
+      {/* MODAL: APERTURA DE TURNO */}
       {showShiftModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '320px', color: '#fff' }}>
@@ -1110,33 +1135,18 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: RESUMEN DE CIERRE DE TURNO CORREGIDO */}
+      {/* MODAL: CIERRE DE TURNO */}
       {shiftSummary && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff' }}>
             <h3 style={{ margin: '0 0 0.5rem 0', color: '#4ade80' }}>🔴 Turno Cerrado</h3>
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', fontSize: '0.9rem', marginBottom: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                <span>Base Inicial:</span>
-                <span>${getShiftValFormatted(shiftSummary.start_amount ?? shiftSummary.startBase)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                <span>Ventas Efectivo:</span>
-                <span style={{ color: '#4ade80' }}>${getShiftValFormatted(shiftSummary.cash_sales ?? shiftSummary.cashSales)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                <span>Ventas Transferencia:</span>
-                <span style={{ color: '#38bdf8' }}>${getShiftValFormatted(shiftSummary.transfer_sales ?? shiftSummary.transferSales)}</span>
-              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Base Inicial:</span><span>${getShiftValFormatted(shiftSummary.start_amount ?? shiftSummary.startBase)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Ventas Efectivo:</span><span style={{ color: '#4ade80' }}>${getShiftValFormatted(shiftSummary.cash_sales ?? shiftSummary.cashSales)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Ventas Transferencia:</span><span style={{ color: '#38bdf8' }}>${getShiftValFormatted(shiftSummary.transfer_sales ?? shiftSummary.transferSales)}</span></div>
               <hr style={{ borderColor: '#334155', margin: '0.5rem 0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                <span>Total Vendido:</span>
-                <span>${getShiftValFormatted(shiftSummary.total_sales ?? shiftSummary.totalSales)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#4ade80', marginTop: '0.4rem' }}>
-                <span>Efectivo en Caja:</span>
-                <span>${getShiftValFormatted(shiftSummary.end_amount ?? shiftSummary.totalCashInBox ?? shiftSummary.cash_in_hand)}</span>
-              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>Total Vendido:</span><span>${getShiftValFormatted(shiftSummary.total_sales ?? shiftSummary.totalSales)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#4ade80', marginTop: '0.4rem' }}><span>Efectivo en Caja:</span><span>${getShiftValFormatted(shiftSummary.end_amount ?? shiftSummary.totalCashInBox ?? shiftSummary.cash_in_hand)}</span></div>
             </div>
             <button onClick={() => setShiftSummary(null)} style={{ width: '100%', padding: '0.5rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar</button>
           </div>
@@ -1182,7 +1192,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: NUEVA TRANSACCIÓN (CONTABILIDAD) */}
+      {/* MODAL: NUEVA TRANSACCIÓN */}
       {showTxModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
           <form onSubmit={handleSaveTransaction} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
@@ -1202,7 +1212,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: NUEVO EMPLEADO / USUARIO */}
+      {/* MODAL: NUEVO EMPLEADO */}
       {showUserModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
           <form onSubmit={handleSaveUser} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>

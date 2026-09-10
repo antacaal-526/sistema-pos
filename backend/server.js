@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const PDFDocument = require('pdfkit');
+const nodemailer = require('nodemailer');
 const db = require('./database');
 
 const app = express();
@@ -9,14 +11,85 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Ruta para mantener despierto el servidor en Render (keep-alive)
+// Configuración del transporte de correo (Gmail)
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+// Función para generar el PDF de la factura en memoria (Buffer)
+function createInvoicePDFBuffer(invoice, config) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'LETTER', margin: 36 });
+    const buffers = [];
+
+    doc.on('data', (b) => buffers.push(b));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    // Encabezado del negocio
+    doc.fontSize(16).font('Helvetica-Bold').text(config.razon_social || 'TERRA FRUTOS SECOS', { align: 'center' });
+    doc.fontSize(9).font('Helvetica').text(config.actividad || '', { align: 'center' });
+    doc.text(`NIT: ${config.nit || ''} | TEL: ${config.telefono || ''}`, { align: 'center' });
+    doc.text(config.direccion || '', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
+    doc.moveDown(0.5);
+
+    // Datos del comprobante y cliente
+    doc.fontSize(10).font('Helvetica-Bold').text(`FACTURA POS: #${invoice.invoice_number}`);
+    doc.font('Helvetica').fontSize(9);
+    doc.text(`Fecha: ${new Date().toLocaleString('es-CO')}`);
+    doc.text(`Cliente: ${invoice.customer_name || 'Consumidor Final'} (Doc: ${invoice.customer_doc || '222222222222'})`);
+    doc.text(`Atendido por: ${invoice.user_name}`);
+    doc.text(`Método de Pago: ${invoice.payment_method}`);
+    doc.moveDown(0.8);
+
+    // Tabla de productos
+    doc.font('Helvetica-Bold');
+    doc.text('Descripción', 36, doc.y, { width: 260 });
+    const headerY = doc.y - 11;
+    doc.text('Cant.', 310, headerY, { width: 50, align: 'center' });
+    doc.text('Precio Unit.', 370, headerY, { width: 80, align: 'right' });
+    doc.text('Subtotal', 460, headerY, { width: 80, align: 'right' });
+    doc.moveDown(0.4);
+    doc.font('Helvetica');
+
+    invoice.items.forEach((item) => {
+      const itemY = doc.y;
+      doc.text(item.name, 36, itemY, { width: 260 });
+      doc.text(String(item.quantity), 310, itemY, { width: 50, align: 'center' });
+      doc.text(`$${Number(item.sale_price).toLocaleString('es-CO')}`, 370, itemY, { width: 80, align: 'right' });
+      doc.text(`$${(item.quantity * item.sale_price).toLocaleString('es-CO')}`, 460, itemY, { width: 80, align: 'right' });
+      doc.moveDown(0.3);
+    });
+
+    doc.moveDown(0.5);
+    doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
+    doc.moveDown(0.3);
+
+    // Totales
+    doc.fontSize(11).font('Helvetica-Bold');
+    doc.text(`TOTAL: $${Number(invoice.total).toLocaleString('es-CO')}`, { align: 'right' });
+    doc.fontSize(9).font('Helvetica');
+    doc.text(`Recibido: $${Number(invoice.amount_paid).toLocaleString('es-CO')}`, { align: 'right' });
+    doc.text(`Devueltas: $${Number(invoice.change_given).toLocaleString('es-CO')}`, { align: 'right' });
+    doc.moveDown(1);
+    doc.text(config.footer_msg || '¡Gracias por su compra!', { align: 'center' });
+
+    doc.end();
+  });
+}
+
+// Ruta para mantener despierto el servidor en Render
 app.get('/api/ping', (req, res) => {
   res.send('pong');
 });
 
-// ============================================================================
-// RUTA DE DESCARGA DIRECTA DE LA BASE DE DATOS DE RESPALDO
-// ============================================================================
+// Descarga de backup local (si existe)
 app.get('/api/backup-db', (req, res) => {
   try {
     const possiblePaths = [
@@ -25,7 +98,7 @@ app.get('/api/backup-db', (req, res) => {
       path.join(process.cwd(), 'pos.db')
     ];
 
-    let foundPath = possiblePaths.find(p => fs.existsSync(p));
+    let foundPath = possiblePaths.find((p) => fs.existsSync(p));
 
     if (!foundPath) {
       return res.status(404).send('<h1>Base de datos en la nube (Turso) activa.</h1>');
@@ -33,14 +106,13 @@ app.get('/api/backup-db', (req, res) => {
 
     const fileBuffer = fs.readFileSync(foundPath);
     const fileName = `pos_backup_${new Date().toISOString().slice(0, 10)}.db`;
-    
+
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     return res.send(fileBuffer);
-
   } catch (error) {
-    console.error('Error al intentar descargar respaldo:', error);
-    return res.status(500).send('Error interno del servidor al procesar la descarga.');
+    console.error('Error al descargar respaldo:', error);
+    return res.status(500).send('Error interno del servidor.');
   }
 });
 
@@ -63,7 +135,7 @@ app.post('/api/login', (req, res) => {
   );
 });
 
-// --- GESTIÓN DE EMPLEADOS Y USUARIOS ---
+// --- USUARIOS ---
 app.get('/api/users', (req, res) => {
   db.all('SELECT id, name, username, role FROM users ORDER BY id ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -73,9 +145,7 @@ app.get('/api/users', (req, res) => {
 
 app.post('/api/users', (req, res) => {
   const { name, username, password, role } = req.body;
-  if (!name || !username || !password) {
-    return res.status(400).json({ error: 'Todos los campos son obligatorios' });
-  }
+  if (!name || !username || !password) return res.status(400).json({ error: 'Todos los campos son obligatorios' });
 
   db.run(
     'INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)',
@@ -100,7 +170,7 @@ app.delete('/api/users/:id', (req, res) => {
   });
 });
 
-// --- TURNOS Y REPORTES DE TURNOS ---
+// --- TURNOS ---
 app.get('/api/shifts', (req, res) => {
   db.all('SELECT * FROM shifts ORDER BY id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -110,7 +180,7 @@ app.get('/api/shifts', (req, res) => {
 
 app.get('/api/shifts/active', (req, res) => {
   const userName = req.query.user_name ? req.query.user_name.trim() : null;
-  const query = userName 
+  const query = userName
     ? "SELECT * FROM shifts WHERE LOWER(user_name) = LOWER(?) AND status = 'abierto' ORDER BY id DESC LIMIT 1"
     : "SELECT * FROM shifts WHERE status = 'abierto' ORDER BY id DESC LIMIT 1";
 
@@ -152,8 +222,8 @@ app.post('/api/shifts/close', (req, res) => {
 
         if (rows) {
           rows.forEach((r) => {
-            if (r.payment_method === 'Efectivo') cashSales += (r.total_sales || 0);
-            else transferSales += (r.total_sales || 0);
+            if (r.payment_method === 'Efectivo') cashSales += r.total_sales || 0;
+            else transferSales += r.total_sales || 0;
           });
         }
 
@@ -234,19 +304,31 @@ app.delete('/api/products/:barcode', (req, res) => {
   });
 });
 
-// --- VENTAS E INTEGRACIÓN AUTOMÁTICA CON CONTABILIDAD ---
+// --- VENTAS, FACTURACIÓN Y ENVÍO POR CORREO ---
 app.post('/api/sales', async (req, res) => {
-  const { shift_id, user_name, customer_doc, customer_name, items, description, total, payment_method, amount_paid, change_given, sale_type } = req.body;
+  const {
+    shift_id,
+    user_name,
+    customer_doc,
+    customer_name,
+    customer_email,
+    items,
+    description,
+    total,
+    payment_method,
+    amount_paid,
+    change_given,
+    sale_type
+  } = req.body;
 
   if (!items || items.length === 0) return res.status(400).json({ error: 'Carrito vacío' });
 
   const prefijo = 'TF';
   const invNumber = `${prefijo}-${Date.now().toString().slice(-6)}`;
-
   const txDescription = description || `Venta POS Factura #${invNumber} (${payment_method})`;
 
   try {
-    // 1. Insertar la venta
+    // 1. Insertar venta
     const saleRes = await new Promise((resolve, reject) => {
       db.run(
         `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type)
@@ -273,7 +355,7 @@ app.post('/api/sales', async (req, res) => {
 
     const saleId = saleRes.lastID;
 
-    // 2. Actualizar stock e insertar items del carrito
+    // 2. Actualizar stock e items de venta
     for (const item of items) {
       await new Promise((resolve, reject) => {
         db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => {
@@ -294,7 +376,7 @@ app.post('/api/sales', async (req, res) => {
       });
     }
 
-    // 3. Registrar movimiento contable
+    // 3. Registrar transacción contable
     await new Promise((resolve, reject) => {
       db.run(
         `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
@@ -305,6 +387,60 @@ app.post('/api/sales', async (req, res) => {
         }
       );
     });
+
+    // 4. Envío de factura en PDF por correo electrónico en segundo plano
+    if (customer_email && customer_email.trim()) {
+      (async () => {
+        try {
+          const rows = await new Promise((r) => db.all('SELECT * FROM config', [], (e, d) => r(d || [])));
+          const configObj = {
+            razon_social: 'TERRA FRUTOS SECOS',
+            nit: '40044029-8',
+            direccion: 'Cra 7 #15-63, Tunja, Boyacá',
+            telefono: '3183142180',
+            actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR',
+            footer_msg: '¡Gracias por su compra!'
+          };
+          rows.forEach((row) => {
+            configObj[row.key] = row.value;
+          });
+
+          const pdfBuffer = await createInvoicePDFBuffer(
+            {
+              invoice_number: invNumber,
+              customer_name,
+              customer_doc,
+              user_name: user_name || 'ANTHONY CARDENAS',
+              payment_method: payment_method || 'Efectivo',
+              items,
+              total,
+              amount_paid: amount_paid || total,
+              change_given: change_given || 0
+            },
+            configObj
+          );
+
+          if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+            await transporter.sendMail({
+              from: `"${configObj.razon_social}" <${process.env.EMAIL_USER}>`,
+              to: customer_email.trim(),
+              subject: `Factura de Venta #${invNumber} - ${configObj.razon_social}`,
+              text: `Hola ${customer_name || 'Cliente'}, adjuntamos la factura electrónica correspondiente a tu compra por valor de $${Number(total).toLocaleString('es-CO')}.`,
+              attachments: [
+                {
+                  filename: `Factura_${invNumber}.pdf`,
+                  content: pdfBuffer,
+                  contentType: 'application/pdf'
+                }
+              ]
+            });
+            console.log(`Factura #${invNumber} enviada a ${customer_email}`);
+          }
+        } catch (emailErr) {
+          console.error('Error enviando correo con PDF:', emailErr);
+        }
+      })();
+    }
 
     return res.json({ success: true, saleId, invoice_number: invNumber });
   } catch (err) {
@@ -344,11 +480,8 @@ app.delete('/api/transactions/:id', (req, res) => {
   }
 
   db.get('SELECT * FROM transactions WHERE id = ?', [numericId], (err, tx) => {
-    if (err || !tx) {
-      return res.status(400).json({ error: 'Movimiento no encontrado' });
-    }
+    if (err || !tx) return res.status(400).json({ error: 'Movimiento no encontrado' });
 
-    // Si es una venta del POS, reponer stock y eliminar registros asociados
     if (tx.category === 'Venta POS' && tx.description.includes('Factura #')) {
       const parts = tx.description.split('Factura #');
       if (parts[1]) {
@@ -382,7 +515,6 @@ app.delete('/api/transactions/:id', (req, res) => {
       }
     }
 
-    // Para registros contables varios
     db.run('DELETE FROM transactions WHERE id = ?', [numericId], function (errDel) {
       if (errDel) return res.status(500).json({ error: errDel.message });
       res.json({ success: true });
@@ -403,7 +535,9 @@ app.get('/api/config', (req, res) => {
       footer_msg: '¡Gracias por su compra!'
     };
     if (rows) {
-      rows.forEach((r) => { configObj[r.key] = r.value; });
+      rows.forEach((r) => {
+        configObj[r.key] = r.value;
+      });
     }
     res.json(configObj);
   });
@@ -430,7 +564,7 @@ app.post('/api/config', (req, res) => {
   });
 });
 
-// --- COMODÍN PARA REACT ---
+// Comodín para React
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
