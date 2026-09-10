@@ -3,6 +3,20 @@ import './App.css';
 
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
+// Funciones auxiliares para formato de moneda Pesos Colombianos (COP)
+const formatCOP = (val) => {
+  if (val === null || val === undefined || val === '') return '';
+  const cleanNum = String(val).replace(/\D/g, '');
+  if (!cleanNum) return '';
+  return parseInt(cleanNum, 10).toLocaleString('es-CO');
+};
+
+const parseCOP = (val) => {
+  if (!val) return 0;
+  const cleanNum = String(val).replace(/\D/g, '');
+  return cleanNum ? parseInt(cleanNum, 10) : 0;
+};
+
 export default function App() {
   // Mantener el servidor de Render activo
   useEffect(() => {
@@ -191,7 +205,7 @@ export default function App() {
   };
 
   const handleOpenShift = async () => {
-    const baseValue = parseFloat(shiftBaseInput) || 0;
+    const baseValue = parseCOP(shiftBaseInput);
     try {
       const res = await fetch(`${API_URL}/api/shifts/open`, {
         method: 'POST',
@@ -204,7 +218,7 @@ export default function App() {
         setShiftBaseInput('');
         checkActiveShift(currentUser.name);
         loadShifts();
-        alert(`☀️ Turno iniciado con base de $${baseValue.toLocaleString()}`);
+        alert(`☀️ Turno iniciado con base de $${baseValue.toLocaleString('es-CO')}`);
       }
     } catch (e) { alert('Error al abrir el turno'); }
   };
@@ -221,7 +235,8 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setShiftSummary(data.summary);
+        const summaryData = data.summary || data.shift || data;
+        setShiftSummary(summaryData);
         setActiveShift(null);
         loadShifts();
       } else {
@@ -251,11 +266,18 @@ export default function App() {
   };
 
   const totalCart = cart.reduce((s, i) => s + (i.sale_price * i.quantity), 0);
-  const received = parseFloat(amountPaid) || totalCart;
+  const numericAmountPaid = parseCOP(amountPaid);
+  const received = numericAmountPaid > 0 ? numericAmountPaid : totalCart;
   const changeGiven = received >= totalCart ? received - totalCart : 0;
 
   const handleProcessSale = async (saleType) => {
     if (cart.length === 0) return alert('El carrito está vacío');
+
+    // Construir la descripción detallada con artículos, cantidades y precios
+    const detailedDescription = cart
+      .map(i => `${i.quantity}x ${i.name} ($${(i.sale_price * i.quantity).toLocaleString('es-CO')})`)
+      .join(', ');
+
     try {
       const res = await fetch(`${API_URL}/api/sales`, {
         method: 'POST',
@@ -266,6 +288,7 @@ export default function App() {
           customer_doc: customerDoc,
           customer_name: customerName,
           items: cart,
+          description: detailedDescription,
           total: totalCart,
           payment_method: paymentMethod,
           amount_paid: received,
@@ -308,11 +331,18 @@ export default function App() {
   // --- ACCIONES DE INVENTARIO Y OTROS ---
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
+    const productPayload = {
+      ...newProd,
+      sale_price: parseCOP(newProd.sale_price),
+      stock: parseCOP(newProd.stock),
+      min_stock: parseCOP(newProd.min_stock) || 3
+    };
+
     try {
       const res = await fetch(`${API_URL}/api/products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProd)
+        body: JSON.stringify(productPayload)
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -326,11 +356,18 @@ export default function App() {
 
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
+    const productPayload = {
+      ...editingProduct,
+      sale_price: parseCOP(editingProduct.sale_price),
+      stock: parseCOP(editingProduct.stock),
+      min_stock: parseCOP(editingProduct.min_stock) || 3
+    };
+
     try {
       const res = await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingProduct)
+        body: JSON.stringify(productPayload)
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -355,13 +392,14 @@ export default function App() {
 
   const handleSaveTransaction = async (e) => {
     e.preventDefault();
-    if (!newTx.amount || parseFloat(newTx.amount) <= 0) return alert('Monto inválido');
+    const numericAmount = parseCOP(newTx.amount);
+    if (numericAmount <= 0) return alert('Monto inválido');
 
     try {
       const res = await fetch(`${API_URL}/api/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newTx, user_name: currentUser.name })
+        body: JSON.stringify({ ...newTx, amount: numericAmount, user_name: currentUser.name })
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -463,6 +501,12 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // Helper seguro para obtener números formateados en resumen de turno
+  const getShiftValFormatted = (val) => {
+    const num = Number(val);
+    return isNaN(num) ? '0' : num.toLocaleString('es-CO');
+  };
+
   // --- VISTA LOGIN ---
   if (!currentUser) {
     return (
@@ -496,17 +540,17 @@ export default function App() {
             <p style={{ margin: '1px 0' }}>Apertura: {printShiftData.opened_at}</p>
             <p style={{ margin: '1px 0' }}>Cierre: {printShiftData.closed_at || 'En curso'}</p>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Base Inicial:</span><span>${printShiftData.start_amount?.toLocaleString()}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Efectivo:</span><span>${printShiftData.cash_sales?.toLocaleString()}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Transferencia:</span><span>${printShiftData.transfer_sales?.toLocaleString()}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Base Inicial:</span><span>${getShiftValFormatted(printShiftData.start_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Efectivo:</span><span>${getShiftValFormatted(printShiftData.cash_sales)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Transferencia:</span><span>${getShiftValFormatted(printShiftData.transfer_sales)}</span></div>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}>
               <span>TOTAL VENDIDO:</span>
-              <span>${printShiftData.total_sales?.toLocaleString()}</span>
+              <span>${getShiftValFormatted(printShiftData.total_sales)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}>
               <span>TOTAL EN CAJA:</span>
-              <span>${printShiftData.end_amount?.toLocaleString()}</span>
+              <span>${getShiftValFormatted(printShiftData.end_amount)}</span>
             </div>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
           </div>
@@ -525,7 +569,7 @@ export default function App() {
             <p style={{ margin: '1px 0' }}>Cliente: {lastInvoice.customerName}</p>
             <p style={{ margin: '1px 0' }}>NIT/CC: {lastInvoice.customerDoc}</p>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            
+
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px' }}>
               <tbody>
                 {lastInvoice.items.map((it, idx) => (
@@ -534,7 +578,7 @@ export default function App() {
                       {it.quantity}x {it.name.substring(0, 16)}
                     </td>
                     <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '1px 0', fontWeight: 'bold' }}>
-                      ${(it.quantity * it.sale_price).toLocaleString()}
+                      ${(it.quantity * it.sale_price).toLocaleString('es-CO')}
                     </td>
                   </tr>
                 ))}
@@ -544,11 +588,11 @@ export default function App() {
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}>
               <span>TOTAL:</span>
-              <span>${lastInvoice.total.toLocaleString()}</span>
+              <span>${lastInvoice.total.toLocaleString('es-CO')}</span>
             </div>
             <p style={{ margin: '1px 0', fontSize: '9px' }}>Pago: {lastInvoice.paymentMethod}</p>
-            <p style={{ margin: '1px 0', fontSize: '9px' }}>Recibido: ${lastInvoice.received.toLocaleString()}</p>
-            <p style={{ margin: '1px 0', fontSize: '9px' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString()}</p>
+            <p style={{ margin: '1px 0', fontSize: '9px' }}>Recibido: ${lastInvoice.received.toLocaleString('es-CO')}</p>
+            <p style={{ margin: '1px 0', fontSize: '9px' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString('es-CO')}</p>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <p style={{ textAlign: 'center', margin: '4px 0 0 0', fontSize: '9px' }}>{storeConfig.footer_msg}</p>
           </div>
@@ -605,7 +649,7 @@ export default function App() {
           {/* TAB: POS / CAJA */}
           {activeTab === 'pos' && (
             <div style={{ display: 'flex', gap: '1.25rem', height: '100%' }}>
-              {/* Lado Izquierdo: Buscador y Grilla de Productos */}
+              {/* Buscador y Grilla de Productos */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <input
                   type="text"
@@ -622,7 +666,7 @@ export default function App() {
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
                         <h4 style={{ margin: '0.35rem 0', fontSize: '0.95rem', lineHeight: '1.2' }}>{p.name}</h4>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem' }}>
-                          <strong style={{ color: '#22c55e', fontSize: '1.05rem' }}>${p.sale_price?.toLocaleString()}</strong>
+                          <strong style={{ color: '#22c55e', fontSize: '1.05rem' }}>${p.sale_price?.toLocaleString('es-CO')}</strong>
                           <span style={{ fontSize: '0.75rem', background: '#334155', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>Stock: {p.stock}</span>
                         </div>
                       </div>
@@ -630,7 +674,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Lado Derecho: Carrito de Venta Más Grande (Ancho ampliado a 440px) */}
+              {/* Carrito de Venta Ampliado */}
               <div style={{ width: '440px', background: '#1e293b', borderRadius: '10px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)' }}>
                 <div>
                   <h3 style={{ margin: '0 0 1.2rem 0', fontSize: '1.2rem', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.6rem' }}>
@@ -664,7 +708,7 @@ export default function App() {
                       <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.6rem 0.8rem', borderRadius: '6px', fontSize: '0.9rem', border: '1px solid #1e293b' }}>
                         <div style={{ flex: 1, marginRight: '0.6rem' }}>
                           <strong style={{ fontSize: '0.9rem' }}>{item.name}</strong><br />
-                          <span style={{ color: '#22c55e', fontWeight: 'bold', fontSize: '0.85rem' }}>${(item.sale_price * item.quantity).toLocaleString()}</span>
+                          <span style={{ color: '#22c55e', fontWeight: 'bold', fontSize: '0.85rem' }}>${(item.sale_price * item.quantity).toLocaleString('es-CO')}</span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                           <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.2rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>-</button>
@@ -677,11 +721,11 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Totales y Botones de Pago */}
+                {/* Totales y Pago con Formato COP */}
                 <div style={{ marginTop: '1.2rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
                   <div style={{ fontSize: '1.4rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
                     <span>Total:</span>
-                    <span style={{ color: '#22c55e' }}>${totalCart.toLocaleString()}</span>
+                    <span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span>
                   </div>
 
                   <select
@@ -694,16 +738,16 @@ export default function App() {
                   </select>
 
                   <input
-                    type="number"
-                    value={amountPaid}
-                    onChange={(e) => setAmountPaid(e.target.value)}
-                    placeholder={`Recibido: $${totalCart.toLocaleString()}`}
+                    type="text"
+                    value={formatCOP(amountPaid)}
+                    onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))}
+                    placeholder={`Recibido: $${totalCart.toLocaleString('es-CO')}`}
                     style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.6rem', borderRadius: '6px', fontSize: '0.95rem' }}
                   />
 
                   <div style={{ fontSize: '0.95rem', marginBottom: '1.2rem', color: '#4ade80', display: 'flex', justifyContent: 'space-between' }}>
                     <span>Devueltas:</span>
-                    <strong>${changeGiven.toLocaleString()}</strong>
+                    <strong>${changeGiven.toLocaleString('es-CO')}</strong>
                   </div>
 
                   <button
@@ -724,7 +768,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: INVENTARIO (Ordenado por Stock Relativo al Mínimo) */}
+          {/* TAB: INVENTARIO */}
           {activeTab === 'inventory' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -760,7 +804,6 @@ export default function App() {
                 <tbody>
                   {products
                     .filter(p => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch))
-                    // Ordenamiento: Menor stock relativo al mínimo va arriba (stock - min_stock)
                     .sort((a, b) => (a.stock - (a.min_stock || 3)) - (b.stock - (b.min_stock || 3)))
                     .map(p => {
                       const minVal = p.min_stock || 3;
@@ -771,7 +814,7 @@ export default function App() {
                           <td style={{ padding: '0.75rem' }}>
                             {p.name} {isLow && <span style={{ color: '#f87171', fontSize: '0.75rem', fontWeight: 'bold' }}>(⚠️ Stock Bajo)</span>}
                           </td>
-                          <td style={{ padding: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString()}</td>
+                          <td style={{ padding: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td>
                           <td style={{ padding: '0.75rem' }}>
                             <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: isLow ? '#991b1b' : '#166534', fontWeight: 'bold' }}>
                               {p.stock}
@@ -821,7 +864,7 @@ export default function App() {
                       <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
                         <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
                         <td style={{ padding: '0.75rem' }}>{p.name}</td>
-                        <td style={{ padding: '0.75rem' }}>${p.sale_price?.toLocaleString()}</td>
+                        <td style={{ padding: '0.75rem' }}>${p.sale_price?.toLocaleString('es-CO')}</td>
                         <td style={{ padding: '0.75rem', color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td>
                         <td style={{ padding: '0.75rem' }}>{p.min_stock || 3}</td>
                         <td style={{ padding: '0.75rem', textAlign: 'center' }}>
@@ -834,7 +877,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: CONTABILIDAD */}
+          {/* TAB: CONTABILIDAD CON DESCRIPCIÓN DETALLADA DE PRODUCTOS VENDIDOS */}
           {activeTab === 'accounting' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
@@ -848,19 +891,19 @@ export default function App() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #22c55e' }}>
                   <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL INGRESOS</span>
-                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${totalIncomes.toLocaleString()}</h3>
+                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${totalIncomes.toLocaleString('es-CO')}</h3>
                 </div>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #ef4444' }}>
                   <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL EGRESOS / GASTOS</span>
-                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#ef4444' }}>${totalExpenses.toLocaleString()}</h3>
+                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#ef4444' }}>${totalExpenses.toLocaleString('es-CO')}</h3>
                 </div>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #38bdf8' }}>
                   <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>BALANCE NETO</span>
-                  <h3 style={{ margin: '0.5rem 0 0 0', color: netBalance >= 0 ? '#38bdf8' : '#ef4444' }}>${netBalance.toLocaleString()}</h3>
+                  <h3 style={{ margin: '0.5rem 0 0 0', color: netBalance >= 0 ? '#38bdf8' : '#ef4444' }}>${netBalance.toLocaleString('es-CO')}</h3>
                 </div>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #eab308' }}>
                   <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>VALOR EN INVENTARIO</span>
-                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#eab308' }}>${inventoryValue.toLocaleString()}</h3>
+                  <h3 style={{ margin: '0.5rem 0 0 0', color: '#eab308' }}>${inventoryValue.toLocaleString('es-CO')}</h3>
                 </div>
               </div>
 
@@ -870,7 +913,7 @@ export default function App() {
                     <th style={{ padding: '0.75rem' }}>Fecha</th>
                     <th style={{ padding: '0.75rem' }}>Tipo</th>
                     <th style={{ padding: '0.75rem' }}>Categoría</th>
-                    <th style={{ padding: '0.75rem' }}>Descripción</th>
+                    <th style={{ padding: '0.75rem', width: '40%' }}>Descripción (Productos, Cantidad, Subtotal)</th>
                     <th style={{ padding: '0.75rem' }}>Monto</th>
                     <th style={{ padding: '0.75rem' }}>Usuario</th>
                     <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th>
@@ -884,8 +927,10 @@ export default function App() {
                         <span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: t.type === 'Ingreso' ? '#166534' : '#991b1b', fontSize: '0.8rem' }}>{t.type}</span>
                       </td>
                       <td style={{ padding: '0.75rem' }}>{t.category}</td>
-                      <td style={{ padding: '0.75rem' }}>{t.description}</td>
-                      <td style={{ padding: '0.75rem', fontWeight: 'bold', color: t.type === 'Ingreso' ? '#22c55e' : '#ef4444' }}>${t.amount?.toLocaleString()}</td>
+                      <td style={{ padding: '0.75rem', fontSize: '0.85rem', lineHeight: '1.4' }}>
+                        <strong>{t.description}</strong>
+                      </td>
+                      <td style={{ padding: '0.75rem', fontWeight: 'bold', color: t.type === 'Ingreso' ? '#22c55e' : '#ef4444' }}>${t.amount?.toLocaleString('es-CO')}</td>
                       <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>{t.user_name}</td>
                       <td style={{ padding: '0.75rem', textAlign: 'center' }}>
                         <button onClick={() => handleDeleteTransaction(t.id, t.description, t.category)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
@@ -968,10 +1013,10 @@ export default function App() {
                         <td style={{ padding: '0.6rem' }}><strong>{s.user_name}</strong></td>
                         <td style={{ padding: '0.6rem' }}>{s.opened_at}</td>
                         <td style={{ padding: '0.6rem' }}>{s.closed_at || 'En curso'}</td>
-                        <td style={{ padding: '0.6rem' }}>${s.start_amount?.toLocaleString()}</td>
-                        <td style={{ padding: '0.6rem', color: '#4ade80' }}>${s.cash_sales?.toLocaleString()}</td>
-                        <td style={{ padding: '0.6rem', color: '#38bdf8' }}>${s.transfer_sales?.toLocaleString()}</td>
-                        <td style={{ padding: '0.6rem', fontWeight: 'bold' }}>${s.total_sales?.toLocaleString()}</td>
+                        <td style={{ padding: '0.6rem' }}>${getShiftValFormatted(s.start_amount)}</td>
+                        <td style={{ padding: '0.6rem', color: '#4ade80' }}>${getShiftValFormatted(s.cash_sales)}</td>
+                        <td style={{ padding: '0.6rem', color: '#38bdf8' }}>${getShiftValFormatted(s.transfer_sales)}</td>
+                        <td style={{ padding: '0.6rem', fontWeight: 'bold' }}>${getShiftValFormatted(s.total_sales)}</td>
                         <td style={{ padding: '0.6rem', textAlign: 'center' }}>
                           <button onClick={() => handlePrintShiftReport(s)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🖨️ Reimprimir</button>
                         </td>
@@ -990,15 +1035,15 @@ export default function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                   <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px' }}>
                     <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>VENTAS EFECTIVO DEL MES</span>
-                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#4ade80' }}>${monthlyCash.toLocaleString()}</h3>
+                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#4ade80' }}>${monthlyCash.toLocaleString('es-CO')}</h3>
                   </div>
                   <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px' }}>
                     <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>VENTAS TRANSFERENCIAS DEL MES</span>
-                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#38bdf8' }}>${monthlyTransfer.toLocaleString()}</h3>
+                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#38bdf8' }}>${monthlyTransfer.toLocaleString('es-CO')}</h3>
                   </div>
                   <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', borderLeft: '4px solid #22c55e' }}>
                     <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL FACTURADO EN EL MES</span>
-                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${monthlyTotal.toLocaleString()}</h3>
+                    <h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${monthlyTotal.toLocaleString('es-CO')}</h3>
                   </div>
                 </div>
               </div>
@@ -1041,13 +1086,19 @@ export default function App() {
         </div>
       </div>
 
-      {/* MODAL: APERTURA DE TURNO */}
+      {/* MODAL: APERTURA DE TURNO CON FORMATO COP */}
       {showShiftModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '320px', color: '#fff' }}>
             <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>☀️ Abrir Turno de Caja</h3>
             <label style={{ fontSize: '0.85rem' }}>Monto Base Inicial en Caja ($):</label>
-            <input type="number" value={shiftBaseInput} onChange={(e) => setShiftBaseInput(e.target.value)} placeholder="Ej: 50000" style={{ width: '100%', padding: '0.5rem', margin: '0.5rem 0 1rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <input
+              type="text"
+              value={formatCOP(shiftBaseInput)}
+              onChange={(e) => setShiftBaseInput(e.target.value.replace(/\D/g, ''))}
+              placeholder="Ej: 200.000"
+              style={{ width: '100%', padding: '0.5rem', margin: '0.5rem 0 1rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}
+            />
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button onClick={handleOpenShift} style={{ flex: 1, padding: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Iniciar</button>
               <button onClick={() => setShowShiftModal(false)} style={{ flex: 1, padding: '0.5rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
@@ -1056,18 +1107,33 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: RESUMEN DE CIERRE DE TURNO */}
+      {/* MODAL: RESUMEN DE CIERRE DE TURNO CORREGIDO */}
       {shiftSummary && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '340px', color: '#fff' }}>
             <h3 style={{ margin: '0 0 0.5rem 0', color: '#4ade80' }}>🔴 Turno Cerrado</h3>
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', fontSize: '0.9rem', marginBottom: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Base Inicial:</span><span>${shiftSummary.start_amount?.toLocaleString()}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Ventas Efectivo:</span><span style={{ color: '#4ade80' }}>${shiftSummary.cash_sales?.toLocaleString()}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Ventas Transferencia:</span><span style={{ color: '#38bdf8' }}>${shiftSummary.transfer_sales?.toLocaleString()}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                <span>Base Inicial:</span>
+                <span>${getShiftValFormatted(shiftSummary.start_amount ?? shiftSummary.start_val)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                <span>Ventas Efectivo:</span>
+                <span style={{ color: '#4ade80' }}>${getShiftValFormatted(shiftSummary.cash_sales)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                <span>Ventas Transferencia:</span>
+                <span style={{ color: '#38bdf8' }}>${getShiftValFormatted(shiftSummary.transfer_sales)}</span>
+              </div>
               <hr style={{ borderColor: '#334155', margin: '0.5rem 0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>Total Vendido:</span><span>${shiftSummary.total_sales?.toLocaleString()}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#4ade80', marginTop: '0.4rem' }}><span>Efectivo en Caja:</span><span>${shiftSummary.end_amount?.toLocaleString()}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                <span>Total Vendido:</span>
+                <span>${getShiftValFormatted(shiftSummary.total_sales)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#4ade80', marginTop: '0.4rem' }}>
+                <span>Efectivo en Caja:</span>
+                <span>${getShiftValFormatted(shiftSummary.end_amount ?? shiftSummary.cash_in_hand)}</span>
+              </div>
             </div>
             <button onClick={() => setShiftSummary(null)} style={{ width: '100%', padding: '0.5rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar</button>
           </div>
@@ -1081,7 +1147,7 @@ export default function App() {
             <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Ingresar Producto</h3>
             <input type="text" placeholder="Código de Barras / ID" value={newProd.barcode} onChange={(e) => setNewProd({ ...newProd, barcode: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Nombre del Producto" value={newProd.name} onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="number" placeholder="Precio de Venta ($)" value={newProd.sale_price} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Precio de Venta ($)" value={formatCOP(newProd.sale_price)} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value.replace(/\D/g, '') })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="number" placeholder="Stock Inicial" value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="number" placeholder="Stock Mínimo (Alerta)" value={newProd.min_stock} onChange={(e) => setNewProd({ ...newProd, min_stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
@@ -1100,7 +1166,7 @@ export default function App() {
             <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Código: {editingProduct.barcode}</label>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio de Venta ($):</label>
-            <input type="number" value={editingProduct.sale_price} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" value={formatCOP(editingProduct.sale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value.replace(/\D/g, '') })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Actual:</label>
             <input type="number" value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Mínimo:</label>
@@ -1124,7 +1190,7 @@ export default function App() {
             </select>
             <input type="text" placeholder="Categoría (Ej: Servicios, Proveedores, Varios)" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Descripción breve" value={newTx.description} onChange={(e) => setNewTx({ ...newTx, description: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="number" placeholder="Monto ($)" value={newTx.amount} onChange={(e) => setNewTx({ ...newTx, amount: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Monto ($)" value={formatCOP(newTx.amount)} onChange={(e) => setNewTx({ ...newTx, amount: e.target.value.replace(/\D/g, '') })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button type="submit" style={{ flex: 1, padding: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar</button>
               <button type="button" onClick={() => setShowTxModal(false)} style={{ flex: 1, padding: '0.5rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
