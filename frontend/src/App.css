@@ -46,3 +46,13 @@ body {
     color: #000000 !important;
   }
 }
+@media print {
+  @page {
+    margin: 0;
+    size: auto;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+  }
+}
