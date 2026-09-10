@@ -273,7 +273,6 @@ export default function App() {
   const handleProcessSale = async (saleType) => {
     if (cart.length === 0) return alert('El carrito está vacío');
 
-    // Construir la descripción detallada con artículos, cantidades y precios
     const detailedDescription = cart
       .map(i => `${i.quantity}x ${i.name} ($${(i.sale_price * i.quantity).toLocaleString('es-CO')})`)
       .join(', ');
@@ -501,7 +500,6 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Helper seguro para obtener números formateados en resumen de turno
   const getShiftValFormatted = (val) => {
     const num = Number(val);
     return isNaN(num) ? '0' : num.toLocaleString('es-CO');
@@ -674,15 +672,15 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Carrito de Venta Ampliado */}
+              {/* Carrito de Venta Optimizado */}
               <div style={{ width: '440px', background: '#1e293b', borderRadius: '10px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid #334155', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)' }}>
                 <div>
-                  <h3 style={{ margin: '0 0 1.2rem 0', fontSize: '1.2rem', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.6rem' }}>
+                  <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.2rem', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>
                     🛒 Carrito de Venta ({cart.length})
                   </h3>
 
                   {/* Datos del Cliente */}
-                  <div style={{ fontSize: '0.85rem', marginBottom: '1.2rem' }}>
+                  <div style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
                     <label style={{ color: '#94a3b8', fontWeight: 'bold' }}>CLIENTE:</label>
                     <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.3rem' }}>
                       <input
@@ -703,7 +701,7 @@ export default function App() {
                   </div>
 
                   {/* Lista de Items en Carrito */}
-                  <div style={{ maxHeight: 'calc(100vh - 420px)', minHeight: '180px', overflowY: 'auto', paddingRight: '6px' }}>
+                  <div style={{ maxHeight: 'calc(100vh - 400px)', minHeight: '160px', overflowY: 'auto', paddingRight: '6px' }}>
                     {cart.map(item => (
                       <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.6rem 0.8rem', borderRadius: '6px', fontSize: '0.9rem', border: '1px solid #1e293b' }}>
                         <div style={{ flex: 1, marginRight: '0.6rem' }}>
@@ -721,9 +719,10 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Totales y Pago con Formato COP */}
-                <div style={{ marginTop: '1.2rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
+                {/* Totales y Botones Lado a Lado */}
+                <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid #334155' }}>
+                  {/* Total con tamaño igualado al de Devueltas (0.95rem) */}
+                  <div style={{ fontSize: '0.95rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
                     <span>Total:</span>
                     <span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span>
                   </div>
@@ -731,7 +730,7 @@ export default function App() {
                   <select
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value)}
-                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.6rem', borderRadius: '6px', fontSize: '0.95rem' }}
+                    style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '6px', fontSize: '0.9rem' }}
                   >
                     <option value="Efectivo">💵 Efectivo</option>
                     <option value="Nequi / Transferencia">📱 Nequi / Transferencia</option>
@@ -742,27 +741,31 @@ export default function App() {
                     value={formatCOP(amountPaid)}
                     onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))}
                     placeholder={`Recibido: $${totalCart.toLocaleString('es-CO')}`}
-                    style={{ width: '100%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.6rem', borderRadius: '6px', fontSize: '0.95rem' }}
+                    style={{ width: '100%', padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '6px', fontSize: '0.9rem' }}
                   />
 
-                  <div style={{ fontSize: '0.95rem', marginBottom: '1.2rem', color: '#4ade80', display: 'flex', justifyContent: 'space-between' }}>
+                  {/* Devueltas con tamaño 0.95rem */}
+                  <div style={{ fontSize: '0.95rem', marginBottom: '0.8rem', color: '#4ade80', display: 'flex', justifyContent: 'space-between' }}>
                     <span>Devueltas:</span>
                     <strong>${changeGiven.toLocaleString('es-CO')}</strong>
                   </div>
 
-                  <button
-                    onClick={() => handleProcessSale('Registrada')}
-                    style={{ width: '100%', padding: '0.75rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', marginBottom: '0.6rem', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.95rem' }}
-                  >
-                    📑 Solo Registrar Venta
-                  </button>
+                  {/* Botones de Acción Lado a Lado para optimizar espacio */}
+                  <div style={{ display: 'flex', gap: '0.6rem' }}>
+                    <button
+                      onClick={() => handleProcessSale('Registrada')}
+                      style={{ flex: 1, padding: '0.75rem 0.5rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}
+                    >
+                      📑 Registrar
+                    </button>
 
-                  <button
-                    onClick={() => handleProcessSale('Facturada')}
-                    style={{ width: '100%', padding: '0.85rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem' }}
-                  >
-                    🧾 Facturar e Imprimir DIAN
-                  </button>
+                    <button
+                      onClick={() => handleProcessSale('Facturada')}
+                      style={{ flex: 1, padding: '0.75rem 0.5rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}
+                    >
+                      🧾 Facturar
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -877,7 +880,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: CONTABILIDAD CON DESCRIPCIÓN DETALLADA DE PRODUCTOS VENDIDOS */}
+          {/* TAB: CONTABILIDAD */}
           {activeTab === 'accounting' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
@@ -1115,24 +1118,24 @@ export default function App() {
             <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', fontSize: '0.9rem', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
                 <span>Base Inicial:</span>
-                <span>${getShiftValFormatted(shiftSummary.start_amount ?? shiftSummary.start_val)}</span>
+                <span>${getShiftValFormatted(shiftSummary.start_amount ?? shiftSummary.startBase)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
                 <span>Ventas Efectivo:</span>
-                <span style={{ color: '#4ade80' }}>${getShiftValFormatted(shiftSummary.cash_sales)}</span>
+                <span style={{ color: '#4ade80' }}>${getShiftValFormatted(shiftSummary.cash_sales ?? shiftSummary.cashSales)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
                 <span>Ventas Transferencia:</span>
-                <span style={{ color: '#38bdf8' }}>${getShiftValFormatted(shiftSummary.transfer_sales)}</span>
+                <span style={{ color: '#38bdf8' }}>${getShiftValFormatted(shiftSummary.transfer_sales ?? shiftSummary.transferSales)}</span>
               </div>
               <hr style={{ borderColor: '#334155', margin: '0.5rem 0' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                 <span>Total Vendido:</span>
-                <span>${getShiftValFormatted(shiftSummary.total_sales)}</span>
+                <span>${getShiftValFormatted(shiftSummary.total_sales ?? shiftSummary.totalSales)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#4ade80', marginTop: '0.4rem' }}>
                 <span>Efectivo en Caja:</span>
-                <span>${getShiftValFormatted(shiftSummary.end_amount ?? shiftSummary.cash_in_hand)}</span>
+                <span>${getShiftValFormatted(shiftSummary.end_amount ?? shiftSummary.totalCashInBox ?? shiftSummary.cash_in_hand)}</span>
               </div>
             </div>
             <button onClick={() => setShiftSummary(null)} style={{ width: '100%', padding: '0.5rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar</button>
