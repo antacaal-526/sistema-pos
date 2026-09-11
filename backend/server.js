@@ -10,6 +10,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Función para obtener la marca de tiempo exacta de Colombia (UTC-5)
+function getColombiaTimestamp() {
+  return new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
+}
+
 // Generación del PDF en memoria (Buffer)
 function createInvoicePDFBuffer(invoice, config) {
   return new Promise((resolve, reject) => {
@@ -32,7 +37,7 @@ function createInvoicePDFBuffer(invoice, config) {
     // Datos de la factura
     doc.fontSize(10).font('Helvetica-Bold').text(`FACTURA POS: #${invoice.invoice_number}`);
     doc.font('Helvetica').fontSize(9);
-    doc.text(`Fecha: ${new Date().toLocaleString('es-CO')}`);
+    doc.text(`Fecha: ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`);
     doc.text(`Cliente: ${invoice.customer_name || 'Consumidor Final'} (Doc: ${invoice.customer_doc || '222222222222'})`);
     doc.text(`Atendido por: ${invoice.user_name}`);
     doc.text(`Método de Pago: ${invoice.payment_method}`);
@@ -239,10 +244,11 @@ app.post('/api/shifts/open', (req, res) => {
   const { user_name, start_amount } = req.body;
   const usuario = user_name ? user_name.trim() : 'ANTHONY CARDENAS';
   const base = parseFloat(start_amount) || 0;
+  const horaCol = getColombiaTimestamp();
 
   db.run(
-    "INSERT INTO shifts (user_name, start_amount, status) VALUES (?, ?, 'abierto')",
-    [usuario, base],
+    "INSERT INTO shifts (user_name, start_amount, status, opened_at) VALUES (?, ?, 'abierto', ?)",
+    [usuario, base, horaCol],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true, shiftId: this.lastID, user_name: usuario, start_amount: base });
@@ -252,6 +258,7 @@ app.post('/api/shifts/open', (req, res) => {
 
 app.post('/api/shifts/close', (req, res) => {
   const { shift_id } = req.body;
+  const horaCol = getColombiaTimestamp();
 
   db.get('SELECT * FROM shifts WHERE id = ?', [shift_id], (errShift, shift) => {
     if (errShift || !shift) return res.status(500).json({ error: 'Turno no encontrado' });
@@ -277,8 +284,8 @@ app.post('/api/shifts/close', (req, res) => {
         const totalCashInBox = startBase + cashSales;
 
         db.run(
-          `UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          [totalCashInBox, cashSales, transferSales, totalSales, shift_id],
+          `UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = ? WHERE id = ?`,
+          [totalCashInBox, cashSales, transferSales, totalSales, horaCol, shift_id],
           function (errClose) {
             if (errClose) return res.status(500).json({ error: errClose.message });
             res.json({
@@ -286,15 +293,10 @@ app.post('/api/shifts/close', (req, res) => {
               summary: {
                 shift_id,
                 start_amount: startBase,
-                startBase,
                 cash_sales: cashSales,
-                cashSales,
                 transfer_sales: transferSales,
-                transferSales,
                 total_sales: totalSales,
-                totalSales,
                 end_amount: totalCashInBox,
-                totalCashInBox,
                 cash_in_hand: totalCashInBox
               }
             });
@@ -371,12 +373,13 @@ app.post('/api/sales', async (req, res) => {
   const prefijo = 'TF';
   const invNumber = `${prefijo}-${Date.now().toString().slice(-6)}`;
   const txDescription = description || `Venta POS Factura #${invNumber} (${payment_method})`;
+  const horaCol = getColombiaTimestamp();
 
   try {
     const saleRes = await new Promise((resolve, reject) => {
       db.run(
-        `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
         [
           shift_id || null,
           user_name || 'ANTHONY CARDENAS',
@@ -388,7 +391,8 @@ app.post('/api/sales', async (req, res) => {
           payment_method || 'Efectivo',
           amount_paid || total,
           change_given || 0,
-          sale_type || 'Facturada'
+          sale_type || 'Facturada',
+          horaCol
         ],
         function (err) {
           if (err) reject(err);
@@ -421,8 +425,8 @@ app.post('/api/sales', async (req, res) => {
 
     await new Promise((resolve, reject) => {
       db.run(
-        `INSERT INTO transactions (type, category, description, amount, user_name) VALUES ('Ingreso', 'Venta POS', ?, ?, ?)`,
-        [txDescription, total, user_name || 'ANTHONY CARDENAS'],
+        `INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Venta POS', ?, ?, ?, ?)`,
+        [txDescription, total, user_name || 'ANTHONY CARDENAS', horaCol],
         (err) => {
           if (err) reject(err);
           else resolve();
@@ -494,10 +498,11 @@ app.get('/api/transactions', (req, res) => {
 app.post('/api/transactions', (req, res) => {
   const { type, category, description, amount, user_name } = req.body;
   if (!type || !amount) return res.status(400).json({ error: 'Tipo y monto requeridos' });
+  const horaCol = getColombiaTimestamp();
 
   db.run(
-    `INSERT INTO transactions (type, category, description, amount, user_name) VALUES (?, ?, ?, ?, ?)`,
-    [type, category || 'Varios', description || '', parseFloat(amount) || 0, user_name || 'ANTHONY CARDENAS'],
+    `INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    [type, category || 'Varios', description || '', parseFloat(amount) || 0, user_name || 'ANTHONY CARDENAS', horaCol],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
