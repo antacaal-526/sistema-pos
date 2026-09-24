@@ -142,22 +142,44 @@ app.post('/api/customers', async (req, res) => {
   }
 });
 
-// 2. Pedidos y Reserva de Inventario
-app.get('/api/orders', (req, res) => {
-  db.all('SELECT * FROM orders ORDER BY created_at DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows || []);
-  });
-});
-
+// 2. Pedidos y Reserva de Inventario (Con generación segura de ID de ítem)
 app.post('/api/orders', async (req, res) => {
-  const { id, customer_id, created_by, assigned_to, total, notes, items, created_at } = req.body;
+  const { id, customer_id, created_by, assigned_to, total, notes, items, created_at, customer_email } = req.body;
   const horaCol = getColombiaTimestamp();
 
   try {
-    // Protección de Idempotencia
     const existing = await new Promise(r => db.get('SELECT id FROM orders WHERE id = ?', [id], (e, row) => r(row)));
     if (existing) return res.json({ success: true, message: 'Pedido ya procesado', orderId: id });
+
+    await new Promise((resolve, reject) => {
+      db.run(`INSERT INTO orders (id, customer_id, created_by, assigned_to, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+        [id, customer_id, created_by, assigned_to || null, total, notes, created_at || horaCol, horaCol],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+
+    for (const item of items) {
+      const itemId = item.id || crypto.randomUUID();
+      await new Promise((resolve, reject) => {
+        db.run(`INSERT INTO order_items (id, order_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [itemId, id, item.barcode, item.name, item.quantity, item.unit_price, item.subtotal],
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+
+      await new Promise((resolve, reject) => {
+        db.run('UPDATE products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', 
+          [item.quantity, item.barcode], 
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+    }
+
+    res.json({ success: true, orderId: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
     // 1. Crear Pedido (Sin afectar contabilidad)
     await new Promise((resolve, reject) => {
@@ -225,7 +247,7 @@ app.put('/api/orders/:id/status', async (req, res) => {
   }
 });
 
-// 4. Registrar Cobro (Aquí se inyecta a Contabilidad)
+// 4. Registrar Cobro (Envía factura PDF por correo y genera contabilidad)
 app.post('/api/payments', async (req, res) => {
   const { id, order_id, collector_id, payment_method, amount, collected_at } = req.body;
   const horaCol = getColombiaTimestamp();
@@ -234,13 +256,74 @@ app.post('/api/payments', async (req, res) => {
     const existing = await new Promise(r => db.get('SELECT id FROM payments WHERE id = ?', [id], (e, row) => r(row)));
     if (existing) return res.json({ success: true, message: 'Pago ya procesado' });
 
-    // Insertar Pago
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO payments (id, order_id, collector_id, payment_method, amount, collected_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [id, order_id, collector_id, payment_method, amount, collected_at || horaCol, horaCol],
         (err) => err ? reject(err) : resolve()
       );
     });
+
+    await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
+
+    // Impacto contable directo
+    await new Promise((resolve, reject) => {
+      db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
+        [`Pedido Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+
+    // Enviar PDF por correo electrónico al cliente de forma automática si tiene correo
+    const orderInfo = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [order_id], (e, row) => r(row)));
+    if (orderInfo && orderInfo.customer_email && orderInfo.customer_email.trim()) {
+      (async () => {
+        try {
+          const itemsRows = await new Promise(r => db.all('SELECT * FROM order_items WHERE order_id = ?', [order_id], (e, rows) => r(rows || [])));
+          const rowsConfig = await new Promise((r) => db.all('SELECT * FROM config', [], (e, d) => r(d || [])));
+          const configObj = {
+            razon_social: 'TERRA FRUTOS SECOS',
+            nit: '40044029-8',
+            direccion: 'Cra 7 #15-63, Tunja, Boyacá',
+            telefono: '3183142180',
+            actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR',
+            footer_msg: '¡Gracias por su compra!'
+          };
+          rowsConfig.forEach((row) => { configObj[row.key] = row.value; });
+
+          const pdfBuffer = await createInvoicePDFBuffer(
+            {
+              invoice_number: order_id.substring(0, 8).toUpperCase(),
+              customer_name: orderInfo.customer_name,
+              customer_doc: orderInfo.customer_id,
+              user_name: collector_id,
+              payment_method: payment_method,
+              items: itemsRows.map(i => ({ name: i.product_name, quantity: i.quantity, sale_price: i.unit_price })),
+              total: amount,
+              amount_paid: amount,
+              change_given: 0
+            },
+            configObj
+          );
+
+          await sendInvoiceByBrevo(
+            orderInfo.customer_email.trim(),
+            orderInfo.customer_name,
+            order_id.substring(0, 8).toUpperCase(),
+            amount,
+            pdfBuffer,
+            configObj
+          );
+        } catch (mailErr) {
+          console.error('Error enviando correo de preventa:', mailErr.message);
+        }
+      })();
+    }
+
+    res.json({ success: true, paymentId: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
     // Cambiar estado del pedido a COBRADO
     await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
