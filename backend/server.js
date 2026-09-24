@@ -25,7 +25,6 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
 
-    // Encabezado
     doc.fontSize(16).font('Helvetica-Bold').text(config.razon_social || 'TERRA FRUTOS SECOS', { align: 'center' });
     doc.fontSize(9).font('Helvetica').text(config.actividad || '', { align: 'center' });
     doc.text(`NIT: ${config.nit || ''} | TEL: ${config.telefono || ''}`, { align: 'center' });
@@ -34,7 +33,6 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
     doc.moveDown(0.5);
 
-    // Datos de la factura
     doc.fontSize(10).font('Helvetica-Bold').text(`FACTURA POS: #${invoice.invoice_number}`);
     doc.font('Helvetica').fontSize(9);
     doc.text(`Fecha: ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`);
@@ -43,7 +41,6 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text(`Método de Pago: ${invoice.payment_method}`);
     doc.moveDown(0.8);
 
-    // Tabla de productos
     doc.font('Helvetica-Bold');
     doc.text('Descripción', 36, doc.y, { width: 260 });
     const headerY = doc.y - 11;
@@ -66,7 +63,6 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
     doc.moveDown(0.3);
 
-    // Totales
     doc.fontSize(11).font('Helvetica-Bold');
     doc.text(`TOTAL: $${Number(invoice.total).toLocaleString('es-CO')}`, { align: 'right' });
     doc.fontSize(9).font('Helvetica');
@@ -79,7 +75,7 @@ function createInvoicePDFBuffer(invoice, config) {
   });
 }
 
-// Envío de correo mediante API HTTP de Brevo (Puerto 443 HTTPS - Cero bloqueos)
+// Envío de correo mediante API HTTP de Brevo
 async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, pdfBuffer, config) {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) {
@@ -88,16 +84,8 @@ async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, p
   }
 
   const payload = {
-    sender: {
-      name: config.razon_social || 'TERRA FRUTOS SECOS',
-      email: process.env.EMAIL_USER || 'terratunja2026@gmail.com'
-    },
-    to: [
-      {
-        email: toEmail,
-        name: customerName || 'Cliente'
-      }
-    ],
+    sender: { name: config.razon_social || 'TERRA FRUTOS SECOS', email: process.env.EMAIL_USER || 'terratunja2026@gmail.com' },
+    to: [{ email: toEmail, name: customerName || 'Cliente' }],
     subject: `Factura de Venta #${invoiceNumber} - ${config.razon_social || 'TERRA FRUTOS SECOS'}`,
     htmlContent: `
       <div style="font-family: sans-serif; color: #333; line-height: 1.5;">
@@ -109,73 +97,176 @@ async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, p
         <p style="font-size: 0.85rem; color: #777;">${config.direccion || ''} | Tel: ${config.telefono || ''}</p>
       </div>
     `,
-    attachment: [
-      {
-        name: `Factura_${invoiceNumber}.pdf`,
-        content: pdfBuffer.toString('base64')
-      }
-    ]
+    attachment: [{ name: `Factura_${invoiceNumber}.pdf`, content: pdfBuffer.toString('base64') }]
   };
 
   const response = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
-    headers: {
-      'accept': 'application/json',
-      'api-key': apiKey.trim(),
-      'content-type': 'application/json'
-    },
+    headers: { 'accept': 'application/json', 'api-key': apiKey.trim(), 'content-type': 'application/json' },
     body: JSON.stringify(payload)
   });
 
   const result = await response.json();
-  if (!response.ok) {
-    throw new Error(JSON.stringify(result));
-  }
+  if (!response.ok) throw new Error(JSON.stringify(result));
   console.log(`Factura #${invoiceNumber} enviada por Brevo HTTP API a: ${toEmail}`);
 }
 
-// Ping keep-alive
-app.get('/api/ping', (req, res) => {
-  res.send('pong');
+app.get('/api/ping', (req, res) => res.send('pong'));
+
+// --- PREVENTA Y RUTAS (FASE 1) ---
+
+// 1. Clientes
+app.get('/api/customers', (req, res) => {
+  db.all('SELECT * FROM customers ORDER BY name ASC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
 });
 
-// Descarga respaldo local
-app.get('/api/backup-db', (req, res) => {
+app.post('/api/customers', async (req, res) => {
+  const { id, name, document, phone, address, city, notes, created_at } = req.body;
+  
   try {
-    const possiblePaths = [
-      path.join(__dirname, 'pos.db'),
-      path.join(__dirname, '../pos.db'),
-      path.join(process.cwd(), 'pos.db')
-    ];
+    const existing = await new Promise(r => db.get('SELECT id FROM customers WHERE id = ?', [id], (e, row) => r(row)));
+    if (existing) return res.json({ success: true, message: 'Cliente ya sincronizado' });
 
-    let foundPath = possiblePaths.find((p) => fs.existsSync(p));
-
-    if (!foundPath) {
-      return res.status(404).send('<h1>Base de datos en la nube (Turso) activa.</h1>');
-    }
-
-    const fileBuffer = fs.readFileSync(foundPath);
-    const fileName = `pos_backup_${new Date().toISOString().slice(0, 10)}.db`;
-
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    return res.send(fileBuffer);
-  } catch (error) {
-    console.error('Error al descargar respaldo:', error);
-    return res.status(500).send('Error interno del servidor.');
+    await new Promise((resolve, reject) => {
+      db.run(`INSERT INTO customers (id, name, document, phone, address, city, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, name, document, phone, address, city, notes, created_at || getColombiaTimestamp()],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+    res.json({ success: true, customerId: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Frontend estático
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+// 2. Pedidos y Reserva de Inventario
+app.get('/api/orders', (req, res) => {
+  db.all('SELECT * FROM orders ORDER BY created_at DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
 
-// --- LOGIN ---
+app.post('/api/orders', async (req, res) => {
+  const { id, customer_id, created_by, assigned_to, total, notes, items, created_at } = req.body;
+  const horaCol = getColombiaTimestamp();
+
+  try {
+    // Protección de Idempotencia
+    const existing = await new Promise(r => db.get('SELECT id FROM orders WHERE id = ?', [id], (e, row) => r(row)));
+    if (existing) return res.json({ success: true, message: 'Pedido ya procesado', orderId: id });
+
+    // 1. Crear Pedido (Sin afectar contabilidad)
+    await new Promise((resolve, reject) => {
+      db.run(`INSERT INTO orders (id, customer_id, created_by, assigned_to, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+        [id, customer_id, created_by, assigned_to || null, total, notes, created_at || horaCol, horaCol],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+
+    // 2. Insertar items y reservar stock (Sin sacar del stock principal del POS todavía)
+    for (const item of items) {
+      await new Promise((resolve, reject) => {
+        db.run(`INSERT INTO order_items (id, order_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [item.id, id, item.barcode, item.name, item.quantity, item.unit_price, item.subtotal],
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+
+      await new Promise((resolve, reject) => {
+        db.run('UPDATE products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', 
+          [item.quantity, item.barcode], 
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+    }
+
+    res.json({ success: true, orderId: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Entregar o Cancelar Pedido (Movimiento final de stock físico)
+app.put('/api/orders/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body; // 'DELIVERED' o 'CANCELLED'
+  const horaCol = getColombiaTimestamp();
+
+  try {
+    const order = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [id], (e, row) => r(row)));
+    if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
+    if (order.status === status) return res.json({ success: true, message: 'El estado ya es el solicitado' });
+
+    const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
+
+    if (status === 'DELIVERED') {
+      // Se descuenta del stock real y se libera el stock reservado
+      for (const item of items) {
+        await new Promise(r => db.run('UPDATE products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], r));
+      }
+    } else if (status === 'CANCELLED' && order.status === 'PENDING') {
+      // Solo liberamos reserva, el stock real nunca salió
+      for (const item of items) {
+        await new Promise(r => db.run('UPDATE products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
+      }
+    }
+
+    await new Promise((resolve, reject) => {
+      db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', [status, horaCol, id], (err) => err ? reject(err) : resolve());
+    });
+
+    res.json({ success: true, newStatus: status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Registrar Cobro (Aquí se inyecta a Contabilidad)
+app.post('/api/payments', async (req, res) => {
+  const { id, order_id, collector_id, payment_method, amount, collected_at } = req.body;
+  const horaCol = getColombiaTimestamp();
+
+  try {
+    const existing = await new Promise(r => db.get('SELECT id FROM payments WHERE id = ?', [id], (e, row) => r(row)));
+    if (existing) return res.json({ success: true, message: 'Pago ya procesado' });
+
+    // Insertar Pago
+    await new Promise((resolve, reject) => {
+      db.run(`INSERT INTO payments (id, order_id, collector_id, payment_method, amount, collected_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, order_id, collector_id, payment_method, amount, collected_at || horaCol, horaCol],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+
+    // Cambiar estado del pedido a COBRADO
+    await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
+
+    // Impacto contable directo (Aquí entra el dinero al sistema)
+    await new Promise((resolve, reject) => {
+      db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
+        [`Pedido Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+
+    res.json({ success: true, paymentId: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- FIN PREVENTA ---
+
+// --- LOGIN Y USUARIOS ---
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Ingrese usuario y contraseña' });
 
-  db.get(
-    'SELECT id, name, username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?',
+  db.get('SELECT id, name, username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?',
     [username.trim(), password.trim()],
     (err, user) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -185,7 +276,6 @@ app.post('/api/login', (req, res) => {
   );
 });
 
-// --- USUARIOS ---
 app.get('/api/users', (req, res) => {
   db.all('SELECT id, name, username, role FROM users ORDER BY id ASC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -197,14 +287,11 @@ app.post('/api/users', (req, res) => {
   const { name, username, password, role } = req.body;
   if (!name || !username || !password) return res.status(400).json({ error: 'Todos los campos son obligatorios' });
 
-  db.run(
-    'INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)',
+  db.run('INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)',
     [name.trim(), username.trim().toLowerCase(), password.trim(), role || 'Cajero'],
     function (err) {
       if (err) {
-        if (err.message && err.message.includes('UNIQUE')) {
-          return res.status(400).json({ error: 'El nombre de usuario ya está registrado' });
-        }
+        if (err.message && err.message.includes('UNIQUE')) return res.status(400).json({ error: 'El nombre de usuario ya está registrado' });
         return res.status(500).json({ error: err.message });
       }
       res.json({ success: true, userId: this.lastID });
@@ -213,8 +300,7 @@ app.post('/api/users', (req, res) => {
 });
 
 app.delete('/api/users/:id', (req, res) => {
-  const { id } = req.params;
-  db.run('DELETE FROM users WHERE id = ?', [id], function (err) {
+  db.run('DELETE FROM users WHERE id = ?', [req.params.id], function (err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
@@ -244,11 +330,8 @@ app.post('/api/shifts/open', (req, res) => {
   const { user_name, start_amount } = req.body;
   const usuario = user_name ? user_name.trim() : 'ANTHONY CARDENAS';
   const base = parseFloat(start_amount) || 0;
-  const horaCol = getColombiaTimestamp();
-
-  db.run(
-    "INSERT INTO shifts (user_name, start_amount, status, opened_at) VALUES (?, ?, 'abierto', ?)",
-    [usuario, base, horaCol],
+  db.run("INSERT INTO shifts (user_name, start_amount, status, opened_at) VALUES (?, ?, 'abierto', ?)",
+    [usuario, base, getColombiaTimestamp()],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true, shiftId: this.lastID, user_name: usuario, start_amount: base });
@@ -263,47 +346,29 @@ app.post('/api/shifts/close', (req, res) => {
   db.get('SELECT * FROM shifts WHERE id = ?', [shift_id], (errShift, shift) => {
     if (errShift || !shift) return res.status(500).json({ error: 'Turno no encontrado' });
 
-    db.all(
-      `SELECT payment_method, SUM(total) as total_sales FROM sales WHERE shift_id = ? GROUP BY payment_method`,
-      [shift_id],
-      (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+    db.all(`SELECT payment_method, SUM(total) as total_sales FROM sales WHERE shift_id = ? GROUP BY payment_method`, [shift_id], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
 
-        let cashSales = 0;
-        let transferSales = 0;
-
-        if (rows) {
-          rows.forEach((r) => {
-            if (r.payment_method === 'Efectivo') cashSales += r.total_sales || 0;
-            else transferSales += r.total_sales || 0;
-          });
-        }
-
-        const totalSales = cashSales + transferSales;
-        const startBase = shift.start_amount || 0;
-        const totalCashInBox = startBase + cashSales;
-
-        db.run(
-          `UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = ? WHERE id = ?`,
-          [totalCashInBox, cashSales, transferSales, totalSales, horaCol, shift_id],
-          function (errClose) {
-            if (errClose) return res.status(500).json({ error: errClose.message });
-            res.json({
-              success: true,
-              summary: {
-                shift_id,
-                start_amount: startBase,
-                cash_sales: cashSales,
-                transfer_sales: transferSales,
-                total_sales: totalSales,
-                end_amount: totalCashInBox,
-                cash_in_hand: totalCashInBox
-              }
-            });
-          }
-        );
+      let cashSales = 0; let transferSales = 0;
+      if (rows) {
+        rows.forEach((r) => {
+          if (r.payment_method === 'Efectivo') cashSales += r.total_sales || 0;
+          else transferSales += r.total_sales || 0;
+        });
       }
-    );
+
+      const totalSales = cashSales + transferSales;
+      const startBase = shift.start_amount || 0;
+      const totalCashInBox = startBase + cashSales;
+
+      db.run(`UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = ? WHERE id = ?`,
+        [totalCashInBox, cashSales, transferSales, totalSales, horaCol, shift_id],
+        function (errClose) {
+          if (errClose) return res.status(500).json({ error: errClose.message });
+          res.json({ success: true, summary: { shift_id, start_amount: startBase, cash_sales: cashSales, transfer_sales: transferSales, total_sales: totalSales, end_amount: totalCashInBox, cash_in_hand: totalCashInBox } });
+        }
+      );
+    });
   });
 });
 
@@ -319,8 +384,7 @@ app.post('/api/products', (req, res) => {
   const { barcode, name, sale_price, stock, min_stock } = req.body;
   if (!barcode || !name) return res.status(400).json({ error: 'El código y nombre son requeridos' });
 
-  db.run(
-    `INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)`,
+  db.run(`INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)`,
     [barcode.trim(), name.trim(), parseFloat(sale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
@@ -330,12 +394,9 @@ app.post('/api/products', (req, res) => {
 });
 
 app.put('/api/products/:barcode', (req, res) => {
-  const { barcode } = req.params;
   const { name, sale_price, stock, min_stock } = req.body;
-
-  db.run(
-    `UPDATE products SET name = ?, sale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
-    [name.trim(), parseFloat(sale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3, barcode.trim()],
+  db.run(`UPDATE products SET name = ?, sale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
+    [name.trim(), parseFloat(sale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3, req.params.barcode.trim()],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
@@ -344,8 +405,7 @@ app.put('/api/products/:barcode', (req, res) => {
 });
 
 app.delete('/api/products/:barcode', (req, res) => {
-  const { barcode } = req.params;
-  db.run('DELETE FROM products WHERE barcode = ?', [barcode.trim()], function (err) {
+  db.run('DELETE FROM products WHERE barcode = ?', [req.params.barcode.trim()], function (err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
@@ -353,136 +413,51 @@ app.delete('/api/products/:barcode', (req, res) => {
 
 // --- VENTAS Y ENVÍO DE FACTURA HTTP ---
 app.post('/api/sales', async (req, res) => {
-  const {
-    shift_id,
-    user_name,
-    customer_doc,
-    customer_name,
-    customer_email,
-    items,
-    description,
-    total,
-    payment_method,
-    amount_paid,
-    change_given,
-    sale_type
-  } = req.body;
-
+  const { shift_id, user_name, customer_doc, customer_name, customer_email, items, description, total, payment_method, amount_paid, change_given, sale_type } = req.body;
   if (!items || items.length === 0) return res.status(400).json({ error: 'Carrito vacío' });
 
-  const prefijo = 'TF';
-  const invNumber = `${prefijo}-${Date.now().toString().slice(-6)}`;
+  const invNumber = `TF-${Date.now().toString().slice(-6)}`;
   const txDescription = description || `Venta POS Factura #${invNumber} (${payment_method})`;
   const horaCol = getColombiaTimestamp();
 
   try {
     const saleRes = await new Promise((resolve, reject) => {
-      db.run(
-        `INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-        [
-          shift_id || null,
-          user_name || 'ANTHONY CARDENAS',
-          invNumber,
-          customer_doc || '222222222222',
-          customer_name || 'Consumidor Final',
-          total,
-          total,
-          payment_method || 'Efectivo',
-          amount_paid || total,
-          change_given || 0,
-          sale_type || 'Facturada',
-          horaCol
-        ],
-        function (err) {
-          if (err) reject(err);
-          else resolve(this);
-        }
+      db.run(`INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+        [shift_id || null, user_name || 'ANTHONY CARDENAS', invNumber, customer_doc || '222222222222', customer_name || 'Consumidor Final', total, total, payment_method || 'Efectivo', amount_paid || total, change_given || 0, sale_type || 'Facturada', horaCol],
+        function (err) { err ? reject(err) : resolve(this); }
       );
     });
 
     const saleId = saleRes.lastID;
 
     for (const item of items) {
-      await new Promise((resolve, reject) => {
-        db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-
-      await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
-          [saleId, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price],
-          (err) => {
-            if (err) reject(err);
-            else resolve();
-          }
-        );
-      });
+      await new Promise((resolve, reject) => db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => err ? reject(err) : resolve()));
+      await new Promise((resolve, reject) => db.run('INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)', [saleId, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price], (err) => err ? reject(err) : resolve()));
     }
 
     await new Promise((resolve, reject) => {
-      db.run(
-        `INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Venta POS', ?, ?, ?, ?)`,
+      db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Venta POS', ?, ?, ?, ?)`,
         [txDescription, total, user_name || 'ANTHONY CARDENAS', horaCol],
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
+        (err) => err ? reject(err) : resolve()
       );
     });
 
-    // Envío seguro por HTTP API en segundo plano
     if (customer_email && customer_email.trim()) {
       (async () => {
         try {
           const rows = await new Promise((r) => db.all('SELECT * FROM config', [], (e, d) => r(d || [])));
-          const configObj = {
-            razon_social: 'TERRA FRUTOS SECOS',
-            nit: '40044029-8',
-            direccion: 'Cra 7 #15-63, Tunja, Boyacá',
-            telefono: '3183142180',
-            actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR',
-            footer_msg: '¡Gracias por su compra!'
-          };
-          rows.forEach((row) => {
-            configObj[row.key] = row.value;
-          });
-
-          const pdfBuffer = await createInvoicePDFBuffer(
-            {
-              invoice_number: invNumber,
-              customer_name,
-              customer_doc,
-              user_name: user_name || 'ANTHONY CARDENAS',
-              payment_method: payment_method || 'Efectivo',
-              items,
-              total,
-              amount_paid: amount_paid || total,
-              change_given: change_given || 0
-            },
-            configObj
-          );
-
-          await sendInvoiceByBrevo(
-            customer_email.trim(),
-            customer_name,
-            invNumber,
-            total,
-            pdfBuffer,
-            configObj
-          );
+          const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
+          rows.forEach((row) => configObj[row.key] = row.value);
+          const pdfBuffer = await createInvoicePDFBuffer({ invoice_number: invNumber, customer_name, customer_doc, user_name: user_name || 'ANTHONY CARDENAS', payment_method: payment_method || 'Efectivo', items, total, amount_paid: amount_paid || total, change_given: change_given || 0 }, configObj);
+          await sendInvoiceByBrevo(customer_email.trim(), customer_name, invNumber, total, pdfBuffer, configObj);
         } catch (emailErr) {
-          console.error('Error enviando correo por Brevo HTTP API:', emailErr.message);
+          console.error('Error enviando correo HTTP:', emailErr.message);
         }
       })();
     }
 
     return res.json({ success: true, saleId, invoice_number: invNumber });
   } catch (err) {
-    console.error('Error procesando la venta:', err);
     return res.status(500).json({ error: err.message || 'Error procesando la venta' });
   }
 });
@@ -498,11 +473,9 @@ app.get('/api/transactions', (req, res) => {
 app.post('/api/transactions', (req, res) => {
   const { type, category, description, amount, user_name } = req.body;
   if (!type || !amount) return res.status(400).json({ error: 'Tipo y monto requeridos' });
-  const horaCol = getColombiaTimestamp();
 
-  db.run(
-    `INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    [type, category || 'Varios', description || '', parseFloat(amount) || 0, user_name || 'ANTHONY CARDENAS', horaCol],
+  db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    [type, category || 'Varios', description || '', parseFloat(amount) || 0, user_name || 'ANTHONY CARDENAS', getColombiaTimestamp()],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
@@ -511,12 +484,8 @@ app.post('/api/transactions', (req, res) => {
 });
 
 app.delete('/api/transactions/:id', (req, res) => {
-  const { id } = req.params;
-  const numericId = parseInt(id, 10);
-
-  if (isNaN(numericId)) {
-    return res.status(400).json({ error: 'ID de movimiento inválido' });
-  }
+  const numericId = parseInt(req.params.id, 10);
+  if (isNaN(numericId)) return res.status(400).json({ error: 'ID inválido' });
 
   db.get('SELECT * FROM transactions WHERE id = ?', [numericId], (err, tx) => {
     if (err || !tx) return res.status(400).json({ error: 'Movimiento no encontrado' });
@@ -525,39 +494,24 @@ app.delete('/api/transactions/:id', (req, res) => {
       const parts = tx.description.split('Factura #');
       if (parts[1]) {
         const invNumber = parts[1].split(' ')[0].trim().replace(/[^a-zA-Z0-9-]/g, '');
-
         db.get('SELECT id FROM sales WHERE invoice_number = ?', [invNumber], (errSale, sale) => {
           if (sale && sale.id) {
             db.all('SELECT product_barcode, quantity FROM sale_items WHERE sale_id = ?', [sale.id], (errItems, items) => {
-              if (items && items.length > 0) {
-                items.forEach((item) => {
-                  db.run('UPDATE products SET stock = stock + ? WHERE barcode = ?', [item.quantity, item.product_barcode]);
-                });
-              }
+              if (items && items.length > 0) items.forEach((item) => db.run('UPDATE products SET stock = stock + ? WHERE barcode = ?', [item.quantity, item.product_barcode]));
               db.run('DELETE FROM sale_items WHERE sale_id = ?', [sale.id], () => {
                 db.run('DELETE FROM sales WHERE id = ?', [sale.id], () => {
-                  db.run('DELETE FROM transactions WHERE id = ?', [numericId], (errDel) => {
-                    if (errDel) return res.status(500).json({ error: errDel.message });
-                    return res.json({ success: true });
-                  });
+                  db.run('DELETE FROM transactions WHERE id = ?', [numericId], (errDel) => res.json({ success: true }));
                 });
               });
             });
           } else {
-            db.run('DELETE FROM transactions WHERE id = ?', [numericId], (errDel) => {
-              if (errDel) return res.status(500).json({ error: errDel.message });
-              return res.json({ success: true });
-            });
+            db.run('DELETE FROM transactions WHERE id = ?', [numericId], () => res.json({ success: true }));
           }
         });
         return;
       }
     }
-
-    db.run('DELETE FROM transactions WHERE id = ?', [numericId], function (errDel) {
-      if (errDel) return res.status(500).json({ error: errDel.message });
-      res.json({ success: true });
-    });
+    db.run('DELETE FROM transactions WHERE id = ?', [numericId], () => res.json({ success: true }));
   });
 });
 
@@ -565,19 +519,8 @@ app.delete('/api/transactions/:id', (req, res) => {
 app.get('/api/config', (req, res) => {
   db.all('SELECT * FROM config', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    const configObj = {
-      razon_social: 'TERRA FRUTOS SECOS',
-      nit: '40044029-8',
-      direccion: 'Cra 7 #15-63, Tunja, Boyacá',
-      telefono: '3183142180',
-      actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR',
-      footer_msg: '¡Gracias por su compra!'
-    };
-    if (rows) {
-      rows.forEach((r) => {
-        configObj[r.key] = r.value;
-      });
-    }
+    const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
+    if (rows) rows.forEach((r) => configObj[r.key] = r.value);
     res.json(configObj);
   });
 });
@@ -585,31 +528,20 @@ app.get('/api/config', (req, res) => {
 app.post('/api/config', (req, res) => {
   const config = req.body;
   const keys = Object.keys(config);
-
   if (keys.length === 0) return res.status(400).json({ error: 'Datos no válidos' });
 
   let completed = 0;
   keys.forEach((key) => {
-    db.run(
-      `INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      [key, config[key]],
-      () => {
-        completed++;
-        if (completed === keys.length) {
-          res.json({ success: true });
-        }
-      }
-    );
+    db.run(`INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [key, config[key]], () => {
+      completed++;
+      if (completed === keys.length) res.json({ success: true });
+    });
   });
 });
 
-// Comodín React
-app.use((req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
-});
+// Frontend estático
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
+app.use((req, res) => res.sendFile(path.join(__dirname, '../frontend/dist/index.html')));
 
 const PORT = 3000;
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor Backend ejecutándose en el puerto ${PORT}`);
-});
+app.listen(PORT, '0.0.0.0', () => console.log(`Servidor Backend ejecutándose en el puerto ${PORT}`));

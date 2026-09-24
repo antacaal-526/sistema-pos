@@ -1,7 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
+// --- NUEVOS IMPORTS FASE 2 (OFFLINE) ---
+import { db } from './db';
+import { processSyncQueue } from './syncEngine';
+
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
+
+// --- NUEVA FUNCIÓN FASE 2: DESCARGA DE CATÁLOGO ---
+export async function downloadCatalogForOffline() {
+  if (!navigator.onLine) return;
+  try {
+    const res = await fetch(`${API_URL}/api/products`);
+    const products = await res.json();
+    if (products && products.length > 0) {
+      await db.products.clear();
+      await db.products.bulkPut(products.map(p => ({
+        barcode: p.barcode,
+        name: p.name,
+        sale_price: p.sale_price,
+        stock: p.stock
+      })));
+      console.log('✅ Catálogo descargado para uso offline');
+    }
+    processSyncQueue();
+  } catch (error) {
+    console.error('Error descargando catálogo:', error);
+  }
+}
 
 // Funciones auxiliares para formato COP
 const formatCOP = (val) => {
@@ -92,6 +118,7 @@ export default function App() {
       try {
         const user = JSON.parse(savedUser);
         setCurrentUser(user);
+        downloadCatalogForOffline(); // <--- NUEVO: Descarga catálogo si ya estaba logueado
       } catch (e) {
         localStorage.removeItem('pos_user');
       }
@@ -202,6 +229,7 @@ export default function App() {
       if (res.ok && data.success) {
         setCurrentUser(data.user);
         localStorage.setItem('pos_user', JSON.stringify(data.user));
+        downloadCatalogForOffline(); // <--- NUEVO: Descargar catálogo al iniciar sesión exitosamente
       } else {
         setLoginError(data.error || 'Credenciales incorrectas');
       }
@@ -1222,6 +1250,8 @@ export default function App() {
             <input type="password" placeholder="Contraseña" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
               <option value="Cajero">Cajero</option>
+              <option value="Preventista">Preventista</option>
+              <option value="Entregador">Entregador</option>
               <option value="Administrador">Administrador</option>
             </select>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
