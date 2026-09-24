@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const db = require('./database');
 
@@ -113,7 +114,7 @@ async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, p
 
 app.get('/api/ping', (req, res) => res.send('pong'));
 
-// --- PREVENTA Y RUTAS (FASE 1) ---
+// --- PREVENTA Y RUTAS ---
 
 // 1. Clientes
 app.get('/api/customers', (req, res) => {
@@ -142,7 +143,7 @@ app.post('/api/customers', async (req, res) => {
   }
 });
 
-// 2. Pedidos y Reserva de Inventario (Con generación segura de ID de ítem)
+// 2. Pedidos y Reserva de Inventario
 app.post('/api/orders', async (req, res) => {
   const { id, customer_id, created_by, assigned_to, total, notes, items, created_at, customer_email } = req.body;
   const horaCol = getColombiaTimestamp();
@@ -181,38 +182,7 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-    // 1. Crear Pedido (Sin afectar contabilidad)
-    await new Promise((resolve, reject) => {
-      db.run(`INSERT INTO orders (id, customer_id, created_by, assigned_to, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
-        [id, customer_id, created_by, assigned_to || null, total, notes, created_at || horaCol, horaCol],
-        (err) => err ? reject(err) : resolve()
-      );
-    });
-
-    // 2. Insertar items y reservar stock (Sin sacar del stock principal del POS todavía)
-    for (const item of items) {
-      await new Promise((resolve, reject) => {
-        db.run(`INSERT INTO order_items (id, order_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [item.id, id, item.barcode, item.name, item.quantity, item.unit_price, item.subtotal],
-          (err) => err ? reject(err) : resolve()
-        );
-      });
-
-      await new Promise((resolve, reject) => {
-        db.run('UPDATE products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', 
-          [item.quantity, item.barcode], 
-          (err) => err ? reject(err) : resolve()
-        );
-      });
-    }
-
-    res.json({ success: true, orderId: id });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 3. Entregar o Cancelar Pedido (Movimiento final de stock físico)
+// 3. Entregar o Cancelar Pedido
 app.put('/api/orders/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body; // 'DELIVERED' o 'CANCELLED'
@@ -226,12 +196,10 @@ app.put('/api/orders/:id/status', async (req, res) => {
     const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
 
     if (status === 'DELIVERED') {
-      // Se descuenta del stock real y se libera el stock reservado
       for (const item of items) {
         await new Promise(r => db.run('UPDATE products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], r));
       }
     } else if (status === 'CANCELLED' && order.status === 'PENDING') {
-      // Solo liberamos reserva, el stock real nunca salió
       for (const item of items) {
         await new Promise(r => db.run('UPDATE products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
       }
@@ -247,7 +215,7 @@ app.put('/api/orders/:id/status', async (req, res) => {
   }
 });
 
-// 4. Registrar Cobro (Envía factura PDF por correo y genera contabilidad)
+// 4. Registrar Cobro
 app.post('/api/payments', async (req, res) => {
   const { id, order_id, collector_id, payment_method, amount, collected_at } = req.body;
   const horaCol = getColombiaTimestamp();
@@ -265,7 +233,6 @@ app.post('/api/payments', async (req, res) => {
 
     await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
 
-    // Impacto contable directo
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
         [`Pedido Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
@@ -273,7 +240,6 @@ app.post('/api/payments', async (req, res) => {
       );
     });
 
-    // Enviar PDF por correo electrónico al cliente de forma automática si tiene correo
     const orderInfo = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [order_id], (e, row) => r(row)));
     if (orderInfo && orderInfo.customer_email && orderInfo.customer_email.trim()) {
       (async () => {
@@ -324,25 +290,6 @@ app.post('/api/payments', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-    // Cambiar estado del pedido a COBRADO
-    await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
-
-    // Impacto contable directo (Aquí entra el dinero al sistema)
-    await new Promise((resolve, reject) => {
-      db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
-        [`Pedido Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
-        (err) => err ? reject(err) : resolve()
-      );
-    });
-
-    res.json({ success: true, paymentId: id });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- FIN PREVENTA ---
 
 // --- LOGIN Y USUARIOS ---
 app.post('/api/login', (req, res) => {
@@ -494,7 +441,7 @@ app.delete('/api/products/:barcode', (req, res) => {
   });
 });
 
-// --- VENTAS Y ENVÍO DE FACTURA HTTP ---
+// --- VENTAS Y ENVÍO DE FACTURA ---
 app.post('/api/sales', async (req, res) => {
   const { shift_id, user_name, customer_doc, customer_name, customer_email, items, description, total, payment_method, amount_paid, change_given, sale_type } = req.body;
   if (!items || items.length === 0) return res.status(400).json({ error: 'Carrito vacío' });
