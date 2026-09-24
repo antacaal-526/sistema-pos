@@ -185,7 +185,7 @@ app.post('/api/orders', async (req, res) => {
 // 3. Entregar o Cancelar Pedido
 app.put('/api/orders/:id/status', async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body; // 'DELIVERED' o 'CANCELLED'
+  const { status } = req.body; 
   const horaCol = getColombiaTimestamp();
 
   try {
@@ -411,11 +411,11 @@ app.get('/api/products', (req, res) => {
 });
 
 app.post('/api/products', (req, res) => {
-  const { barcode, name, sale_price, stock, min_stock } = req.body;
+  const { barcode, name, sale_price, wholesale_price, stock, min_stock } = req.body;
   if (!barcode || !name) return res.status(400).json({ error: 'El código y nombre son requeridos' });
 
-  db.run(`INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)`,
-    [barcode.trim(), name.trim(), parseFloat(sale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3],
+  db.run(`INSERT INTO products (barcode, name, sale_price, wholesale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?, ?)`,
+    [barcode.trim(), name.trim(), parseFloat(sale_price) || 0, parseFloat(wholesale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
@@ -424,9 +424,9 @@ app.post('/api/products', (req, res) => {
 });
 
 app.put('/api/products/:barcode', (req, res) => {
-  const { name, sale_price, stock, min_stock } = req.body;
-  db.run(`UPDATE products SET name = ?, sale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
-    [name.trim(), parseFloat(sale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3, req.params.barcode.trim()],
+  const { name, sale_price, wholesale_price, stock, min_stock } = req.body;
+  db.run(`UPDATE products SET name = ?, sale_price = ?, wholesale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
+    [name.trim(), parseFloat(sale_price) || 0, parseFloat(wholesale_price) || 0, parseInt(stock) || 0, parseInt(min_stock) || 3, req.params.barcode.trim()],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
@@ -573,5 +573,5 @@ app.post('/api/config', (req, res) => {
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.use((req, res) => res.sendFile(path.join(__dirname, '../frontend/dist/index.html')));
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`Servidor Backend ejecutándose en el puerto ${PORT}`));

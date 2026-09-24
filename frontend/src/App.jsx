@@ -4,7 +4,6 @@ import './App.css';
 import { db } from './db';
 import { processSyncQueue } from './syncEngine';
 
-// --- NUEVOS IMPORTS FASE 3 ---
 import Preventista from './Preventista';
 import Entregador from './Entregador';
 
@@ -21,6 +20,7 @@ export async function downloadCatalogForOffline() {
         barcode: p.barcode,
         name: p.name,
         sale_price: p.sale_price,
+        wholesale_price: p.wholesale_price,
         stock: p.stock
       })));
       console.log('✅ Catálogo descargado para uso offline');
@@ -86,7 +86,7 @@ export default function App() {
   const [outSearch, setOutSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [newProd, setNewProd] = useState({ barcode: '', name: '', sale_price: '', stock: '', min_stock: '3' });
+  const [newProd, setNewProd] = useState({ barcode: '', name: '', sale_price: '', wholesale_price: '', stock: '', min_stock: '3' });
 
   const [transactions, setTransactions] = useState([]);
   const [showTxModal, setShowTxModal] = useState(false);
@@ -293,13 +293,13 @@ export default function App() {
 
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
-    const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 };
+    const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), wholesale_price: parseCOP(newProd.wholesale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 };
     try {
       const res = await fetch(`${API_URL}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (res.ok && data.success) {
         alert('✅ Producto registrado');
-        setNewProd({ barcode: '', name: '', sale_price: '', stock: '', min_stock: '3' });
+        setNewProd({ barcode: '', name: '', sale_price: '', wholesale_price: '', stock: '', min_stock: '3' });
         setShowAddModal(false); loadProducts();
       } else { alert(`⚠️ ${data.error}`); }
     } catch (e) { alert('Error conectando al servidor'); }
@@ -307,7 +307,7 @@ export default function App() {
 
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
-    const payload = { ...editingProduct, sale_price: parseCOP(editingProduct.sale_price), stock: parseCOP(editingProduct.stock), min_stock: parseCOP(editingProduct.min_stock) || 3 };
+    const payload = { ...editingProduct, sale_price: parseCOP(editingProduct.sale_price), wholesale_price: parseCOP(editingProduct.wholesale_price), stock: parseCOP(editingProduct.stock), min_stock: parseCOP(editingProduct.min_stock) || 3 };
     try {
       const res = await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
@@ -405,7 +405,6 @@ export default function App() {
     return isNaN(num) ? '0' : num.toLocaleString('es-CO');
   };
 
-  // --- RENDER CONDICIONAL DE LOGIN ---
   if (!currentUser) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#121824' }}>
@@ -423,7 +422,6 @@ export default function App() {
     );
   }
 
-  // --- RENDER CONDICIONAL DE ROLES ESPECIALES DE RUTA ---
   if (currentUser.role.toLowerCase() === 'preventista') {
     return <Preventista user={currentUser} onLogout={handleLogout} />;
   }
@@ -432,7 +430,6 @@ export default function App() {
     return <Entregador user={currentUser} onLogout={handleLogout} />;
   }
 
-  // --- RENDER DE CAJERO / ADMINISTRADOR (POS STANDARD) ---
   const isAdmin = currentUser.role?.toLowerCase() === 'administrador';
 
   return (
@@ -595,7 +592,7 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}><h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Gestión de Inventario ({products.length} productos)</h2><button onClick={() => setShowAddModal(true)} style={{ padding: '0.6rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>➕ Ingresar Nuevo Producto</button></div>
               <input type="text" placeholder="🔍 Buscar por código o nombre de producto..." value={invSearch} onChange={(e) => setInvSearch(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
-                <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th style={{ padding: '0.75rem' }}>Código</th><th style={{ padding: '0.75rem' }}>Nombre del Producto</th><th style={{ padding: '0.75rem' }}>Precio de Venta</th><th style={{ padding: '0.75rem' }}>Stock Actual</th><th style={{ padding: '0.75rem' }}>Stock Mínimo</th><th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th></tr></thead>
+                <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th style={{ padding: '0.75rem' }}>Código</th><th style={{ padding: '0.75rem' }}>Nombre del Producto</th><th style={{ padding: '0.75rem' }}>Precio Base</th><th style={{ padding: '0.75rem' }}>Precio Mayorista</th><th style={{ padding: '0.75rem' }}>Stock Actual</th><th style={{ padding: '0.75rem' }}>Stock Mínimo</th><th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th></tr></thead>
                 <tbody>
                   {products.filter((p) => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch)).sort((a, b) => (a.stock - (a.min_stock || 3)) - (b.stock - (b.min_stock || 3))).map((p) => {
                     const minVal = p.min_stock || 3;
@@ -605,6 +602,7 @@ export default function App() {
                         <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
                         <td style={{ padding: '0.75rem' }}>{p.name} {isLow && <span style={{ color: '#f87171', fontSize: '0.75rem', fontWeight: 'bold' }}>(⚠️ Stock Bajo)</span>}</td>
                         <td style={{ padding: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td>
+                        <td style={{ padding: '0.75rem', color: '#38bdf8', fontWeight: 'bold' }}>${p.wholesale_price?.toLocaleString('es-CO')}</td>
                         <td style={{ padding: '0.75rem' }}><span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: isLow ? '#991b1b' : '#166534', fontWeight: 'bold' }}>{p.stock}</span></td>
                         <td style={{ padding: '0.75rem' }}>{minVal}</td>
                         <td style={{ padding: '0.75rem', textAlign: 'center' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer', marginRight: '0.5rem' }}>✏️ Editar</button><button onClick={() => handleDeleteProduct(p.barcode, p.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Eliminar</button></td>
@@ -776,7 +774,8 @@ export default function App() {
             <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Ingresar Producto</h3>
             <input type="text" placeholder="Código de Barras / ID" value={newProd.barcode} onChange={(e) => setNewProd({ ...newProd, barcode: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Nombre del Producto" value={newProd.name} onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="text" placeholder="Precio de Venta ($)" value={formatCOP(newProd.sale_price)} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value.replace(/\D/g, '') })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Precio de Venta (Local) ($)" value={formatCOP(newProd.sale_price)} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value.replace(/\D/g, '') })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Precio Mayorista (Preventa) ($)" value={formatCOP(newProd.wholesale_price)} onChange={(e) => setNewProd({ ...newProd, wholesale_price: e.target.value.replace(/\D/g, '') })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="number" placeholder="Stock Inicial" value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="number" placeholder="Stock Mínimo (Alerta)" value={newProd.min_stock} onChange={(e) => setNewProd({ ...newProd, min_stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
@@ -793,8 +792,10 @@ export default function App() {
             <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar / Reponer</h3>
             <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Código: {editingProduct.barcode}</label>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio de Venta ($):</label>
+            <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio de Venta Local ($):</label>
             <input type="text" value={formatCOP(editingProduct.sale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value.replace(/\D/g, '') })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio Mayorista (Preventa) ($):</label>
+            <input type="text" value={formatCOP(editingProduct.wholesale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, wholesale_price: e.target.value.replace(/\D/g, '') })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Actual:</label>
             <input type="number" value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Mínimo:</label>
