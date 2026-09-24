@@ -129,11 +129,13 @@ export default function App() {
   const loadConfig = async () => {
     try {
       const res = await fetch(`${API_URL}/api/config`);
-  if (res.ok) {
-  const data = await res.json();
-  setStoreConfig((prev) => ({ ...prev, ...data }));
-}
-    } catch (e) { console.error('Error cargando configuración:', e); }
+      if (res.ok) {
+        const data = await res.json();
+        setStoreConfig((prev) => ({ ...prev, ...data }));
+      }
+    } catch (e) { 
+      console.error('Error cargando configuración:', e); 
+    }
   };
 
   const handleSaveConfig = async (e) => {
