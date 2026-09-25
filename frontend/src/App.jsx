@@ -42,7 +42,23 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
+  // CATALOGO CAJA LOCAL
   const [products, setProducts] = useState([]);
+  const [invSearch, setInvSearch] = useState('');
+  const [outSearch, setOutSearch] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [newProd, setNewProd] = useState({ barcode: '', name: '', sale_price: '', stock: '', min_stock: '3' });
+
+  // CATALOGO PREVENTA (NUEVO)
+  const [preventaProducts, setPreventaProducts] = useState([]);
+  const [invPreventaSearch, setInvPreventaSearch] = useState('');
+  const [showAddPreventaModal, setShowAddPreventaModal] = useState(false);
+  const [editingPreventaProduct, setEditingPreventaProduct] = useState(null);
+  const [newPreventaProd, setNewPreventaProd] = useState({ barcode: '', name: '', price: '', stock: '', min_stock: '3' });
+  const [discountRules, setDiscountRules] = useState([]);
+
+  // CAJA / VENTAS
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
@@ -50,12 +66,6 @@ export default function App() {
   const [customerDoc, setCustomerDoc] = useState('222222222222');
   const [customerName, setCustomerName] = useState('Consumidor Final');
   const [customerEmail, setCustomerEmail] = useState('');
-
-  const [invSearch, setInvSearch] = useState('');
-  const [outSearch, setOutSearch] = useState('');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState(null);
-  const [newProd, setNewProd] = useState({ barcode: '', name: '', sale_price: '', wholesale_price: '', stock: '', min_stock: '3' });
 
   const [transactions, setTransactions] = useState([]);
   const [showTxModal, setShowTxModal] = useState(false);
@@ -78,9 +88,7 @@ export default function App() {
         const user = JSON.parse(savedUser);
         setCurrentUser(user);
         processSyncQueue();
-      } catch (e) {
-        localStorage.removeItem('pos_user');
-      }
+      } catch (e) { localStorage.removeItem('pos_user'); }
     }
   }, []);
 
@@ -90,30 +98,41 @@ export default function App() {
         checkActiveShift(currentUser.name);
         loadConfig();
         loadProductsOnline();
+        loadPreventaProductsOnline();
         loadTransactions();
         loadUsersOnline();
         loadShifts();
       } else {
-        // Carga local si no hay internet (Offline-First)
         loadProductsLocal();
       }
     }
   }, [currentUser]);
 
+  // CARGAS CAJA
   const loadProductsOnline = async () => {
     try {
       const res = await fetch(`${API_URL}/api/products`);
       if (res.ok) {
         const data = await res.json();
         setProducts(data);
-        await db.products.bulkPut(data); // Actualiza la copia local para cuando no haya internet
+        await db.products.bulkPut(data);
       }
     } catch (e) { loadProductsLocal(); }
   };
-
   const loadProductsLocal = async () => {
-    const data = await db.products.toArray();
-    setProducts(data);
+    setProducts(await db.products.toArray());
+  };
+
+  // CARGAS PREVENTA
+  const loadPreventaProductsOnline = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/preventa-products`);
+      if (res.ok) {
+        const data = await res.json();
+        setPreventaProducts(data);
+        await db.preventa_products.bulkPut(data);
+      }
+    } catch (e) {}
   };
 
   const loadUsersOnline = async () => {
@@ -127,7 +146,6 @@ export default function App() {
     } catch (e) { console.error(e); }
   };
 
-  // CORRECCIÓN DEL ERROR DE COMPILACIÓN:
   const loadConfig = async () => {
     try {
       const res = await fetch(`${API_URL}/api/config`);
@@ -135,7 +153,7 @@ export default function App() {
         const data = await res.json();
         setStoreConfig((prev) => ({ ...prev, ...data }));
       }
-    } catch (e) { console.log('Sin internet para config'); }
+    } catch (e) {}
   };
 
   const loadTransactions = async () => {
@@ -162,8 +180,6 @@ export default function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
-    
-    // OFFLINE LOGIN - VERIFICA CONTRA LA BASE DE DATOS LOCAL
     if (!navigator.onLine) {
       try {
         const localUser = await db.users.where('username').equals(loginUser.toLowerCase().trim()).first();
@@ -171,15 +187,9 @@ export default function App() {
           setCurrentUser(localUser);
           localStorage.setItem('pos_user', JSON.stringify(localUser));
           return;
-        } else {
-          return setLoginError('Sin conexión. Usuario/Clave local incorrectos.');
-        }
-      } catch (err) {
-        return setLoginError('Error validando en base local.');
-      }
+        } else return setLoginError('Sin conexión. Usuario/Clave local incorrectos.');
+      } catch (err) { return setLoginError('Error validando en base local.'); }
     }
-
-    // ONLINE LOGIN
     try {
       const res = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
@@ -191,12 +201,8 @@ export default function App() {
         setCurrentUser(data.user);
         localStorage.setItem('pos_user', JSON.stringify(data.user));
         processSyncQueue();
-      } else {
-        setLoginError(data.error || 'Credenciales incorrectas');
-      }
-    } catch (e) {
-      setLoginError('Error de red. Intenta nuevamente.');
-    }
+      } else setLoginError(data.error || 'Credenciales incorrectas');
+    } catch (e) { setLoginError('Error de red.'); }
   };
 
   const handleLogout = () => {
@@ -233,6 +239,7 @@ export default function App() {
     } catch (e) { alert('Error al cerrar el turno'); }
   };
 
+  // CARRITO CAJA LOCAL
   const addToCart = (p) => {
     if (!activeShift) { alert('⚠️ Inicie un turno para vender.'); setShowShiftModal(true); return; }
     const exist = cart.find((x) => x.barcode === p.barcode);
@@ -271,34 +278,68 @@ export default function App() {
     } catch (e) { alert('Error de red'); }
   };
 
+  // CRUD CAJA LOCAL
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
-    const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), wholesale_price: parseCOP(newProd.wholesale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 };
+    const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 };
     await fetch(`${API_URL}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     setShowAddModal(false); loadProductsOnline();
   };
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
-    const payload = { ...editingProduct, sale_price: parseCOP(editingProduct.sale_price), wholesale_price: parseCOP(editingProduct.wholesale_price), stock: parseCOP(editingProduct.stock), min_stock: parseCOP(editingProduct.min_stock) || 3 };
+    const payload = { ...editingProduct, sale_price: parseCOP(editingProduct.sale_price), stock: parseCOP(editingProduct.stock), min_stock: parseCOP(editingProduct.min_stock) || 3 };
     await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     setEditingProduct(null); loadProductsOnline();
   };
   const handleDeleteProduct = async (barcode) => {
-    if (window.confirm('Eliminar producto?')) { await fetch(`${API_URL}/api/products/${barcode}`, { method: 'DELETE' }); loadProductsOnline(); }
+    if (window.confirm('¿Eliminar producto local?')) { await fetch(`${API_URL}/api/products/${barcode}`, { method: 'DELETE' }); loadProductsOnline(); }
   };
 
+  // CRUD PREVENTA CATALOGO
+  const openAddPreventaModal = () => {
+    setNewPreventaProd({ barcode: '', name: '', price: '', stock: '', min_stock: '3' });
+    setDiscountRules([]);
+    setShowAddPreventaModal(true);
+  };
+  const openEditPreventaModal = (p) => {
+    setEditingPreventaProduct(p);
+    try { setDiscountRules(JSON.parse(p.discount_rules) || []); } catch(e) { setDiscountRules([]); }
+  };
+
+  const addDiscountRule = () => setDiscountRules([...discountRules, { min: '', max: '', discount: '' }]);
+  const removeDiscountRule = (index) => setDiscountRules(discountRules.filter((_, i) => i !== index));
+  const updateDiscountRule = (index, field, value) => {
+    const updated = [...discountRules];
+    updated[index][field] = value;
+    setDiscountRules(updated);
+  };
+
+  const handleSavePreventaProduct = async (e) => {
+    e.preventDefault();
+    const payload = { ...newPreventaProd, price: parseCOP(newPreventaProd.price), stock: parseCOP(newPreventaProd.stock), min_stock: parseCOP(newPreventaProd.min_stock) || 3, discount_rules: JSON.stringify(discountRules) };
+    await fetch(`${API_URL}/api/preventa-products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    setShowAddPreventaModal(false); loadPreventaProductsOnline();
+  };
+  const handleUpdatePreventaProduct = async (e) => {
+    e.preventDefault();
+    const payload = { ...editingPreventaProduct, price: parseCOP(editingPreventaProduct.price), stock: parseCOP(editingPreventaProduct.stock), min_stock: parseCOP(editingPreventaProduct.min_stock) || 3, discount_rules: JSON.stringify(discountRules) };
+    await fetch(`${API_URL}/api/preventa-products/${editingPreventaProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    setEditingPreventaProduct(null); loadPreventaProductsOnline();
+  };
+  const handleDeletePreventaProduct = async (barcode) => {
+    if (window.confirm('¿Eliminar producto del preventista?')) { await fetch(`${API_URL}/api/preventa-products/${barcode}`, { method: 'DELETE' }); loadPreventaProductsOnline(); }
+  };
+
+  // CRUD CONTABILIDAD
   const handleSaveTransaction = async (e) => {
     e.preventDefault();
     const numericAmount = parseCOP(newTx.amount);
     if (numericAmount <= 0) return alert('Monto inválido');
     try {
       const res = await fetch(`${API_URL}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newTx, amount: numericAmount, user_name: currentUser.name }) });
-      if (res.ok) {
-        alert(`✅ ${newTx.type} registrado`); setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' }); setShowTxModal(false); loadTransactions();
-      }
+      if (res.ok) { alert(`✅ ${newTx.type} registrado`); setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' }); setShowTxModal(false); loadTransactions(); }
     } catch (e) { alert('Error conectando al servidor'); }
   };
-
   const handleDeleteTransaction = async (id, description, category) => {
     if (!window.confirm(`¿Está seguro de eliminar el registro contable "${description}"?`)) return;
     try {
@@ -307,6 +348,7 @@ export default function App() {
     } catch (e) { alert('Error conectando al servidor'); }
   };
 
+  // CRUD USUARIOS
   const handleSaveUser = async (e) => {
     e.preventDefault();
     try {
@@ -314,7 +356,6 @@ export default function App() {
       if (res.ok) { alert('👤 Empleado creado'); setNewUser({ name: '', username: '', password: '', role: 'Cajero' }); setShowUserModal(false); loadUsersOnline(); }
     } catch (e) { alert('Error conectando al servidor'); }
   };
-
   const handleDeleteUser = async (id, name) => {
     if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual');
     if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return;
@@ -381,7 +422,6 @@ export default function App() {
   return (
     <>
       <style>{`
-        /* CSS RESPONSIVE REPARADO PARA SCROLL MÓVIL */
         html, body, #root { height: 100%; min-height: 100vh; margin: 0; padding: 0; background: #0f172a; color: #fff; font-family: sans-serif; overflow-x: hidden; }
         .pos-layout { display: flex; flex-direction: row; min-height: 100vh; height: 100%; }
         .pos-sidebar { width: 240px; background: #1e293b; padding: 1rem; display: flex; flex-direction: column; border-right: 1px solid #334155; flex-shrink: 0; overflow-y: auto; }
@@ -398,7 +438,6 @@ export default function App() {
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
         
-        /* MÓVIL: SE CORRIGE EL SCROLL Y LOS TAMAÑOS */
         @media (max-width: 768px) {
           .pos-layout { flex-direction: column; height: auto; display: block; }
           .pos-sidebar { width: 100%; box-sizing: border-box; border-right: none; border-bottom: 1px solid #334155; padding: 1rem; position: relative; }
@@ -415,7 +454,7 @@ export default function App() {
         }
       `}</style>
 
-      {/* COMPROBANTE DE IMPRESIÓN (OCULTO EN PANTALLA) */}
+      {/* COMPROBANTE DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -460,7 +499,6 @@ export default function App() {
       </div>
 
       <div className="no-print pos-layout">
-        {/* BARRA LATERAL / SUPERIOR MÓVIL */}
         <div className="pos-sidebar">
           <div>
             <div className="sidebar-top-section">
@@ -482,10 +520,11 @@ export default function App() {
             )}
 
             <div className="nav-buttons">
-              <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 Caja</button>
+              <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local</button>
               {isAdmin && (
                 <>
-                  <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario</button>
+                  <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
+                  <button onClick={() => setActiveTab('preventa_inventory')} className={`nav-btn ${activeTab === 'preventa_inventory' ? 'active' : ''}`}>🚚 Productos Preventista</button>
                   <button onClick={() => setActiveTab('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
                   <button onClick={() => setActiveTab('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
                   <button onClick={() => setActiveTab('employees')} className={`nav-btn ${activeTab === 'employees' ? 'active' : ''}`}>👥 Empleados</button>
@@ -497,12 +536,11 @@ export default function App() {
           </div>
         </div>
 
-        {/* CONTENIDO PRINCIPAL */}
         <div className="pos-content">
           {activeTab === 'pos' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
-                <input type="text" placeholder="🔍 Buscar por código o nombre..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+                <input type="text" placeholder="🔍 Buscar en caja local..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
                 <div className="products-grid">
                   {products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search)).map((p) => (
                     <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -518,7 +556,7 @@ export default function App() {
               </div>
 
               <div className="pos-cart">
-                <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>🛒 Carrito ({cart.length})</h3>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>🛒 Carrito Local ({cart.length})</h3>
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
                   <input type="text" value={customerDoc} onChange={(e) => setCustomerDoc(e.target.value)} placeholder="NIT / CC" style={{ width: '40%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
                   <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nombre Cliente" style={{ width: '60%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
@@ -556,18 +594,20 @@ export default function App() {
 
           {activeTab === 'inventory' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}><h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Inventario</h2><button onClick={() => setShowAddModal(true)} style={{ padding: '0.8rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Ingresar Producto</button></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Inventario Local (Caja)</h2>
+                <button onClick={() => setShowAddModal(true)} style={{ padding: '0.8rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Ingresar Producto Local</button>
+              </div>
               <input type="text" placeholder="🔍 Buscar..." value={invSearch} onChange={(e) => setInvSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
                 <table className="responsive-table">
-                  <thead><tr style={{ background: '#334155' }}><th>Cód</th><th>Nombre</th><th>Local</th><th>Preventa</th><th>Stock</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th>Cód</th><th>Nombre</th><th>Precio Local</th><th>Stock</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
                   <tbody>
                     {products.filter((p) => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch)).map((p) => (
-                      <tr key={p.barcode}>
+                      <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
                         <td>{p.barcode}</td>
                         <td style={{ minWidth: '150px' }}>{p.name}</td>
                         <td style={{ color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td>
-                        <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>${p.wholesale_price?.toLocaleString('es-CO')}</td>
                         <td style={{ fontWeight: 'bold' }}>{p.stock}</td>
                         <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️</button><button onClick={() => handleDeleteProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                       </tr>
@@ -578,19 +618,65 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'out_of_stock' && (
+          {activeTab === 'preventa_inventory' && (
             <div>
-              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Agotados o Stock Bajo</h2>
-              <input type="text" placeholder="🔍 Buscar agotados..." value={outSearch} onChange={(e) => setOutSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <h2 style={{ color: '#eab308', margin: 0 }}>🚚 Catálogo Preventista (Separado)</h2>
+                <button onClick={openAddPreventaModal} style={{ padding: '0.8rem 1.2rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Nuevo Producto Preventista</button>
+              </div>
+              <input type="text" placeholder="🔍 Buscar producto en rutas..." value={invPreventaSearch} onChange={(e) => setInvPreventaSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
                 <table className="responsive-table">
-                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Precio</th><th>Stock</th><th>Mínimo</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th>Cód</th><th>Nombre</th><th>Precio Base</th><th>Rangos de Descuento Configurados</th><th>Stock Ruta</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <tbody>
+                    {preventaProducts.filter((p) => p.name.toLowerCase().includes(invPreventaSearch.toLowerCase()) || p.barcode.includes(invPreventaSearch)).map((p) => {
+                      let rulesPreview = "Sin descuento";
+                      try {
+                        const rules = JSON.parse(p.discount_rules);
+                        if (rules && rules.length > 0) rulesPreview = rules.map(r => `${r.min}${r.max ? ` a ${r.max}` : '+'}: -${r.discount}%`).join(' | ');
+                      } catch(e){}
+
+                      return (
+                        <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
+                          <td>{p.barcode}</td>
+                          <td style={{ minWidth: '150px' }}>{p.name}</td>
+                          <td style={{ color: '#eab308', fontWeight: 'bold' }}>${p.price?.toLocaleString('es-CO')}</td>
+                          <td style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{rulesPreview}</td>
+                          <td style={{ fontWeight: 'bold' }}>{p.stock}</td>
+                          <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => openEditPreventaModal(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️ Configurar</button><button onClick={() => handleDeletePreventaProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'out_of_stock' && (
+            <div>
+              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Agotados (Ambos Catálogos)</h2>
+              <input type="text" placeholder="🔍 Buscar agotados..." value={outSearch} onChange={(e) => setOutSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+              
+              <h4 style={{color:'#38bdf8', borderBottom:'1px solid #334155', paddingBottom:'0.5rem'}}>Inventario Local</h4>
+              <div className="responsive-table-wrapper" style={{marginBottom: '2rem'}}>
+                <table className="responsive-table">
+                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Stock</th><th>Mínimo</th></tr></thead>
                   <tbody>
                     {products.filter((p) => p.stock <= (p.min_stock || 3)).filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch)).map((p) => (
-                      <tr key={p.barcode}>
-                        <td>{p.barcode}</td><td>{p.name}</td><td>${p.sale_price?.toLocaleString('es-CO')}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td>{p.min_stock || 3}</td>
-                        <td style={{ textAlign: 'center' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px' }}>🔄 Reponer</button></td>
-                      </tr>
+                      <tr key={p.barcode}><td>{p.barcode}</td><td>{p.name}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td>{p.min_stock || 3}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <h4 style={{color:'#eab308', borderBottom:'1px solid #334155', paddingBottom:'0.5rem'}}>Inventario Preventista</h4>
+              <div className="responsive-table-wrapper">
+                <table className="responsive-table">
+                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Stock</th><th>Mínimo</th></tr></thead>
+                  <tbody>
+                    {preventaProducts.filter((p) => p.stock <= (p.min_stock || 3)).filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch)).map((p) => (
+                      <tr key={p.barcode}><td>{p.barcode}</td><td>{p.name}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td>{p.min_stock || 3}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -601,7 +687,7 @@ export default function App() {
           {activeTab === 'accounting' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Contabilidad</h2>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Contabilidad Central</h2>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button onClick={handleExportCSV} style={{ padding: '0.6rem 1rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>📥 CSV</button>
                   <button onClick={() => setShowTxModal(true)} style={{ padding: '0.6rem 1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Ingreso/Egreso</button>
@@ -611,7 +697,6 @@ export default function App() {
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #22c55e' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL INGRESOS</span><h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${totalIncomes.toLocaleString('es-CO')}</h3></div>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #ef4444' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL EGRESOS</span><h3 style={{ margin: '0.5rem 0 0 0', color: '#ef4444' }}>${totalExpenses.toLocaleString('es-CO')}</h3></div>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #38bdf8' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>BALANCE NETO</span><h3 style={{ margin: '0.5rem 0 0 0', color: netBalance >= 0 ? '#38bdf8' : '#ef4444' }}>${netBalance.toLocaleString('es-CO')}</h3></div>
-                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #eab308' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>INVENTARIO</span><h3 style={{ margin: '0.5rem 0 0 0', color: '#eab308' }}>${inventoryValue.toLocaleString('es-CO')}</h3></div>
               </div>
               <div className="responsive-table-wrapper">
                 <table className="responsive-table">
@@ -660,9 +745,9 @@ export default function App() {
 
           {activeTab === 'reports' && (
             <div>
-              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>📊 Reportes</h2>
+              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>📊 Reportes de Turnos</h2>
               <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                <h4 style={{ margin: '0 0 1rem 0', color: '#e2e8f0' }}>📅 Turnos Diarios</h4>
+                <h4 style={{ margin: '0 0 1rem 0', color: '#e2e8f0' }}>📅 Turnos Diarios (Caja)</h4>
                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
                   <input type="text" placeholder="Filtrar por cajero..." value={filterUser} onChange={(e) => setFilterUser(e.target.value)} style={{ padding: '0.5rem', boxSizing: 'border-box', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', flex: 1, minWidth: '150px' }} />
                   <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ padding: '0.5rem', boxSizing: 'border-box', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', flex: 1, minWidth: '150px' }} />
@@ -700,10 +785,11 @@ export default function App() {
         </div>
       </div>
 
+      {/* MODALES */}
       {showShiftModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '320px', color: '#fff' }}>
-            <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>☀️ Abrir Turno</h3>
+            <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>☀️ Abrir Turno Local</h3>
             <input type="text" value={formatCOP(shiftBaseInput)} onChange={(e) => setShiftBaseInput(e.target.value.replace(/\D/g, ''))} placeholder="Base en Caja ($)" style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', margin: '0.5rem 0 1rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button onClick={handleOpenShift} style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Iniciar</button>
@@ -716,12 +802,11 @@ export default function App() {
       {showAddModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <form onSubmit={handleSaveNewProduct} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Nuevo Producto</h3>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Producto Local (Caja)</h3>
             <input type="text" placeholder="Código de Barras" value={newProd.barcode} onChange={(e) => setNewProd({ ...newProd, barcode: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Nombre" value={newProd.name} onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Precio Local ($)" value={formatCOP(newProd.sale_price)} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="text" placeholder="Precio Mayorista ($)" value={formatCOP(newProd.wholesale_price)} onChange={(e) => setNewProd({ ...newProd, wholesale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="number" placeholder="Stock" value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="number" placeholder="Stock Local Inicial" value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Guardar</button>
               <button type="button" onClick={() => setShowAddModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
@@ -733,10 +818,9 @@ export default function App() {
       {editingProduct && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <form onSubmit={handleUpdateProduct} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar</h3>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar Local</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Precio Local ($)" value={formatCOP(editingProduct.sale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="text" placeholder="Precio Mayorista ($)" value={formatCOP(editingProduct.wholesale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, wholesale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="number" placeholder="Stock" value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Actualizar</button>
@@ -746,6 +830,60 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL PRODUCTO PREVENTA (NUEVO) */}
+      {(showAddPreventaModal || editingPreventaProduct) && (() => {
+        const prod = editingPreventaProduct || newPreventaProd;
+        const setProd = editingPreventaProduct ? setEditingPreventaProduct : setNewPreventaProd;
+        const onSubmit = editingPreventaProduct ? handleUpdatePreventaProduct : handleSavePreventaProduct;
+        
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
+            <form onSubmit={onSubmit} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '400px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '90vh', overflowY: 'auto' }}>
+              <h3 style={{ margin: 0, color: '#eab308' }}>{editingPreventaProduct ? '✏️ Editar' : '➕ Nuevo'} Preventista</h3>
+              
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input type="text" placeholder="Cód Barras Único" value={prod.barcode} readOnly={!!editingPreventaProduct} onChange={(e) => setProd({ ...prod, barcode: e.target.value })} style={{ width: '40%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+                <input type="text" placeholder="Nombre Comercial" value={prod.name} onChange={(e) => setProd({ ...prod, name: e.target.value })} style={{ width: '60%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+              </div>
+              
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio Base 1 Unidad ($)</label>
+                  <input type="text" value={formatCOP(prod.price)} onChange={(e) => setProd({ ...prod, price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock de Ruta</label>
+                  <input type="number" value={prod.stock} onChange={(e) => setProd({ ...prod, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid #334155', paddingTop: '1rem', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <strong style={{ color: '#38bdf8' }}>Descuentos Automáticos (%)</strong>
+                  <button type="button" onClick={addDiscountRule} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem' }}>+ Rango</button>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.8rem' }}>Ej: De 2 a 5 uds = 5% desc. Dejar Max vacío para "En adelante".</div>
+                
+                {discountRules.map((rule, index) => (
+                  <div key={index} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                    <input type="number" placeholder="Min" value={rule.min} onChange={(e) => updateDiscountRule(index, 'min', e.target.value)} style={{ width: '30%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+                    <span style={{ color: '#94a3b8' }}>a</span>
+                    <input type="number" placeholder="Max" value={rule.max} onChange={(e) => updateDiscountRule(index, 'max', e.target.value)} style={{ width: '30%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+                    <input type="number" placeholder="%" value={rule.discount} onChange={(e) => updateDiscountRule(index, 'discount', e.target.value)} style={{ width: '25%', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+                    <button type="button" onClick={() => removeDiscountRule(index)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.6rem', borderRadius: '4px', fontWeight: 'bold' }}>X</button>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>{editingPreventaProduct ? 'Actualizar' : 'Guardar'}</button>
+                <button type="button" onClick={() => { setShowAddPreventaModal(false); setEditingPreventaProduct(null); }} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
+              </div>
+            </form>
+          </div>
+        );
+      })()}
+
       {showTxModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <form onSubmit={handleSaveTransaction} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
@@ -754,8 +892,8 @@ export default function App() {
               <option value="Ingreso">🟢 Ingreso</option>
               <option value="Egreso">🔴 Egreso / Gasto</option>
             </select>
-            <input type="text" placeholder="Categoría" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="text" placeholder="Descripción breve" value={newTx.description} onChange={(e) => setNewTx({ ...newTx, description: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Categoría (Ej: Servicios)" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Descripción" value={newTx.description} onChange={(e) => setNewTx({ ...newTx, description: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Monto ($)" value={formatCOP(newTx.amount)} onChange={(e) => setNewTx({ ...newTx, amount: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Guardar</button>

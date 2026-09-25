@@ -11,6 +11,23 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// --- MIGRACIONES AUTOMÁTICAS DE BASE DE DATOS ---
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS preventa_products (
+    barcode TEXT PRIMARY KEY,
+    name TEXT,
+    price REAL,
+    discount_rules TEXT,
+    stock INTEGER DEFAULT 0,
+    reserved_stock INTEGER DEFAULT 0,
+    min_stock INTEGER DEFAULT 3
+  )`);
+
+  db.run(`ALTER TABLE order_items ADD COLUMN discount_percent REAL DEFAULT 0`, (err) => {
+    // Si la columna ya existe, SQLite arrojará un error que ignoraremos silenciosamente.
+  });
+});
+
 function getColombiaTimestamp() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
 }
@@ -50,10 +67,11 @@ function createInvoicePDFBuffer(invoice, config) {
 
     invoice.items.forEach((item) => {
       const itemY = doc.y;
-      doc.text(item.name, 36, itemY, { width: 260 });
+      const descText = item.discount_percent > 0 ? ` (-${item.discount_percent}%)` : '';
+      doc.text(item.name + descText, 36, itemY, { width: 260 });
       doc.text(String(item.quantity), 310, itemY, { width: 50, align: 'center' });
-      doc.text(`$${Number(item.sale_price).toLocaleString('es-CO')}`, 370, itemY, { width: 80, align: 'right' });
-      doc.text(`$${(item.quantity * item.sale_price).toLocaleString('es-CO')}`, 460, itemY, { width: 80, align: 'right' });
+      doc.text(`$${Number(item.sale_price || item.unit_price).toLocaleString('es-CO')}`, 370, itemY, { width: 80, align: 'right' });
+      doc.text(`$${(item.quantity * (item.sale_price || item.unit_price)).toLocaleString('es-CO')}`, 460, itemY, { width: 80, align: 'right' });
       doc.moveDown(0.3);
     });
 
@@ -125,20 +143,47 @@ app.post('/api/customers', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- NUEVO ENDPOINT PARA TRAZABILIDAD (ENTREGADOR) ---
+// --- CATALOGO PREVENTA (NUEVO) ---
+app.get('/api/preventa-products', (req, res) => {
+  db.all('SELECT * FROM preventa_products ORDER BY name ASC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
+
+app.post('/api/preventa-products', (req, res) => {
+  const { barcode, name, price, discount_rules, stock, min_stock } = req.body;
+  db.run(`INSERT INTO preventa_products (barcode, name, price, discount_rules, stock, min_stock) VALUES (?, ?, ?, ?, ?, ?)`,
+    [barcode, name, price || 0, discount_rules || '[]', stock || 0, min_stock || 3], function (err) {
+      if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
+    });
+});
+
+app.put('/api/preventa-products/:barcode', (req, res) => {
+  const { name, price, discount_rules, stock, min_stock } = req.body;
+  db.run(`UPDATE preventa_products SET name = ?, price = ?, discount_rules = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
+    [name, price || 0, discount_rules || '[]', stock || 0, min_stock || 3, req.params.barcode], function (err) {
+      if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
+    });
+});
+
+app.delete('/api/preventa-products/:barcode', (req, res) => {
+  db.run('DELETE FROM preventa_products WHERE barcode = ?', [req.params.barcode], function (err) {
+    if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
+  });
+});
+
+// --- TRAZABILIDAD (ENTREGADOR) ---
 app.get('/api/orders/detailed', async (req, res) => {
   try {
-    // Obtenemos pedidos con el nombre del cliente
     const orders = await new Promise(r => db.all(`
       SELECT o.*, c.name as customer_name, c.document as customer_doc 
       FROM orders o 
       LEFT JOIN customers c ON o.customer_id = c.id 
       ORDER BY o.created_at DESC`, [], (e, d) => r(d || [])));
     
-    // Obtenemos los items de esos pedidos
     const items = await new Promise(r => db.all('SELECT * FROM order_items', [], (e, d) => r(d || [])));
     
-    // Anidamos los items en su pedido respectivo
     const detailedOrders = orders.map(order => ({
       ...order,
       items: items.filter(i => i.order_id === order.id)
@@ -167,13 +212,14 @@ app.post('/api/orders', async (req, res) => {
     for (const item of items) {
       const itemId = crypto.randomUUID();
       await new Promise((resolve, reject) => {
-        db.run(`INSERT INTO order_items (id, order_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [itemId, id, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price],
+        db.run(`INSERT INTO order_items (id, order_id, product_barcode, product_name, quantity, unit_price, subtotal, discount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [itemId, id, item.barcode, item.name, item.quantity, item.unit_price, item.subtotal, item.discount_percent || 0],
           (err) => err ? reject(err) : resolve()
         );
       });
+      // Aislamos el stock: el preventista rebaja de preventa_products
       await new Promise((resolve, reject) => {
-        db.run('UPDATE products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => err ? reject(err) : resolve());
+        db.run('UPDATE preventa_products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => err ? reject(err) : resolve());
       });
     }
     res.json({ success: true, orderId: id });
@@ -191,13 +237,14 @@ app.put('/api/orders/:id/status', async (req, res) => {
 
     const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
 
+    // Aislamos el stock: se maneja sobre preventa_products
     if (status === 'DELIVERED') {
       for (const item of items) {
-        await new Promise(r => db.run('UPDATE products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], r));
+        await new Promise(r => db.run('UPDATE preventa_products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], r));
       }
     } else if (status === 'CANCELLED' && order.status === 'PENDING') {
       for (const item of items) {
-        await new Promise(r => db.run('UPDATE products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
+        await new Promise(r => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
       }
     }
     await new Promise((resolve, reject) => {
@@ -213,7 +260,7 @@ app.post('/api/payments', async (req, res) => {
 
   try {
     const existing = await new Promise(r => db.get('SELECT id FROM payments WHERE id = ?', [id], (e, row) => r(row)));
-    if (existing) return res.json({ success: true });
+    if (existing) return res.json({ success: true, message: 'Pago ya procesado' });
 
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO payments (id, order_id, collector_id, payment_method, amount, collected_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -231,11 +278,42 @@ app.post('/api/payments', async (req, res) => {
       );
     });
 
+    const orderInfo = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [order_id], (e, row) => r(row)));
+    if (orderInfo && orderInfo.customer_email && orderInfo.customer_email.trim()) {
+      (async () => {
+        try {
+          const itemsRows = await new Promise(r => db.all('SELECT * FROM order_items WHERE order_id = ?', [order_id], (e, rows) => r(rows || [])));
+          const rowsConfig = await new Promise((r) => db.all('SELECT * FROM config', [], (e, d) => r(d || [])));
+          const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
+          rowsConfig.forEach((row) => { configObj[row.key] = row.value; });
+
+          const pdfBuffer = await createInvoicePDFBuffer(
+            {
+              invoice_number: order_id.substring(0, 8).toUpperCase(),
+              customer_name: orderInfo.customer_name,
+              customer_doc: orderInfo.customer_id,
+              user_name: collector_id,
+              payment_method: payment_method,
+              items: itemsRows.map(i => ({ name: i.product_name, quantity: i.quantity, unit_price: i.unit_price, discount_percent: i.discount_percent })),
+              total: amount,
+              amount_paid: amount,
+              change_given: 0
+            },
+            configObj
+          );
+
+          await sendInvoiceByBrevo(orderInfo.customer_email.trim(), orderInfo.customer_name, order_id.substring(0, 8).toUpperCase(), amount, pdfBuffer, configObj);
+        } catch (mailErr) {
+          console.error('Error enviando correo de preventa:', mailErr.message);
+        }
+      })();
+    }
+
     res.json({ success: true, paymentId: id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- USUARIOS, LOGIN ---
+// --- USUARIOS Y LOGIN ---
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   db.get('SELECT id, name, username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?',
@@ -305,20 +383,21 @@ app.post('/api/shifts/close', (req, res) => {
   });
 });
 
+// CATALOGO CAJA POS LOCAL
 app.get('/api/products', (req, res) => {
-  db.all('SELECT * FROM products ORDER BY CAST(barcode AS INTEGER) ASC', [], (err, rows) => res.json(rows || []));
+  db.all('SELECT * FROM products ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
 });
 app.post('/api/products', (req, res) => {
-  const { barcode, name, sale_price, wholesale_price, stock, min_stock } = req.body;
-  db.run(`INSERT INTO products (barcode, name, sale_price, wholesale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?, ?)`,
-    [barcode, name, sale_price || 0, wholesale_price || 0, stock || 0, min_stock || 3], function (err) {
+  const { barcode, name, sale_price, stock, min_stock } = req.body;
+  db.run(`INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)`,
+    [barcode, name, sale_price || 0, stock || 0, min_stock || 3], function (err) {
       if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
     });
 });
 app.put('/api/products/:barcode', (req, res) => {
-  const { name, sale_price, wholesale_price, stock, min_stock } = req.body;
-  db.run(`UPDATE products SET name = ?, sale_price = ?, wholesale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
-    [name, sale_price || 0, wholesale_price || 0, stock || 0, min_stock || 3, req.params.barcode], function (err) {
+  const { name, sale_price, stock, min_stock } = req.body;
+  db.run(`UPDATE products SET name = ?, sale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
+    [name, sale_price || 0, stock || 0, min_stock || 3, req.params.barcode], function (err) {
       if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
     });
 });
@@ -328,6 +407,7 @@ app.delete('/api/products/:barcode', (req, res) => {
   });
 });
 
+// VENTAS CAJA POS LOCAL
 app.post('/api/sales', async (req, res) => {
   const { shift_id, user_name, customer_doc, customer_name, items, description, total, payment_method, amount_paid, change_given } = req.body;
   const invNumber = `TF-${Date.now().toString().slice(-6)}`;

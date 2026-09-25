@@ -10,7 +10,7 @@ const formatCOP = (val) => {
 export default function Entregador({ user, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('pendientes'); // pendientes o cobrados
+  const [activeTab, setActiveTab] = useState('pendientes');
   const [expandedOrderId, setExpandedOrderId] = useState(null);
 
   useEffect(() => {
@@ -73,7 +73,6 @@ export default function Entregador({ user, onLogout }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif' }}>
       
-      {/* HEADER FIJO */}
       <div style={{ background: '#1e293b', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
         <div>
           <strong style={{ color: '#38bdf8' }}>🚚 Rutas y Cobros</strong>
@@ -82,7 +81,6 @@ export default function Entregador({ user, onLogout }) {
         <button onClick={onLogout} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', fontWeight: 'bold' }}>Salir</button>
       </div>
 
-      {/* ÁREA DE CONTENIDO SCROLLABLE */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '80px' }}>
         <button onClick={fetchOrders} style={{ width: '100%', padding: '0.8rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', marginBottom: '1rem' }}>
           {loading ? 'Sincronizando...' : '🔄 Actualizar Nube'}
@@ -118,7 +116,10 @@ export default function Entregador({ user, onLogout }) {
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                   {o.items && o.items.map(it => (
                     <li key={it.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', borderBottom: '1px dashed #334155', paddingBottom: '0.2rem' }}>
-                      <span>{it.quantity}x {it.product_name}</span>
+                      <span>
+                        {it.quantity}x {it.product_name}
+                        {it.discount_percent > 0 && <span style={{ marginLeft: '4px', background: '#eab308', color: '#000', padding: '1px 3px', borderRadius: '3px', fontSize: '0.6rem' }}>-{it.discount_percent}%</span>}
+                      </span>
                       <span style={{ color: '#38bdf8' }}>${formatCOP(it.subtotal)}</span>
                     </li>
                   ))}
@@ -142,7 +143,6 @@ export default function Entregador({ user, onLogout }) {
         ) : null}
       </div>
 
-      {/* BARRA DE NAVEGACIÓN INFERIOR FIJA */}
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#1e293b', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-around', padding: '0.5rem' }}>
         <button onClick={() => setActiveTab('pendientes')} style={{ flex: 1, padding: '0.8rem 0', background: 'transparent', border: 'none', color: activeTab === 'pendientes' ? '#38bdf8' : '#94a3b8', fontWeight: activeTab === 'pendientes' ? 'bold' : 'normal', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
           <span style={{ fontSize: '1.2rem' }}>📍</span><span style={{ fontSize: '0.75rem' }}>Rutas Pendientes</span>
