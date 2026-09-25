@@ -147,7 +147,10 @@ export default function App() {
   const loadConfig = async () => {
     try {
       const res = await fetch(`${API_URL}/api/config`);
-      if (res.ok) setStoreConfig((prev) => ({ ...prev, ...await res.json() }));
+      if (res.ok) {
+        const data = await res.json();
+        setStoreConfig((prev) => ({ ...prev, ...data }));
+      }
     } catch (e) {}
   };
 
@@ -373,7 +376,6 @@ export default function App() {
   const totalIncomes = transactions.filter((t) => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
   const totalExpenses = transactions.filter((t) => t.type === 'Egreso').reduce((acc, t) => acc + (t.amount || 0), 0);
   const netBalance = totalIncomes - totalExpenses;
-  const inventoryValue = products.reduce((acc, p) => acc + (p.sale_price || 0) * (p.stock || 0), 0);
 
   return (
     <>
@@ -410,6 +412,7 @@ export default function App() {
         }
       `}</style>
 
+      {/* COMPROBANTE DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
