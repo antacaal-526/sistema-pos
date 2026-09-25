@@ -94,7 +94,7 @@ export default function App() {
         loadUsersOnline();
         loadShifts();
       } else {
-        // Carga local si no hay internet
+        // Carga local si no hay internet (Offline-First)
         loadProductsLocal();
       }
     }
@@ -106,7 +106,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setProducts(data);
-        await db.products.bulkPut(data); // Actualiza copia local
+        await db.products.bulkPut(data); // Actualiza la copia local para cuando no haya internet
       }
     } catch (e) { loadProductsLocal(); }
   };
@@ -127,10 +127,14 @@ export default function App() {
     } catch (e) { console.error(e); }
   };
 
+  // CORRECCIÓN DEL ERROR DE COMPILACIÓN:
   const loadConfig = async () => {
     try {
       const res = await fetch(`${API_URL}/api/config`);
-      if (res.ok) setStoreConfig((prev) => ({ ...prev, ...await res.json() }));
+      if (res.ok) {
+        const data = await res.json();
+        setStoreConfig((prev) => ({ ...prev, ...data }));
+      }
     } catch (e) { console.log('Sin internet para config'); }
   };
 
@@ -159,7 +163,7 @@ export default function App() {
     e.preventDefault();
     setLoginError('');
     
-    // OFFLINE LOGIN
+    // OFFLINE LOGIN - VERIFICA CONTRA LA BASE DE DATOS LOCAL
     if (!navigator.onLine) {
       try {
         const localUser = await db.users.where('username').equals(loginUser.toLowerCase().trim()).first();
@@ -267,7 +271,6 @@ export default function App() {
     } catch (e) { alert('Error de red'); }
   };
 
-  // MANTENEMOS LAS FUNCIONES DE INVENTARIO Y USUARIOS (REDUCIDAS POR ESPACIO PERO FUNCIONALES)
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
     const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), wholesale_price: parseCOP(newProd.wholesale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 };
@@ -284,10 +287,58 @@ export default function App() {
     if (window.confirm('Eliminar producto?')) { await fetch(`${API_URL}/api/products/${barcode}`, { method: 'DELETE' }); loadProductsOnline(); }
   };
 
+  const handleSaveTransaction = async (e) => {
+    e.preventDefault();
+    const numericAmount = parseCOP(newTx.amount);
+    if (numericAmount <= 0) return alert('Monto inválido');
+    try {
+      const res = await fetch(`${API_URL}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newTx, amount: numericAmount, user_name: currentUser.name }) });
+      if (res.ok) {
+        alert(`✅ ${newTx.type} registrado`); setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' }); setShowTxModal(false); loadTransactions();
+      }
+    } catch (e) { alert('Error conectando al servidor'); }
+  };
+
+  const handleDeleteTransaction = async (id, description, category) => {
+    if (!window.confirm(`¿Está seguro de eliminar el registro contable "${description}"?`)) return;
+    try {
+      const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' });
+      if (res.ok) { alert('🗑️ Registro eliminado'); loadTransactions(); loadProductsOnline(); }
+    } catch (e) { alert('Error conectando al servidor'); }
+  };
+
+  const handleSaveUser = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_URL}/api/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) });
+      if (res.ok) { alert('👤 Empleado creado'); setNewUser({ name: '', username: '', password: '', role: 'Cajero' }); setShowUserModal(false); loadUsersOnline(); }
+    } catch (e) { alert('Error conectando al servidor'); }
+  };
+
+  const handleDeleteUser = async (id, name) => {
+    if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual');
+    if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return;
+    try {
+      const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' });
+      if (res.ok) { alert('🗑️ Usuario eliminado'); loadUsersOnline(); }
+    } catch (e) { alert('Error conectando al servidor'); }
+  };
+
   const handleSaveConfig = async (e) => {
     e.preventDefault();
     await fetch(`${API_URL}/api/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(storeConfig) });
     alert('Configuración guardada');
+  };
+
+  const handlePrintShiftReport = (shift) => { setPrintShiftData(shift); setTimeout(() => window.print(), 300); };
+  
+  const handleExportCSV = () => {
+    let csvContent = 'data:text/csv;charset=utf-8,FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n';
+    transactions.forEach((t) => { csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`; });
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `Reporte_Contable_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
   if (!currentUser) {
@@ -310,6 +361,23 @@ export default function App() {
 
   const isAdmin = currentUser.role?.toLowerCase() === 'administrador';
 
+  const filteredDailyShifts = shiftsList.filter((s) => {
+    const matchesUser = filterUser ? s.user_name.toLowerCase().includes(filterUser.toLowerCase()) : true;
+    const matchesDate = filterDate ? s.opened_at && s.opened_at.startsWith(filterDate) : true;
+    return matchesUser && matchesDate;
+  });
+
+  const monthlyShifts = shiftsList.filter((s) => s.opened_at && s.opened_at.startsWith(selectedMonth));
+  const monthlyCash = monthlyShifts.reduce((acc, s) => acc + (s.cash_sales || 0), 0);
+  const monthlyTransfer = monthlyShifts.reduce((acc, s) => acc + (s.transfer_sales || 0), 0);
+  const monthlyTotal = monthlyShifts.reduce((acc, s) => acc + (s.total_sales || 0), 0);
+  const getShiftValFormatted = (val) => { const num = Number(val); return isNaN(num) ? '0' : num.toLocaleString('es-CO'); };
+
+  const totalIncomes = transactions.filter((t) => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
+  const totalExpenses = transactions.filter((t) => t.type === 'Egreso').reduce((acc, t) => acc + (t.amount || 0), 0);
+  const netBalance = totalIncomes - totalExpenses;
+  const inventoryValue = products.reduce((acc, p) => acc + (p.sale_price || 0) * (p.stock || 0), 0);
+
   return (
     <>
       <style>{`
@@ -327,6 +395,8 @@ export default function App() {
         .nav-btn.active { background: #2563eb; font-weight: bold; }
         .responsive-table-wrapper { width: 100%; overflow-x: auto; background: #1e293b; border-radius: 8px; }
         .responsive-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+        .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
         
         /* MÓVIL: SE CORRIGE EL SCROLL Y LOS TAMAÑOS */
         @media (max-width: 768px) {
@@ -341,12 +411,30 @@ export default function App() {
           .products-grid { overflow: visible; max-height: none; }
           .pos-cart { width: 100%; box-sizing: border-box; margin-top: 1.5rem; height: auto; }
           .cart-items-wrapper { max-height: none; overflow: visible; }
+          .stats-grid { grid-template-columns: 1fr; }
         }
       `}</style>
 
       {/* COMPROBANTE DE IMPRESIÓN (OCULTO EN PANTALLA) */}
       <div id="print-receipt" className="print-only">
-        {lastInvoice ? (
+        {printShiftData ? (
+          <div style={{ width: '100%', boxSizing: 'border-box' }}>
+            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px' }}>🌱 {storeConfig.razon_social}</h3>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '9px', fontWeight: 'bold' }}>REPORTE DE TURNO #{printShiftData.id}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <p style={{ margin: '1px 0' }}>Empleado: <strong>{printShiftData.user_name}</strong></p>
+            <p style={{ margin: '1px 0' }}>Apertura: {printShiftData.opened_at}</p>
+            <p style={{ margin: '1px 0' }}>Cierre: {printShiftData.closed_at || 'En curso'}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Base Inicial:</span><span>${getShiftValFormatted(printShiftData.start_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Efectivo:</span><span>${getShiftValFormatted(printShiftData.cash_sales)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Transferencia:</span><span>${getShiftValFormatted(printShiftData.transfer_sales)}</span></div>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}><span>TOTAL VENDIDO:</span><span>${getShiftValFormatted(printShiftData.total_sales)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}><span>TOTAL EN CAJA:</span><span>${getShiftValFormatted(printShiftData.end_amount)}</span></div>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+          </div>
+        ) : lastInvoice ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
             <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px' }}>🌱 {storeConfig.razon_social}</h3>
             <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px' }}>NIT: {storeConfig.nit}</p>
@@ -372,7 +460,7 @@ export default function App() {
       </div>
 
       <div className="no-print pos-layout">
-        {/* BARRA LATERAL (SUPERIOR EN MÓVIL) */}
+        {/* BARRA LATERAL / SUPERIOR MÓVIL */}
         <div className="pos-sidebar">
           <div>
             <div className="sidebar-top-section">
@@ -398,7 +486,11 @@ export default function App() {
               {isAdmin && (
                 <>
                   <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario</button>
-                  <button onClick={() => setActiveTab('dian')} className={`nav-btn ${activeTab === 'dian' ? 'active' : ''}`}>⚙️ Negocio</button>
+                  <button onClick={() => setActiveTab('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
+                  <button onClick={() => setActiveTab('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
+                  <button onClick={() => setActiveTab('employees')} className={`nav-btn ${activeTab === 'employees' ? 'active' : ''}`}>👥 Empleados</button>
+                  <button onClick={() => setActiveTab('reports')} className={`nav-btn ${activeTab === 'reports' ? 'active' : ''}`}>📊 Reportes</button>
+                  <button onClick={() => setActiveTab('dian')} className={`nav-btn ${activeTab === 'dian' ? 'active' : ''}`}>⚙️ Config</button>
                 </>
               )}
             </div>
@@ -409,8 +501,6 @@ export default function App() {
         <div className="pos-content">
           {activeTab === 'pos' && (
             <div className="pos-grid-container">
-              
-              {/* PRODUCTOS */}
               <div className="pos-products-area">
                 <input type="text" placeholder="🔍 Buscar por código o nombre..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
                 <div className="products-grid">
@@ -427,7 +517,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CARRITO */}
               <div className="pos-cart">
                 <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>🛒 Carrito ({cart.length})</h3>
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
@@ -462,7 +551,6 @@ export default function App() {
                   </div>
                 </div>
               </div>
-
             </div>
           )}
 
@@ -472,20 +560,127 @@ export default function App() {
               <input type="text" placeholder="🔍 Buscar..." value={invSearch} onChange={(e) => setInvSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
                 <table className="responsive-table">
-                  <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th style={{ padding: '0.75rem' }}>Cód</th><th style={{ padding: '0.75rem' }}>Nombre</th><th style={{ padding: '0.75rem' }}>Local</th><th style={{ padding: '0.75rem' }}>Preventa</th><th style={{ padding: '0.75rem' }}>Stock</th><th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <thead><tr style={{ background: '#334155' }}><th>Cód</th><th>Nombre</th><th>Local</th><th>Preventa</th><th>Stock</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
                   <tbody>
                     {products.filter((p) => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch)).map((p) => (
-                      <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
-                        <td style={{ padding: '0.75rem' }}>{p.barcode}</td>
-                        <td style={{ padding: '0.75rem', minWidth: '150px' }}>{p.name}</td>
-                        <td style={{ padding: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td>
-                        <td style={{ padding: '0.75rem', color: '#38bdf8', fontWeight: 'bold' }}>${p.wholesale_price?.toLocaleString('es-CO')}</td>
-                        <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{p.stock}</td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center', minWidth: '120px' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️</button><button onClick={() => handleDeleteProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
+                      <tr key={p.barcode}>
+                        <td>{p.barcode}</td>
+                        <td style={{ minWidth: '150px' }}>{p.name}</td>
+                        <td style={{ color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td>
+                        <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>${p.wholesale_price?.toLocaleString('es-CO')}</td>
+                        <td style={{ fontWeight: 'bold' }}>{p.stock}</td>
+                        <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️</button><button onClick={() => handleDeleteProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'out_of_stock' && (
+            <div>
+              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Agotados o Stock Bajo</h2>
+              <input type="text" placeholder="🔍 Buscar agotados..." value={outSearch} onChange={(e) => setOutSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+              <div className="responsive-table-wrapper">
+                <table className="responsive-table">
+                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Precio</th><th>Stock</th><th>Mínimo</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <tbody>
+                    {products.filter((p) => p.stock <= (p.min_stock || 3)).filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch)).map((p) => (
+                      <tr key={p.barcode}>
+                        <td>{p.barcode}</td><td>{p.name}</td><td>${p.sale_price?.toLocaleString('es-CO')}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td>{p.min_stock || 3}</td>
+                        <td style={{ textAlign: 'center' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px' }}>🔄 Reponer</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'accounting' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Contabilidad</h2>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={handleExportCSV} style={{ padding: '0.6rem 1rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>📥 CSV</button>
+                  <button onClick={() => setShowTxModal(true)} style={{ padding: '0.6rem 1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Ingreso/Egreso</button>
+                </div>
+              </div>
+              <div className="stats-grid">
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #22c55e' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL INGRESOS</span><h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${totalIncomes.toLocaleString('es-CO')}</h3></div>
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #ef4444' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL EGRESOS</span><h3 style={{ margin: '0.5rem 0 0 0', color: '#ef4444' }}>${totalExpenses.toLocaleString('es-CO')}</h3></div>
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #38bdf8' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>BALANCE NETO</span><h3 style={{ margin: '0.5rem 0 0 0', color: netBalance >= 0 ? '#38bdf8' : '#ef4444' }}>${netBalance.toLocaleString('es-CO')}</h3></div>
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #eab308' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>INVENTARIO</span><h3 style={{ margin: '0.5rem 0 0 0', color: '#eab308' }}>${inventoryValue.toLocaleString('es-CO')}</h3></div>
+              </div>
+              <div className="responsive-table-wrapper">
+                <table className="responsive-table">
+                  <thead><tr style={{ background: '#334155' }}><th>Fecha</th><th>Tipo</th><th>Categoría</th><th>Descripción</th><th>Monto</th><th>Usuario</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <tbody>
+                    {transactions.map((t) => (
+                      <tr key={t.id}>
+                        <td style={{ fontSize: '0.85rem' }}>{t.created_at}</td>
+                        <td><span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: t.type === 'Ingreso' ? '#166534' : '#991b1b', fontSize: '0.8rem' }}>{t.type}</span></td>
+                        <td>{t.category}</td>
+                        <td style={{ fontSize: '0.85rem' }}><strong>{t.description}</strong></td>
+                        <td style={{ fontWeight: 'bold', color: t.type === 'Ingreso' ? '#22c55e' : '#ef4444' }}>${t.amount?.toLocaleString('es-CO')}</td>
+                        <td style={{ fontSize: '0.85rem' }}>{t.user_name}</td>
+                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteTransaction(t.id, t.description, t.category)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑️</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'employees' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>👥 Usuarios</h2>
+                <button onClick={() => setShowUserModal(true)} style={{ padding: '0.6rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Nuevo Usuario</button>
+              </div>
+              <div className="responsive-table-wrapper">
+                <table className="responsive-table">
+                  <thead><tr style={{ background: '#334155' }}><th>Nombre</th><th>Usuario</th><th>Rol</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <tbody>
+                    {usersList.map((u) => (
+                      <tr key={u.id}>
+                        <td><strong>{u.name}</strong></td>
+                        <td>{u.username}</td>
+                        <td><span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: u.role === 'Administrador' ? '#1e40af' : '#334155', fontSize: '0.8rem' }}>{u.role}</span></td>
+                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteUser(u.id, u.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑️</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'reports' && (
+            <div>
+              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>📊 Reportes</h2>
+              <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 1rem 0', color: '#e2e8f0' }}>📅 Turnos Diarios</h4>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <input type="text" placeholder="Filtrar por cajero..." value={filterUser} onChange={(e) => setFilterUser(e.target.value)} style={{ padding: '0.5rem', boxSizing: 'border-box', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', flex: 1, minWidth: '150px' }} />
+                  <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ padding: '0.5rem', boxSizing: 'border-box', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', flex: 1, minWidth: '150px' }} />
+                </div>
+                <div className="responsive-table-wrapper">
+                  <table className="responsive-table">
+                    <thead><tr style={{ background: '#334155', fontSize: '0.85rem' }}><th>ID</th><th>Cajero</th><th>Cierre</th><th>Efectivo</th><th>Transf.</th><th>Total</th><th style={{ textAlign: 'center' }}>Acción</th></tr></thead>
+                    <tbody>
+                      {filteredDailyShifts.map((s) => (
+                        <tr key={s.id} style={{ fontSize: '0.85rem' }}>
+                          <td>#{s.id}</td><td><strong>{s.user_name}</strong></td><td>{s.closed_at || 'En curso'}</td>
+                          <td style={{ color: '#4ade80' }}>${getShiftValFormatted(s.cash_sales)}</td><td style={{ color: '#38bdf8' }}>${getShiftValFormatted(s.transfer_sales)}</td><td style={{ fontWeight: 'bold' }}>${getShiftValFormatted(s.total_sales)}</td>
+                          <td style={{ textAlign: 'center' }}><button onClick={() => handlePrintShiftReport(s)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px' }}>🖨️</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -496,11 +691,12 @@ export default function App() {
               <form onSubmit={handleSaveConfig} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <input type="text" value={storeConfig.razon_social} onChange={(e) => setStoreConfig({ ...storeConfig, razon_social: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Razón Social" />
                 <input type="text" value={storeConfig.nit} onChange={(e) => setStoreConfig({ ...storeConfig, nit: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="NIT" />
+                <input type="text" value={storeConfig.direccion} onChange={(e) => setStoreConfig({ ...storeConfig, direccion: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Dirección" />
+                <input type="text" value={storeConfig.telefono} onChange={(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Teléfono" />
                 <button type="submit" style={{ padding: '1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>💾 Guardar Cambios</button>
               </form>
             </div>
           )}
-
         </div>
       </div>
 
@@ -537,7 +733,7 @@ export default function App() {
       {editingProduct && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <form onSubmit={handleUpdateProduct} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar {editingProduct.barcode}</h3>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Precio Local ($)" value={formatCOP(editingProduct.sale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Precio Mayorista ($)" value={formatCOP(editingProduct.wholesale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, wholesale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
@@ -545,6 +741,46 @@ export default function App() {
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Actualizar</button>
               <button type="button" onClick={() => setEditingProduct(null)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showTxModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
+          <form onSubmit={handleSaveTransaction} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Registro Contable</h3>
+            <select value={newTx.type} onChange={(e) => setNewTx({ ...newTx, type: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
+              <option value="Ingreso">🟢 Ingreso</option>
+              <option value="Egreso">🔴 Egreso / Gasto</option>
+            </select>
+            <input type="text" placeholder="Categoría" value={newTx.category} onChange={(e) => setNewTx({ ...newTx, category: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Descripción breve" value={newTx.description} onChange={(e) => setNewTx({ ...newTx, description: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Monto ($)" value={formatCOP(newTx.amount)} onChange={(e) => setNewTx({ ...newTx, amount: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Guardar</button>
+              <button type="button" onClick={() => setShowTxModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showUserModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
+          <form onSubmit={handleSaveUser} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>👤 Nuevo Usuario</h3>
+            <input type="text" placeholder="Nombre Completo" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="text" placeholder="Usuario" value={newUser.username} onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <input type="password" placeholder="Contraseña" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
+              <option value="Cajero">Cajero</option>
+              <option value="Preventista">Preventista</option>
+              <option value="Entregador">Entregador</option>
+              <option value="Administrador">Administrador</option>
+            </select>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Crear</button>
+              <button type="button" onClick={() => setShowUserModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
             </div>
           </form>
         </div>
