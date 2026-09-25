@@ -10,16 +10,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- MIGRACIONES AUTOMÁTICAS ---
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS preventa_products (
-    barcode TEXT PRIMARY KEY, name TEXT, price REAL, discount_rules TEXT,
-    stock INTEGER DEFAULT 0, reserved_stock INTEGER DEFAULT 0, min_stock INTEGER DEFAULT 3
-  )`);
-  db.run(`ALTER TABLE order_items ADD COLUMN discount_percent REAL DEFAULT 0`, () => {});
-  db.run(`ALTER TABLE orders ADD COLUMN customer_email TEXT`, () => {});
-  db.run(`ALTER TABLE customers ADD COLUMN email TEXT`, () => {});
-});
+// Se eliminaron las migraciones manuales para evitar el error de columnas duplicadas en Turso.
 
 function getColombiaTimestamp() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
@@ -226,7 +217,6 @@ app.put('/api/orders/:id/status', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// NUEVO: ELIMINAR PEDIDO (Anulación Controlada si es Pendiente)
 app.delete('/api/orders/:id', async (req, res) => {
   try {
     const order = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [req.params.id], (e, row) => r(row)));
@@ -260,7 +250,6 @@ app.post('/api/payments', async (req, res) => {
 
     await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
 
-    // INTEGRACIÓN A CONTABILIDAD GENERAL
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
         [`Cobro Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
@@ -320,6 +309,7 @@ app.post('/api/shifts/open', (req, res) => {
 });
 app.post('/api/shifts/close', (req, res) => {
   const { shift_id } = req.body;
+  const horaCol = getColombiaTimestamp();
   db.get('SELECT * FROM shifts WHERE id = ?', [shift_id], (errShift, shift) => {
     if (!shift) return res.status(500).json({ error: 'Turno no encontrado' });
     db.all(`SELECT payment_method, SUM(total) as total_sales FROM sales WHERE shift_id = ? GROUP BY payment_method`, [shift_id], (err, rows) => {
@@ -328,7 +318,7 @@ app.post('/api/shifts/close', (req, res) => {
       const totalSales = cashSales + transferSales;
       const totalCashInBox = (shift.start_amount || 0) + cashSales;
       db.run(`UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = ? WHERE id = ?`,
-        [totalCashInBox, cashSales, transferSales, totalSales, getColombiaTimestamp(), shift_id],
+        [totalCashInBox, cashSales, transferSales, totalSales, horaCol, shift_id],
         function (errClose) { res.json({ success: true, summary: { start_amount: shift.start_amount, cash_sales: cashSales, transfer_sales: transferSales, total_sales: totalSales, end_amount: totalCashInBox } }); }
       );
     });
