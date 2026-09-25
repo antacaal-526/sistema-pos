@@ -18,9 +18,7 @@ export const processSyncQueue = async () => {
         if (res.ok) {
           await db.orders_local.update(order.id, { sync_status: 'synced' });
         }
-      } catch (err) {
-        console.error('Error sincronizando pedido:', order.id, err);
-      }
+      } catch (err) { console.error('Error sincronizando pedido:', order.id, err); }
     }
 
     const [prodRes, prevRes, custRes, usersRes] = await Promise.all([
@@ -30,27 +28,16 @@ export const processSyncQueue = async () => {
       fetch(`${API_URL}/api/users`)
     ]);
 
-    if (prodRes.ok) {
-      const products = await prodRes.json();
-      await db.products.bulkPut(products);
-    }
-    if (prevRes.ok) {
-      const preventaProducts = await prevRes.json();
-      await db.preventa_products.bulkPut(preventaProducts);
-    }
+    if (prodRes.ok) await db.products.bulkPut(await prodRes.json());
+    if (prevRes.ok) await db.preventa_products.bulkPut(await prevRes.json());
     if (custRes.ok) {
-      const customers = await custRes.json();
-      await db.customers.bulkPut(customers);
+      const custData = await custRes.json();
+      await db.customers.bulkPut(custData.map(c => ({...c, id: c.document || c.id}))); // Guardar normalizado
     }
-    if (usersRes.ok) {
-      const users = await usersRes.json();
-      await db.users.bulkPut(users);
-    }
+    if (usersRes.ok) await db.users.bulkPut(await usersRes.json());
     
     console.log('✅ Sincronización bidireccional completada');
-  } catch (error) {
-    console.error('Error en el motor de sincronización:', error);
-  }
+  } catch (error) { console.error('Error en motor de sincronización:', error); }
 };
 
 window.addEventListener('online', processSyncQueue);

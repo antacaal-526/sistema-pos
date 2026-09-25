@@ -7,25 +7,18 @@ const PDFDocument = require('pdfkit');
 const db = require('./database');
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
-// --- MIGRACIONES AUTOMÁTICAS DE BASE DE DATOS ---
+// --- MIGRACIONES AUTOMÁTICAS ---
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS preventa_products (
-    barcode TEXT PRIMARY KEY,
-    name TEXT,
-    price REAL,
-    discount_rules TEXT,
-    stock INTEGER DEFAULT 0,
-    reserved_stock INTEGER DEFAULT 0,
-    min_stock INTEGER DEFAULT 3
+    barcode TEXT PRIMARY KEY, name TEXT, price REAL, discount_rules TEXT,
+    stock INTEGER DEFAULT 0, reserved_stock INTEGER DEFAULT 0, min_stock INTEGER DEFAULT 3
   )`);
-
-  db.run(`ALTER TABLE order_items ADD COLUMN discount_percent REAL DEFAULT 0`, (err) => {
-    // Si la columna ya existe, SQLite arrojará un error que ignoraremos silenciosamente.
-  });
+  db.run(`ALTER TABLE order_items ADD COLUMN discount_percent REAL DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE orders ADD COLUMN customer_email TEXT`, () => {});
+  db.run(`ALTER TABLE customers ADD COLUMN email TEXT`, () => {});
 });
 
 function getColombiaTimestamp() {
@@ -48,10 +41,10 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
     doc.moveDown(0.5);
 
-    doc.fontSize(10).font('Helvetica-Bold').text(`FACTURA POS: #${invoice.invoice_number}`);
+    doc.fontSize(10).font('Helvetica-Bold').text(`FACTURA DE VENTA: #${invoice.invoice_number}`);
     doc.font('Helvetica').fontSize(9);
     doc.text(`Fecha: ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`);
-    doc.text(`Cliente: ${invoice.customer_name || 'Consumidor Final'} (Doc: ${invoice.customer_doc || '222222222222'})`);
+    doc.text(`Cliente: ${invoice.customer_name || 'Consumidor Final'} (NIT/CC: ${invoice.customer_doc || '222222222222'})`);
     doc.text(`Atendido por: ${invoice.user_name}`);
     doc.text(`Método de Pago: ${invoice.payment_method}`);
     doc.moveDown(0.8);
@@ -86,14 +79,13 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text(`Devueltas: $${Number(invoice.change_given).toLocaleString('es-CO')}`, { align: 'right' });
     doc.moveDown(1);
     doc.text(config.footer_msg || '¡Gracias por su compra!', { align: 'center' });
-
     doc.end();
   });
 }
 
 async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, pdfBuffer, config) {
   const apiKey = process.env.BREVO_API_KEY;
-  if (!apiKey) return;
+  if (!apiKey || !toEmail) return;
   const payload = {
     sender: { name: config.razon_social || 'TERRA FRUTOS SECOS', email: process.env.EMAIL_USER || 'terratunja2026@gmail.com' },
     to: [{ email: toEmail, name: customerName || 'Cliente' }],
@@ -102,8 +94,8 @@ async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, p
       <div style="font-family: sans-serif; color: #333; line-height: 1.5;">
         <h2>🌱 ${config.razon_social || 'TERRA FRUTOS SECOS'}</h2>
         <p>Hola <strong>${customerName || 'Cliente'}</strong>,</p>
-        <p>Adjuntamos el comprobante electrónico en formato PDF correspondiente a tu compra por valor de <strong>$${Number(total).toLocaleString('es-CO')}</strong>.</p>
-        <p>Número de Factura: <strong>#${invoiceNumber}</strong></p>
+        <p>Adjuntamos el comprobante electrónico en PDF de su compra por valor de <strong>$${Number(total).toLocaleString('es-CO')}</strong>.</p>
+        <p>Factura #: <strong>${invoiceNumber}</strong></p>
         <hr style="border: 0; border-top: 1px solid #ddd;" />
         <p style="font-size: 0.85rem; color: #777;">${config.direccion || ''} | Tel: ${config.telefono || ''}</p>
       </div>
@@ -119,92 +111,80 @@ async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, p
 
 app.get('/api/ping', (req, res) => res.send('pong'));
 
-// --- CLIENTES ---
+// --- CLIENTES GLOBALES ---
 app.get('/api/customers', (req, res) => {
-  db.all('SELECT * FROM customers ORDER BY name ASC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows || []);
-  });
+  db.all('SELECT * FROM customers ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
+});
+app.post('/api/customers', (req, res) => {
+  const { id, document, name, phone, email, address, city, notes } = req.body;
+  const doc = document || id;
+  db.run(`INSERT INTO customers (id, document, name, phone, email, address, city, notes, created_at) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
+          ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`,
+    [doc, doc, name, phone, email, address, city, notes, getColombiaTimestamp()],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, customerId: doc });
+    }
+  );
 });
 
-app.post('/api/customers', async (req, res) => {
-  const { id, name, document, phone, address, city, notes, created_at } = req.body;
-  try {
-    const existing = await new Promise(r => db.get('SELECT id FROM customers WHERE id = ?', [id], (e, row) => r(row)));
-    if (existing) return res.json({ success: true, message: 'Cliente ya sincronizado' });
-
-    await new Promise((resolve, reject) => {
-      db.run(`INSERT INTO customers (id, name, document, phone, address, city, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, name, document, phone, address, city, notes, created_at || getColombiaTimestamp()],
-        (err) => err ? reject(err) : resolve()
-      );
-    });
-    res.json({ success: true, customerId: id });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// --- CATALOGO PREVENTA (NUEVO) ---
+// --- INVENTARIO FÁBRICA (PREVENTA) ---
 app.get('/api/preventa-products', (req, res) => {
-  db.all('SELECT * FROM preventa_products ORDER BY name ASC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows || []);
-  });
+  db.all('SELECT * FROM preventa_products ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
 });
-
 app.post('/api/preventa-products', (req, res) => {
   const { barcode, name, price, discount_rules, stock, min_stock } = req.body;
   db.run(`INSERT INTO preventa_products (barcode, name, price, discount_rules, stock, min_stock) VALUES (?, ?, ?, ?, ?, ?)`,
-    [barcode, name, price || 0, discount_rules || '[]', stock || 0, min_stock || 3], function (err) {
-      if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
-    });
+    [barcode, name, price || 0, discount_rules || '[]', stock || 0, min_stock || 3], 
+    (err) => { if (err) return res.status(500).json({ error: err.message }); res.json({ success: true }); }
+  );
 });
-
 app.put('/api/preventa-products/:barcode', (req, res) => {
   const { name, price, discount_rules, stock, min_stock } = req.body;
   db.run(`UPDATE preventa_products SET name = ?, price = ?, discount_rules = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
-    [name, price || 0, discount_rules || '[]', stock || 0, min_stock || 3, req.params.barcode], function (err) {
-      if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
-    });
+    [name, price || 0, discount_rules || '[]', stock || 0, min_stock || 3, req.params.barcode], 
+    (err) => { if (err) return res.status(500).json({ error: err.message }); res.json({ success: true }); }
+  );
 });
-
 app.delete('/api/preventa-products/:barcode', (req, res) => {
-  db.run('DELETE FROM preventa_products WHERE barcode = ?', [req.params.barcode], function (err) {
+  db.run('DELETE FROM preventa_products WHERE barcode = ?', [req.params.barcode], (err) => {
     if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
   });
 });
 
-// --- TRAZABILIDAD (ENTREGADOR) ---
+// --- PEDIDOS (PREVENTA Y TRAZABILIDAD) ---
 app.get('/api/orders/detailed', async (req, res) => {
   try {
     const orders = await new Promise(r => db.all(`
-      SELECT o.*, c.name as customer_name, c.document as customer_doc 
-      FROM orders o 
-      LEFT JOIN customers c ON o.customer_id = c.id 
+      SELECT o.*, c.name as customer_name_real, c.document as customer_doc_real 
+      FROM orders o LEFT JOIN customers c ON o.customer_id = c.id 
       ORDER BY o.created_at DESC`, [], (e, d) => r(d || [])));
-    
     const items = await new Promise(r => db.all('SELECT * FROM order_items', [], (e, d) => r(d || [])));
     
     const detailedOrders = orders.map(order => ({
       ...order,
+      customer_name: order.customer_name_real || order.customer_name,
       items: items.filter(i => i.order_id === order.id)
     }));
-    
     res.json(detailedOrders);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- PEDIDOS (PREVENTA) ---
 app.post('/api/orders', async (req, res) => {
-  const { id, customer_id, created_by, assigned_to, total, notes, items, created_at } = req.body;
+  const { id, customer_id, customer_name, customer_email, created_by, total, notes, items, created_at } = req.body;
   const horaCol = getColombiaTimestamp();
 
   try {
     const existing = await new Promise(r => db.get('SELECT id FROM orders WHERE id = ?', [id], (e, row) => r(row)));
     if (existing) return res.json({ success: true, message: 'Pedido ya procesado', orderId: id });
 
+    // Autoguardar cliente global
+    await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`, [customer_id, customer_id, customer_name, customer_email, horaCol], r));
+
     await new Promise((resolve, reject) => {
-      db.run(`INSERT INTO orders (id, customer_id, created_by, assigned_to, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
-        [id, customer_id, created_by, assigned_to || null, total, notes, created_at || horaCol, horaCol],
+      db.run(`INSERT INTO orders (id, customer_id, customer_name, customer_email, created_by, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+        [id, customer_id, customer_name, customer_email, created_by, total, notes, created_at || horaCol, horaCol],
         (err) => err ? reject(err) : resolve()
       );
     });
@@ -217,10 +197,7 @@ app.post('/api/orders', async (req, res) => {
           (err) => err ? reject(err) : resolve()
         );
       });
-      // Aislamos el stock: el preventista rebaja de preventa_products
-      await new Promise((resolve, reject) => {
-        db.run('UPDATE preventa_products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => err ? reject(err) : resolve());
-      });
+      await new Promise((resolve) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', [item.quantity, item.barcode], resolve));
     }
     res.json({ success: true, orderId: id });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -237,20 +214,32 @@ app.put('/api/orders/:id/status', async (req, res) => {
 
     const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
 
-    // Aislamos el stock: se maneja sobre preventa_products
     if (status === 'DELIVERED') {
-      for (const item of items) {
-        await new Promise(r => db.run('UPDATE preventa_products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], r));
-      }
+      for (const item of items) await new Promise(r => db.run('UPDATE preventa_products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], r));
     } else if (status === 'CANCELLED' && order.status === 'PENDING') {
-      for (const item of items) {
-        await new Promise(r => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
-      }
+      for (const item of items) await new Promise(r => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
     }
     await new Promise((resolve, reject) => {
       db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', [status, horaCol, id], (err) => err ? reject(err) : resolve());
     });
     res.json({ success: true, newStatus: status });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NUEVO: ELIMINAR PEDIDO (Anulación Controlada si es Pendiente)
+app.delete('/api/orders/:id', async (req, res) => {
+  try {
+    const order = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [req.params.id], (e, row) => r(row)));
+    if (!order) return res.status(404).json({ error: 'No encontrado' });
+    if (order.status !== 'PENDING') return res.status(400).json({ error: 'Sólo se pueden eliminar pedidos PENDIENTES. Los demás deben anularse.' });
+
+    const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [order.id], (e, rows) => r(rows || [])));
+    for (const item of items) await new Promise(r => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
+    
+    await new Promise(r => db.run('DELETE FROM order_items WHERE order_id = ?', [order.id], r));
+    await new Promise((resolve, reject) => db.run('DELETE FROM orders WHERE id = ?', [order.id], (err) => err ? reject(err) : resolve()));
+    
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -260,7 +249,7 @@ app.post('/api/payments', async (req, res) => {
 
   try {
     const existing = await new Promise(r => db.get('SELECT id FROM payments WHERE id = ?', [id], (e, row) => r(row)));
-    if (existing) return res.json({ success: true, message: 'Pago ya procesado' });
+    if (existing) return res.json({ success: true });
 
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO payments (id, order_id, collector_id, payment_method, amount, collected_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -271,6 +260,7 @@ app.post('/api/payments', async (req, res) => {
 
     await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
 
+    // INTEGRACIÓN A CONTABILIDAD GENERAL
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
         [`Cobro Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
@@ -288,86 +278,48 @@ app.post('/api/payments', async (req, res) => {
           rowsConfig.forEach((row) => { configObj[row.key] = row.value; });
 
           const pdfBuffer = await createInvoicePDFBuffer(
-            {
-              invoice_number: order_id.substring(0, 8).toUpperCase(),
-              customer_name: orderInfo.customer_name,
-              customer_doc: orderInfo.customer_id,
-              user_name: collector_id,
-              payment_method: payment_method,
-              items: itemsRows.map(i => ({ name: i.product_name, quantity: i.quantity, unit_price: i.unit_price, discount_percent: i.discount_percent })),
-              total: amount,
-              amount_paid: amount,
-              change_given: 0
-            },
+            { invoice_number: order_id.substring(0, 8).toUpperCase(), customer_name: orderInfo.customer_name, customer_doc: orderInfo.customer_id, user_name: collector_id, payment_method: payment_method, items: itemsRows.map(i => ({ name: i.product_name, quantity: i.quantity, unit_price: i.unit_price, discount_percent: i.discount_percent })), total: amount, amount_paid: amount, change_given: 0 },
             configObj
           );
-
           await sendInvoiceByBrevo(orderInfo.customer_email.trim(), orderInfo.customer_name, order_id.substring(0, 8).toUpperCase(), amount, pdfBuffer, configObj);
-        } catch (mailErr) {
-          console.error('Error enviando correo de preventa:', mailErr.message);
-        }
+        } catch (mailErr) { console.error('Error enviando correo:', mailErr.message); }
       })();
     }
-
     res.json({ success: true, paymentId: id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- USUARIOS Y LOGIN ---
+// --- USUARIOS, LOGIN, CAJA LOCAL, CONFIG (MANTENIDOS INTACTOS) ---
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  db.get('SELECT id, name, username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?',
-    [username.trim(), password.trim()],
-    (err, user) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!user) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
-      res.json({ success: true, user });
-    }
-  );
-});
-
-app.get('/api/users', (req, res) => {
-  db.all('SELECT id, name, username, password, role FROM users ORDER BY id ASC', [], (err, rows) => {
+  db.get('SELECT id, name, username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?', [username.trim(), password.trim()], (err, user) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(rows || []);
+    if (!user) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    res.json({ success: true, user });
   });
 });
+app.get('/api/users', (req, res) => { db.all('SELECT id, name, username, password, role FROM users ORDER BY id ASC', [], (err, rows) => res.json(rows || [])); });
 app.post('/api/users', (req, res) => {
   const { name, username, password, role } = req.body;
-  db.run('INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)',
-    [name.trim(), username.trim().toLowerCase(), password.trim(), role || 'Cajero'],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true, userId: this.lastID });
-    }
-  );
-});
-app.delete('/api/users/:id', (req, res) => {
-  db.run('DELETE FROM users WHERE id = ?', [req.params.id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true });
+  db.run('INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)', [name.trim(), username.trim().toLowerCase(), password.trim(), role || 'Cajero'], function (err) {
+    if (err) return res.status(500).json({ error: err.message }); res.json({ success: true, userId: this.lastID });
   });
 });
+app.delete('/api/users/:id', (req, res) => { db.run('DELETE FROM users WHERE id = ?', [req.params.id], () => res.json({ success: true })); });
 
-// --- RUTINAS ESTANDAR ---
-app.get('/api/shifts', (req, res) => {
-  db.all('SELECT * FROM shifts ORDER BY id DESC', [], (err, rows) => res.json(rows || []));
-});
+app.get('/api/shifts', (req, res) => { db.all('SELECT * FROM shifts ORDER BY id DESC', [], (err, rows) => res.json(rows || [])); });
 app.get('/api/shifts/active', (req, res) => {
   const userName = req.query.user_name ? req.query.user_name.trim() : null;
   const query = userName ? "SELECT * FROM shifts WHERE LOWER(user_name) = LOWER(?) AND status = 'abierto' ORDER BY id DESC LIMIT 1" : "SELECT * FROM shifts WHERE status = 'abierto' ORDER BY id DESC LIMIT 1";
   db.get(query, userName ? [userName] : [], (err, row) => res.json(row || null));
 });
 app.post('/api/shifts/open', (req, res) => {
-  const { user_name, start_amount } = req.body;
-  db.run("INSERT INTO shifts (user_name, start_amount, status, opened_at) VALUES (?, ?, 'abierto', ?)", [user_name, parseFloat(start_amount) || 0, getColombiaTimestamp()], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true, shiftId: this.lastID });
+  db.run("INSERT INTO shifts (user_name, start_amount, status, opened_at) VALUES (?, ?, 'abierto', ?)", [req.body.user_name, parseFloat(req.body.start_amount) || 0, getColombiaTimestamp()], function (err) {
+    if (err) return res.status(500).json({ error: err.message }); res.json({ success: true, shiftId: this.lastID });
   });
 });
 app.post('/api/shifts/close', (req, res) => {
   const { shift_id } = req.body;
-  const horaCol = getColombiaTimestamp();
   db.get('SELECT * FROM shifts WHERE id = ?', [shift_id], (errShift, shift) => {
     if (!shift) return res.status(500).json({ error: 'Turno no encontrado' });
     db.all(`SELECT payment_method, SUM(total) as total_sales FROM sales WHERE shift_id = ? GROUP BY payment_method`, [shift_id], (err, rows) => {
@@ -376,40 +328,30 @@ app.post('/api/shifts/close', (req, res) => {
       const totalSales = cashSales + transferSales;
       const totalCashInBox = (shift.start_amount || 0) + cashSales;
       db.run(`UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = ? WHERE id = ?`,
-        [totalCashInBox, cashSales, transferSales, totalSales, horaCol, shift_id],
+        [totalCashInBox, cashSales, transferSales, totalSales, getColombiaTimestamp(), shift_id],
         function (errClose) { res.json({ success: true, summary: { start_amount: shift.start_amount, cash_sales: cashSales, transfer_sales: transferSales, total_sales: totalSales, end_amount: totalCashInBox } }); }
       );
     });
   });
 });
 
-// CATALOGO CAJA POS LOCAL
-app.get('/api/products', (req, res) => {
-  db.all('SELECT * FROM products ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
-});
+app.get('/api/products', (req, res) => { db.all('SELECT * FROM products ORDER BY name ASC', [], (err, rows) => res.json(rows || [])); });
 app.post('/api/products', (req, res) => {
   const { barcode, name, sale_price, stock, min_stock } = req.body;
-  db.run(`INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)`,
-    [barcode, name, sale_price || 0, stock || 0, min_stock || 3], function (err) {
-      if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
-    });
-});
-app.put('/api/products/:barcode', (req, res) => {
-  const { name, sale_price, stock, min_stock } = req.body;
-  db.run(`UPDATE products SET name = ?, sale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
-    [name, sale_price || 0, stock || 0, min_stock || 3, req.params.barcode], function (err) {
-      if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
-    });
-});
-app.delete('/api/products/:barcode', (req, res) => {
-  db.run('DELETE FROM products WHERE barcode = ?', [req.params.barcode], function (err) {
+  db.run(`INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)`, [barcode, name, sale_price || 0, stock || 0, min_stock || 3], function (err) {
     if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
   });
 });
+app.put('/api/products/:barcode', (req, res) => {
+  const { name, sale_price, stock, min_stock } = req.body;
+  db.run(`UPDATE products SET name = ?, sale_price = ?, stock = ?, min_stock = ? WHERE barcode = ?`, [name, sale_price || 0, stock || 0, min_stock || 3, req.params.barcode], function (err) {
+    if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
+  });
+});
+app.delete('/api/products/:barcode', (req, res) => { db.run('DELETE FROM products WHERE barcode = ?', [req.params.barcode], () => res.json({ success: true })); });
 
-// VENTAS CAJA POS LOCAL
 app.post('/api/sales', async (req, res) => {
-  const { shift_id, user_name, customer_doc, customer_name, items, description, total, payment_method, amount_paid, change_given } = req.body;
+  const { shift_id, user_name, customer_doc, customer_name, items, total, payment_method, amount_paid, change_given } = req.body;
   const invNumber = `TF-${Date.now().toString().slice(-6)}`;
   const horaCol = getColombiaTimestamp();
   try {
@@ -428,30 +370,21 @@ app.post('/api/sales', async (req, res) => {
   } catch (err) { return res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/transactions', (req, res) => {
-  db.all('SELECT * FROM transactions ORDER BY id DESC', [], (err, rows) => res.json(rows || []));
-});
+app.get('/api/transactions', (req, res) => { db.all('SELECT * FROM transactions ORDER BY id DESC', [], (err, rows) => res.json(rows || [])); });
 app.post('/api/transactions', (req, res) => {
   const { type, category, description, amount, user_name } = req.body;
-  db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    [type, category, description, amount, user_name, getColombiaTimestamp()], function (err) {
-      if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
-    });
+  db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`, [type, category, description, amount, user_name, getColombiaTimestamp()], () => res.json({ success: true }));
 });
-app.delete('/api/transactions/:id', (req, res) => {
-  db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], () => res.json({ success: true }));
-});
+app.delete('/api/transactions/:id', (req, res) => { db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], () => res.json({ success: true })); });
 
 app.get('/api/config', (req, res) => {
   db.all('SELECT * FROM config', [], (err, rows) => {
     const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
-    if (rows) rows.forEach((r) => configObj[r.key] = r.value);
-    res.json(configObj);
+    if (rows) rows.forEach((r) => configObj[r.key] = r.value); res.json(configObj);
   });
 });
 app.post('/api/config', (req, res) => {
-  const config = req.body;
-  let completed = 0;
+  const config = req.body; let completed = 0;
   Object.keys(config).forEach((key) => {
     db.run(`INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [key, config[key]], () => {
       completed++; if (completed === Object.keys(config).length) res.json({ success: true });
