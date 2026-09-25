@@ -1,60 +1,55 @@
 import { db } from './db';
 
-// Lee la cola local y envía datos al backend
-export async function processSyncQueue() {
-  // Si no hay internet, abortar silenciosamente
+const API_URL = 'https://terra-pos-backend-526.onrender.com';
+
+export const processSyncQueue = async () => {
   if (!navigator.onLine) return;
 
-  const pendingTasks = await db.sync_queue.where('status').equals('PENDING').toArray();
-  if (pendingTasks.length === 0) return;
-
-  console.log(`🔄 Iniciando sincronización: ${pendingTasks.length} tareas pendientes...`);
-
-  for (const task of pendingTasks) {
-    try {
-      let endpoint = '';
-      let method = 'POST';
-
-      // Rutear la tarea según la acción
-      if (task.action === 'CREATE_ORDER') endpoint = '/api/orders';
-      else if (task.action === 'CREATE_PAYMENT') endpoint = '/api/payments';
-      else if (task.action === 'CREATE_CUSTOMER') endpoint = '/api/customers';
-      else if (task.action === 'UPDATE_ORDER_STATUS') {
-        endpoint = `/api/orders/${task.payload.id}/status`;
-        method = 'PUT';
-      }
-
-      if (!endpoint) continue;
-
-      // Petición al backend principal
-      const response = await fetch(endpoint, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(task.payload)
-      });
-
-      if (response.ok) {
-        // Tarea exitosa: Eliminar de la cola y marcar como sincronizado localmente
-        await db.sync_queue.delete(task.id);
+  try {
+    // 1. Sincronizar Pedidos Locales Pendientes (Preventistas)
+    const pendingOrders = await db.orders_local.where('sync_status').equals('pending').toArray();
+    for (const order of pendingOrders) {
+      try {
+        const res = await fetch(`${API_URL}/api/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(order)
+        });
         
-        if (task.action === 'CREATE_ORDER') {
-          await db.orders.update(task.payload.id, { synced: 1 });
-        } else if (task.action === 'CREATE_PAYMENT') {
-          await db.payments.update(task.payload.id, { synced: 1 });
-        } else if (task.action === 'CREATE_CUSTOMER') {
-          await db.customers.update(task.payload.id, { sync_status: 'SYNCED' });
+        if (res.ok) {
+          // Marcar como sincronizado localmente
+          await db.orders_local.update(order.id, { sync_status: 'synced' });
         }
-      } else {
-        // Error de negocio o validación: Marcar como ERROR para revisión manual
-        const errorText = await response.text();
-        await db.sync_queue.update(task.id, { status: 'ERROR', error: errorText });
+      } catch (err) {
+        console.error('Error sincronizando pedido:', order.id, err);
       }
-    } catch (err) {
-      console.warn('Fallo de red durante sincronización, se reintentará luego:', err);
-      // Se mantiene en PENDING para el próximo ciclo
     }
-  }
-}
 
-// Escuchar automáticamente cuando el celular recupere el Internet (4G/WiFi)
+    // 2. Descargar Catálogos actualizados desde el servidor
+    const [prodRes, custRes, usersRes] = await Promise.all([
+      fetch(`${API_URL}/api/products`),
+      fetch(`${API_URL}/api/customers`),
+      fetch(`${API_URL}/api/users`)
+    ]);
+
+    if (prodRes.ok) {
+      const products = await prodRes.json();
+      await db.products.bulkPut(products);
+    }
+    if (custRes.ok) {
+      const customers = await custRes.json();
+      await db.customers.bulkPut(customers);
+    }
+    if (usersRes.ok) {
+      const users = await usersRes.json();
+      await db.users.bulkPut(users);
+    }
+    
+    console.log('✅ Sincronización bidireccional completada');
+  } catch (error) {
+    console.error('Error en el motor de sincronización:', error);
+  }
+};
+
+// Escuchar cuando vuelva el internet para sincronizar automáticamente
 window.addEventListener('online', processSyncQueue);

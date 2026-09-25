@@ -1,226 +1,209 @@
 import React, { useState, useEffect } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import { processSyncQueue } from './syncEngine';
 
+const formatCOP = (val) => {
+  if (!val) return '0';
+  return parseInt(val, 10).toLocaleString('es-CO');
+};
+
 export default function Preventista({ user, onLogout }) {
-  const products = useLiveQuery(() => db.products.toArray()) || [];
-  const syncQueue = useLiveQuery(() => db.sync_queue.toArray()) || [];
-  
+  const [activeTab, setActiveTab] = useState('catalogo');
+  const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
-  const [customerDoc, setCustomerDoc] = useState('');
-  const [customerName, setCustomerName] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
+  
+  const [clientDoc, setClientDoc] = useState('');
+  const [clientName, setClientName] = useState('');
   const [notes, setNotes] = useState('');
 
-  const isOnline = navigator.onLine;
-  const pendingTasks = syncQueue.filter(t => t.status === 'PENDING').length;
+  const [localOrders, setLocalOrders] = useState([]);
+  const [syncStatus, setSyncStatus] = useState('Conectado');
 
   useEffect(() => {
-    window.addEventListener('online', processSyncQueue);
-    return () => window.removeEventListener('online', processSyncQueue);
+    loadLocalData();
+    window.addEventListener('online', updateNetworkStatus);
+    window.addEventListener('offline', updateNetworkStatus);
+    return () => {
+      window.removeEventListener('online', updateNetworkStatus);
+      window.removeEventListener('offline', updateNetworkStatus);
+    };
   }, []);
 
-  // Autocompletar cliente si ya existe por NIT o CC
-  const handleDocBlur = async () => {
-    if (!customerDoc) return;
-    const existingClient = await db.customers.where('document').equals(customerDoc.trim()).first();
-    if (existingClient) {
-      setCustomerName(existingClient.name || '');
-      setCustomerAddress(existingClient.address || '');
-      setCustomerEmail(existingClient.email || '');
+  const updateNetworkStatus = () => {
+    if (navigator.onLine) {
+      setSyncStatus('Sincronizando...');
+      processSyncQueue().then(() => loadLocalData());
+    } else {
+      setSyncStatus('Sin conexión (Guardando local)');
     }
+  };
+
+  const loadLocalData = async () => {
+    const prods = await db.products.toArray();
+    setProducts(prods);
+    const orders = await db.orders_local.toArray();
+    setLocalOrders(orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+    if (navigator.onLine) setSyncStatus('Conectado y Actualizado');
+    else setSyncStatus('Modo Offline Activo');
   };
 
   const addToCart = (p) => {
     const exist = cart.find(x => x.barcode === p.barcode);
     if (exist) {
-      const newQty = exist.quantity + 1;
-      // REGLA DE DESCUENTO POR VOLUMEN: Si lleva >= 6 unidades, 5% de descuento mayorista
-      const unitPrice = newQty >= 6 ? Math.round(p.sale_price * 0.95) : p.sale_price;
-      setCart(cart.map(x => x.barcode === p.barcode ? { ...x, quantity: newQty, unit_price: unitPrice, subtotal: newQty * unitPrice } : x));
+      setCart(cart.map(x => x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x));
     } else {
-      const unitPrice = p.sale_price;
-      setCart([...cart, { id: crypto.randomUUID(), ...p, quantity: 1, unit_price: unitPrice, subtotal: unitPrice }]);
+      setCart([...cart, { ...p, quantity: 1, sale_price: p.wholesale_price || p.sale_price }]);
     }
+    alert(`Añadido: ${p.name}`);
   };
 
   const updateQty = (barcode, qty) => {
-    const product = products.find(p => p.barcode === barcode);
-    if (qty <= 0) {
-      setCart(cart.filter(x => x.barcode !== barcode));
-    } else {
-      const unitPrice = qty >= 6 ? Math.round(product.sale_price * 0.95) : product.sale_price;
-      setCart(cart.map(x => x.barcode === barcode ? { ...x, quantity: qty, unit_price: unitPrice, subtotal: qty * unitPrice } : x));
-    }
+    if (qty <= 0) setCart(cart.filter(x => x.barcode !== barcode));
+    else setCart(cart.map(x => x.barcode === barcode ? { ...x, quantity: qty } : x));
   };
 
-  const totalCart = cart.reduce((s, i) => s + i.subtotal, 0);
+  const cartTotal = cart.reduce((acc, item) => acc + (item.sale_price * item.quantity), 0);
 
   const handleSaveOrder = async () => {
-    if (cart.length === 0) return alert('El carrito está vacío');
-    if (!customerDoc || !customerName) return alert('Ingrese el NIT/CC y el Nombre del cliente');
+    if (cart.length === 0) return alert('El pedido está vacío');
+    if (!clientDoc || !clientName) return alert('Ingrese NIT/Cédula y Nombre del cliente');
 
     const orderId = crypto.randomUUID();
-    const customerId = customerDoc.trim();
-    const horaLocal = new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
-
-    const clientPayload = {
-      id: customerId,
-      name: customerName.trim(),
-      document: customerId,
-      phone: '',
-      address: customerAddress.trim(),
-      city: 'Tunja',
-      email: customerEmail.trim(),
-      created_at: horaLocal,
-      sync_status: 'PENDING'
-    };
-
     const newOrder = {
       id: orderId,
-      customer_id: customerId,
-      customer_name: customerName.trim(),
-      customer_email: customerEmail.trim(),
-      customer_phone: '',
+      customer_id: clientDoc,
+      customer_name: clientName,
       created_by: user.name,
-      assigned_to: '',
-      total: totalCart,
-      status: 'PENDING',
-      notes: notes.trim(),
+      total: cartTotal,
+      notes: notes,
       items: cart,
-      created_at: horaLocal,
-      synced: 0
+      sync_status: 'pending',
+      created_at: new Date().toISOString()
     };
 
-    try {
-      // 1. Guardar o actualizar cliente localmente
-      await db.customers.put(clientPayload);
-      await db.sync_queue.add({ action: 'CREATE_CUSTOMER', payload: clientPayload, status: 'PENDING', created_at: Date.now() });
-
-      // 2. Guardar pedido localmente
-      await db.orders.put(newOrder);
-      await db.sync_queue.add({ action: 'CREATE_ORDER', payload: newOrder, status: 'PENDING', created_at: Date.now() });
-      
-      alert('✅ Pedido de preventa guardado correctamente.');
-      setCart([]); setCustomerDoc(''); setCustomerName(''); setCustomerAddress(''); setCustomerEmail(''); setNotes('');
-      processSyncQueue();
-    } catch (err) {
-      alert('Error guardando pedido: ' + err.message);
+    // Guardar en IndexedDB
+    await db.orders_local.put(newOrder);
+    alert('✅ Pedido Registrado Exitosamente');
+    
+    setCart([]); setClientDoc(''); setClientName(''); setNotes('');
+    setActiveTab('pedidos');
+    
+    // Intentar sincronizar si hay internet
+    if (navigator.onLine) {
+      updateNetworkStatus();
+    } else {
+      loadLocalData();
     }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: window.innerWidth < 768 ? 'column' : 'row', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif' }}>
       
-      {/* BARRA LATERAL MÓVIL / ESCRITORIO */}
-      <div style={{ width: window.innerWidth < 768 ? '100%' : '240px', background: '#1e293b', padding: '1rem', display: 'flex', flexDirection: window.innerWidth < 768 ? 'row' : 'column', justifyContent: 'space-between', borderRight: '1px solid #334155', alignItems: 'center' }}>
+      {/* HEADER FIJO */}
+      <div style={{ background: '#1e293b', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
         <div>
-          <h3 style={{ color: '#38bdf8', margin: '0 0 0.5rem 0', fontSize: '1rem' }}>🌱 Preventa</h3>
-          <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Preventista: <strong>{user.name}</strong></div>
-          <div style={{ background: isOnline ? '#166534' : '#991b1b', padding: '0.3rem 0.6rem', borderRadius: '4px', fontSize: '0.75rem', display: 'inline-block', marginTop: '0.4rem', fontWeight: 'bold' }}>
-            {isOnline ? '🟢 ONLINE' : '🔴 OFFLINE'}
+          <strong style={{ color: '#38bdf8' }}>🌱 Preventa</strong>
+          <div style={{ fontSize: '0.75rem', color: navigator.onLine ? '#4ade80' : '#f87171', marginTop: '4px' }}>
+            {syncStatus}
           </div>
         </div>
-        <button onClick={onLogout} style={{ padding: '0.5rem 1rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>Salir</button>
+        <button onClick={onLogout} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', fontWeight: 'bold' }}>Salir</button>
       </div>
 
-      {/* CONTENIDO PRINCIPAL: CATÁLOGO */}
-      <div style={{ flex: 1, padding: '1rem', display: 'flex', flexDirection: 'column', minWidth: 0, overflowY: 'auto' }}>
-        <input 
-          type="text" 
-          placeholder="🔍 Buscar producto por nombre o código..." 
-          value={search} 
-          onChange={e => setSearch(e.target.value)} 
-          style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem', fontSize: '0.9rem' }} 
-        />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.8rem' }}>
-          {products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search)).map(p => (
-            <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '0.8rem', borderRadius: '6px', cursor: 'pointer', border: '1px solid #334155' }}>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Cód: {p.barcode}</span>
-              <h4 style={{ margin: '0.2rem 0', fontSize: '0.85rem', lineHeight: '1.2' }}>{p.name}</h4>
-              <div style={{ color: '#22c55e', fontWeight: 'bold', fontSize: '0.95rem', marginTop: '0.4rem' }}>${p.sale_price?.toLocaleString('es-CO')}</div>
-              <span style={{ fontSize: '0.65rem', color: '#38bdf8' }}>(Mayorista desc. a partir de 6 un.)</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* PANEL DERECHO: DATOS DEL CLIENTE Y CARRITO VISIBLE */}
-      <div style={{ width: window.innerWidth < 768 ? '100%' : '380px', background: '#1e293b', borderRadius: '8px', padding: '1rem', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #334155', maxHeight: '100vh', overflowY: 'auto' }}>
-        <h3 style={{ color: '#38bdf8', marginTop: 0, fontSize: '1.1rem' }}>📝 Detalle del Pedido</h3>
+      {/* ÁREA DE CONTENIDO SCROLLABLE */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '80px' }}>
         
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-          <input 
-            type="text" 
-            placeholder="NIT o Cédula (Autocompleta)" 
-            value={customerDoc} 
-            onChange={e => setCustomerDoc(e.target.value)} 
-            onBlur={handleDocBlur}
-            style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }} 
-            required 
-          />
-          <input 
-            type="text" 
-            placeholder="Nombre del Cliente / Local" 
-            value={customerName} 
-            onChange={e => setCustomerName(e.target.value)} 
-            style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }} 
-            required 
-          />
-          <input 
-            type="text" 
-            placeholder="Dirección de entrega" 
-            value={customerAddress} 
-            onChange={e => setCustomerAddress(e.target.value)} 
-            style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }} 
-          />
-          <input 
-            type="email" 
-            placeholder="📧 Correo para envío de factura PDF" 
-            value={customerEmail} 
-            onChange={e => setCustomerEmail(e.target.value)} 
-            style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }} 
-          />
-          <input 
-            type="text" 
-            placeholder="Observaciones" 
-            value={notes} 
-            onChange={e => setNotes(e.target.value)} 
-            style={{ padding: '0.5rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.85rem' }} 
-          />
-        </div>
+        {/* PESTAÑA CATÁLOGO */}
+        {activeTab === 'catalogo' && (
+          <div>
+            <input type="text" placeholder="🔍 Buscar producto..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.8rem' }}>
+              {products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search)).map(p => (
+                <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
+                  <strong style={{ fontSize: '0.85rem', margin: '0.4rem 0' }}>{p.name}</strong>
+                  <div style={{ color: '#38bdf8', fontWeight: 'bold' }}>${formatCOP(p.wholesale_price || p.sale_price)}</div>
+                  <button style={{ marginTop: '0.5rem', background: '#16a34a', color: '#fff', border: 'none', padding: '0.4rem', borderRadius: '4px', fontSize: '0.8rem' }}>Añadir</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-        {/* LISTA DE PRODUCTOS SELECCIONADOS EN EL CARRITO (VISIBLE) */}
-        <div style={{ flex: 1, minHeight: '140px', maxHeight: '220px', overflowY: 'auto', borderTop: '1px solid #334155', borderBottom: '1px solid #334155', padding: '0.5rem 0', marginBottom: '1rem' }}>
-          {cart.length === 0 ? (
-            <p style={{ color: '#94a3b8', textAlign: 'center', fontSize: '0.85rem', margin: '2rem 0' }}>Selecciona productos del catálogo</p>
-          ) : (
-            cart.map(item => (
-              <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', background: '#0f172a', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
-                <div style={{ flex: 1, marginRight: '0.5rem' }}>
-                  <div style={{ fontWeight: 'bold' }}>{item.name}</div>
-                  <div style={{ color: '#22c55e' }}>${item.unit_price.toLocaleString('es-CO')} c/u {item.quantity >= 6 && <span style={{ color: '#eab308' }}>(Mayorista)</span>}</div>
+        {/* PESTAÑA CARRITO Y REGISTRO */}
+        {activeTab === 'carrito' && (
+          <div>
+            <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
+              <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>📝 Datos del Cliente</h3>
+              <input type="text" placeholder="NIT / Cédula" value={clientDoc} onChange={e => setClientDoc(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
+              <input type="text" placeholder="Nombre Comercial / Cliente" value={clientName} onChange={e => setClientName(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
+              <textarea placeholder="Observaciones / Dirección" value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} rows={2}></textarea>
+            </div>
+
+            <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px' }}>
+              <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>🛒 Productos ({cart.length})</h3>
+              {cart.length === 0 ? <p style={{ color: '#94a3b8' }}>No hay productos añadidos.</p> : cart.map(item => (
+                <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '0.8rem', borderRadius: '6px', marginBottom: '0.6rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{item.name}</div>
+                    <div style={{ color: '#22c55e', fontSize: '0.85rem' }}>${formatCOP(item.sale_price * item.quantity)}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                    <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontWeight: 'bold' }}>-</button>
+                    <span>{item.quantity}</span>
+                    <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontWeight: 'bold' }}>+</button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ padding: '0.1rem 0.4rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>-</button>
-                  <span style={{ fontWeight: 'bold', width: '20px', textAlign: 'center' }}>{item.quantity}</span>
-                  <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ padding: '0.1rem 0.4rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>+</button>
+              ))}
+            </div>
+            
+            {/* ESPACIO PARA EL BOTON FLOTANTE */}
+            <div style={{ height: '80px' }}></div> 
+          </div>
+        )}
+
+        {/* PESTAÑA PEDIDOS LOCALES */}
+        {activeTab === 'pedidos' && (
+          <div>
+            <h2 style={{ color: '#38bdf8', marginBottom: '1rem' }}>📋 Mis Pedidos (Local)</h2>
+            <button onClick={updateNetworkStatus} style={{ width: '100%', padding: '0.8rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', marginBottom: '1rem' }}>🔄 Forzar Sincronización</button>
+            
+            {localOrders.length === 0 ? <p>No has registrado pedidos en este dispositivo.</p> : localOrders.map(o => (
+              <div key={o.id} style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: `4px solid ${o.sync_status === 'synced' ? '#22c55e' : '#eab308'}`, marginBottom: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                  <strong>{o.customer_name}</strong>
+                  <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem', background: '#0f172a', borderRadius: '4px', color: o.sync_status === 'synced' ? '#4ade80' : '#facc15' }}>
+                    {o.sync_status === 'synced' ? '✅ Sincronizado' : '⏳ Pendiente'}
+                  </span>
                 </div>
+                <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>ID: {o.id.substring(0,8)} | Total: <strong style={{ color: '#fff' }}>${formatCOP(o.total)}</strong></div>
+                <div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>{new Date(o.created_at).toLocaleString()}</div>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-          <span>Total Pedido:</span>
-          <span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span>
+      {/* BOTÓN FLOTANTE PARA GUARDAR PEDIDO (Solo en tab Carrito) */}
+      {activeTab === 'carrito' && cart.length > 0 && (
+        <div style={{ position: 'fixed', bottom: '70px', left: 0, right: 0, padding: '1rem', background: 'rgba(15, 23, 42, 0.95)', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div><div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Total Pedido</div><strong style={{ fontSize: '1.2rem', color: '#22c55e' }}>${formatCOP(cartTotal)}</strong></div>
+          <button onClick={handleSaveOrder} style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '0.8rem 1.5rem', borderRadius: '6px', fontWeight: 'bold', fontSize: '1rem' }}>💾 Registrar Pedido</button>
         </div>
+      )}
 
-        <button onClick={handleSaveOrder} style={{ width: '100%', padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.95rem' }}>
-          💾 Guardar y Enviar Pedido
+      {/* BARRA DE NAVEGACIÓN INFERIOR FIJA */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#1e293b', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-around', padding: '0.5rem' }}>
+        <button onClick={() => setActiveTab('catalogo')} style={{ flex: 1, padding: '0.8rem 0', background: 'transparent', border: 'none', color: activeTab === 'catalogo' ? '#38bdf8' : '#94a3b8', fontWeight: activeTab === 'catalogo' ? 'bold' : 'normal', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+          <span style={{ fontSize: '1.2rem' }}>📦</span><span style={{ fontSize: '0.7rem' }}>Catálogo</span>
+        </button>
+        <button onClick={() => setActiveTab('carrito')} style={{ flex: 1, padding: '0.8rem 0', background: 'transparent', border: 'none', color: activeTab === 'carrito' ? '#38bdf8' : '#94a3b8', fontWeight: activeTab === 'carrito' ? 'bold' : 'normal', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', position: 'relative' }}>
+          <span style={{ fontSize: '1.2rem' }}>🛒</span><span style={{ fontSize: '0.7rem' }}>Carrito</span>
+          {cart.length > 0 && <span style={{ position: 'absolute', top: '5px', right: '25px', background: '#ef4444', color: '#fff', fontSize: '0.6rem', padding: '2px 6px', borderRadius: '10px' }}>{cart.length}</span>}
+        </button>
+        <button onClick={() => setActiveTab('pedidos')} style={{ flex: 1, padding: '0.8rem 0', background: 'transparent', border: 'none', color: activeTab === 'pedidos' ? '#38bdf8' : '#94a3b8', fontWeight: activeTab === 'pedidos' ? 'bold' : 'normal', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+          <span style={{ fontSize: '1.2rem' }}>📋</span><span style={{ fontSize: '0.7rem' }}>Mis Pedidos</span>
         </button>
       </div>
 
