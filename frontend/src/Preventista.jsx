@@ -193,7 +193,7 @@ export default function Preventista({ user, onLogout }) {
         <button onClick={onLogout} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', fontWeight: 'bold' }}>Salir</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '90px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '160px' }}>
         
         {activeTab === 'catalogo' && (
           <div>
@@ -211,10 +211,10 @@ export default function Preventista({ user, onLogout }) {
           </div>
         )}
 
-        {/* DISEÑO ERGONÓMICO CON SCROLL INDEPENDIENTE PARA PRODUCTOS */}
+        {/* DISEÑO ERGONÓMICO CON SCROLL NATURAL DE PÁGINA COMPLETA */}
         {activeTab === 'carrito' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ flexShrink: 0, background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
+          <div>
+            <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
               <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>📝 Datos del Cliente</h3>
               <input type="text" placeholder="NIT / Cédula" value={clientDoc} onChange={e => handleDocChange(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
               <input type="text" placeholder="Nombre Comercial / Cliente" value={clientName} onChange={e => setClientName(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
@@ -223,7 +223,7 @@ export default function Preventista({ user, onLogout }) {
               <textarea placeholder="Observaciones / Dirección de entrega" value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} rows={2}></textarea>
             </div>
 
-            <div style={{ flex: 1, background: '#1e293b', padding: '1rem', borderRadius: '8px', overflowY: 'auto', marginBottom: cart.length > 0 ? '70px' : '0px' }}>
+            <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px' }}>
               <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>🛒 Productos ({cart.length})</h3>
               {cart.length === 0 ? <p style={{ color: '#94a3b8' }}>No hay productos añadidos.</p> : cart.map(item => (
                 <div key={item.barcode} style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', marginBottom: '0.6rem' }}>
@@ -235,6 +235,7 @@ export default function Preventista({ user, onLogout }) {
                       <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>+</button>
                     </div>
                   </div>
+                  
                   <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <span>Normal: ${formatCOP(item.normal_price)}</span>
@@ -247,12 +248,13 @@ export default function Preventista({ user, onLogout }) {
                   </div>
                 </div>
               ))}
-              {editingOrderId && (
-                <button onClick={() => { setCart([]); setClientDoc(''); setClientName(''); setClientEmail(''); setClientPhone(''); setNotes(''); setEditingOrderId(null); setActiveTab('pedidos'); }} style={{ width: '100%', marginTop: '1rem', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
-                  ❌ Cancelar Modificación
-                </button>
-              )}
             </div>
+            
+            {editingOrderId && (
+              <button onClick={() => { setCart([]); setClientDoc(''); setClientName(''); setClientEmail(''); setClientPhone(''); setNotes(''); setEditingOrderId(null); setActiveTab('pedidos'); }} style={{ width: '100%', marginTop: '1rem', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
+                ❌ Cancelar Modificación
+              </button>
+            )}
           </div>
         )}
 
