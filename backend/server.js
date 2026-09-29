@@ -8,10 +8,11 @@ const db = require('./database');
 const app = express();
 app.use(cors());
 app.use(express.json());
-// Se eliminaron las migraciones manuales para evitar el error de columnas duplicadas en Turso.
+
 function getColombiaTimestamp() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
 }
+
 function createInvoicePDFBuffer(invoice, config) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 36 });
@@ -63,6 +64,7 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.end();
   });
 }
+
 async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, pdfBuffer, config) {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey || !toEmail) return;
@@ -88,7 +90,9 @@ async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, p
     body: JSON.stringify(payload)
   });
 }
+
 app.get('/api/ping', (req, res) => res.send('pong'));
+
 // --- CLIENTES GLOBALES ---
 app.get('/api/customers', (req, res) => {
   db.all('SELECT * FROM customers ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
@@ -106,6 +110,7 @@ app.post('/api/customers', (req, res) => {
     }
   );
 });
+
 // --- INVENTARIO FÁBRICA (PREVENTA) ---
 app.get('/api/preventa-products', (req, res) => {
   db.all('SELECT * FROM preventa_products ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
@@ -129,6 +134,7 @@ app.delete('/api/preventa-products/:barcode', (req, res) => {
     if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
   });
 });
+
 // --- PEDIDOS (PREVENTA Y TRAZABILIDAD) ---
 app.get('/api/orders/detailed', async (req, res) => {
   try {
@@ -146,13 +152,13 @@ app.get('/api/orders/detailed', async (req, res) => {
     res.json(detailedOrders);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.post('/api/orders', async (req, res) => {
   const { id, customer_id, customer_name, customer_email, created_by, total, notes, items, created_at } = req.body;
   const horaCol = getColombiaTimestamp();
   try {
     const existing = await new Promise(r => db.get('SELECT id FROM orders WHERE id = ?', [id], (e, row) => r(row)));
     if (existing) return res.json({ success: true, message: 'Pedido ya procesado', orderId: id });
-    // Autoguardar cliente global
     await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`, [customer_id, customer_id, customer_name, customer_email, horaCol], r));
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO orders (id, customer_id, customer_name, customer_email, created_by, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
@@ -173,6 +179,7 @@ app.post('/api/orders', async (req, res) => {
     res.json({ success: true, orderId: id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.put('/api/orders/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body; 
@@ -192,6 +199,7 @@ app.put('/api/orders/:id/status', async (req, res) => {
     res.json({ success: true, newStatus: status });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.delete('/api/orders/:id', async (req, res) => {
   try {
     const order = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [req.params.id], (e, row) => r(row)));
@@ -206,6 +214,7 @@ app.delete('/api/orders/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.post('/api/payments', async (req, res) => {
   const { id, order_id, collector_id, payment_method, amount, collected_at } = req.body;
   const horaCol = getColombiaTimestamp();
@@ -244,7 +253,8 @@ app.post('/api/payments', async (req, res) => {
     res.json({ success: true, paymentId: id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// --- USUARIOS, LOGIN, CAJA LOCAL, CONFIG (MANTENIDOS INTACTOS) ---
+
+// --- USUARIOS, LOGIN, CAJA LOCAL, CONFIG ---
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   db.get('SELECT id, name, username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?', [username.trim(), password.trim()], (err, user) => {
@@ -272,23 +282,66 @@ app.post('/api/shifts/open', (req, res) => {
     if (err) return res.status(500).json({ error: err.message }); res.json({ success: true, shiftId: this.lastID });
   });
 });
+
+// NUEVO: CALCULO MATEMÁTICO COMPLETO AL CERRAR TURNO (REPORTE)
 app.post('/api/shifts/close', (req, res) => {
-  const { shift_id } = req.body;
+  const { shift_id, counted_cash } = req.body;
   const horaCol = getColombiaTimestamp();
+  
   db.get('SELECT * FROM shifts WHERE id = ?', [shift_id], (errShift, shift) => {
     if (!shift) return res.status(500).json({ error: 'Turno no encontrado' });
-    db.all(`SELECT payment_method, SUM(total) as total_sales FROM sales WHERE shift_id = ? GROUP BY payment_method`, [shift_id], (err, rows) => {
-      let cashSales = 0; let transferSales = 0;
-      if (rows) rows.forEach((r) => { if (r.payment_method === 'Efectivo') cashSales += r.total_sales; else transferSales += r.total_sales; });
-      const totalSales = cashSales + transferSales;
-      const totalCashInBox = (shift.start_amount || 0) + cashSales;
-      db.run(`UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = ? WHERE id = ?`,
-        [totalCashInBox, cashSales, transferSales, totalSales, horaCol, shift_id],
-        function (errClose) { res.json({ success: true, summary: { start_amount: shift.start_amount, cash_sales: cashSales, transfer_sales: transferSales, total_sales: totalSales, end_amount: totalCashInBox } }); }
-      );
+    
+    // Contamos número de ventas
+    db.get(`SELECT COUNT(id) as sales_count FROM sales WHERE shift_id = ?`, [shift_id], (errCnt, rowCnt) => {
+      const salesCount = rowCnt ? rowCnt.sales_count : 0;
+      
+      // Sumamos ingresos
+      db.all(`SELECT payment_method, SUM(total) as total_sales FROM sales WHERE shift_id = ? GROUP BY payment_method`, [shift_id], (err, rows) => {
+        let cashSales = 0; let transferSales = 0;
+        if (rows) {
+          rows.forEach((r) => { 
+            if (r.payment_method === 'Efectivo') cashSales += r.total_sales; 
+            else transferSales += r.total_sales; 
+          });
+        }
+        
+        const totalSales = cashSales + transferSales;
+        const startBase = shift.start_amount || 0;
+        const expectedCash = startBase + cashSales;
+        
+        // Si el front no manda el conteo físico, asumimos que es igual a lo esperado (auto-cuadre).
+        const realCash = counted_cash !== undefined ? parseFloat(counted_cash) : expectedCash;
+        const difference = realCash - expectedCash;
+
+        db.run(`UPDATE shifts SET status = 'cerrado', end_amount = ?, cash_sales = ?, transfer_sales = ?, total_sales = ?, closed_at = ? WHERE id = ?`,
+          [realCash, cashSales, transferSales, totalSales, horaCol, shift_id],
+          function (errClose) { 
+            if (errClose) return res.status(500).json({ error: errClose.message });
+            res.json({ 
+              success: true, 
+              summary: { 
+                id: shift_id,
+                user_name: shift.user_name,
+                opened_at: shift.opened_at,
+                closed_at: horaCol,
+                start_amount: startBase, 
+                cash_sales: cashSales, 
+                transfer_sales: transferSales, 
+                total_sales: totalSales, 
+                end_amount: realCash,
+                expected_cash: expectedCash,
+                counted_cash: realCash,
+                difference: difference,
+                sales_count: salesCount
+              } 
+            }); 
+          }
+        );
+      });
     });
   });
 });
+
 app.get('/api/products', (req, res) => { db.all('SELECT * FROM products ORDER BY name ASC', [], (err, rows) => res.json(rows || [])); });
 app.post('/api/products', (req, res) => {
   const { barcode, name, sale_price, stock, min_stock } = req.body;
@@ -320,13 +373,9 @@ app.post('/api/sales', async (req, res) => {
       await new Promise((r) => db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], r));
       await new Promise((r) => db.run('INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)', [saleRes.lastID, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price], r));
     }
-    
-    // AutoGuardado del cliente en caja
     await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`, [customer_doc, customer_doc, customer_name, customer_email, horaCol], r));
-
     await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Venta POS', ?, ?, ?, ?)`, [`Venta POS Factura #${invNumber}`, total, user_name, horaCol], r));
     
-    // Envio de factura por correo si se ingresó el email
     if (customer_email && customer_email.trim()) {
       (async () => {
         try {

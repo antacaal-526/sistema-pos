@@ -24,7 +24,12 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeShift, setActiveShift] = useState(null);
   const [showShiftModal, setShowShiftModal] = useState(false);
+  
+  // ESTADOS DEL NUEVO CIERRE DE TURNO
+  const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
+  const [countedCashInput, setCountedCashInput] = useState('');
   const [shiftSummary, setShiftSummary] = useState(null);
+  
   const [shiftBaseInput, setShiftBaseInput] = useState('');
   const [activeTab, setActiveTab] = useState('pos');
 
@@ -37,7 +42,6 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // CATALOGO CAJA LOCAL
   const [products, setProducts] = useState([]);
   const [invSearch, setInvSearch] = useState('');
   const [outSearch, setOutSearch] = useState('');
@@ -45,7 +49,6 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState(null);
   const [newProd, setNewProd] = useState({ barcode: '', name: '', sale_price: '', stock: '', min_stock: '3' });
 
-  // CATALOGO FABRICA (PREVENTA)
   const [preventaProducts, setPreventaProducts] = useState([]);
   const [invPreventaSearch, setInvPreventaSearch] = useState('');
   const [showAddPreventaModal, setShowAddPreventaModal] = useState(false);
@@ -53,18 +56,16 @@ export default function App() {
   const [newPreventaProd, setNewPreventaProd] = useState({ barcode: '', name: '', price: '', stock: '', min_stock: '3' });
   const [discountRules, setDiscountRules] = useState([]);
   
-  // PEDIDOS PREVENTA (TRAZABILIDAD ADMIN)
   const [preventaOrders, setPreventaOrders] = useState([]);
   const [expandedOrderId, setExpandedOrderId] = useState(null);
 
-  // CAJA / VENTAS
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
   const [amountPaid, setAmountPaid] = useState('');
-  const [customerDoc, setCustomerDoc] = useState(''); // Se limpia inicialmente para que se note al cajero
+  const [customerDoc, setCustomerDoc] = useState('');
   const [customerName, setCustomerName] = useState('Consumidor Final');
-  const [customerEmail, setCustomerEmail] = useState(''); // NUEVO: Correo en Caja POS
+  const [customerEmail, setCustomerEmail] = useState('');
 
   const [transactions, setTransactions] = useState([]);
   const [showTxModal, setShowTxModal] = useState(false);
@@ -108,7 +109,6 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Carga de datos online/offline...
   const loadProductsOnline = async () => {
     try {
       const res = await fetch(`${API_URL}/api/products`);
@@ -206,17 +206,29 @@ export default function App() {
     } catch (e) { alert('Error al abrir turno'); }
   };
 
+  // NUEVA LÓGICA DE CIERRE DE TURNO CON CUADRE DE CAJA
   const handleCloseShift = async () => {
     if (!activeShift) return;
-    if (!window.confirm('¿Desea cerrar el turno actual?')) return;
+    const counted = parseCOP(countedCashInput);
     try {
-      const res = await fetch(`${API_URL}/api/shifts/close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shift_id: activeShift.id }) });
+      const res = await fetch(`${API_URL}/api/shifts/close`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ shift_id: activeShift.id, counted_cash: counted }) 
+      });
       const data = await res.json();
-      if (res.ok && data.success) { setShiftSummary(data.summary); setActiveShift(null); loadShifts(); }
-    } catch (e) { alert('Error al cerrar el turno'); }
+      if (res.ok && data.success) { 
+        setShiftSummary(data.summary); 
+        setActiveShift(null); 
+        setShowCloseShiftModal(false);
+        setCountedCashInput('');
+        loadShifts(); 
+      } else {
+        alert('Error al cerrar: ' + (data.error || ''));
+      }
+    } catch (e) { alert('Error de red al cerrar el turno'); }
   };
 
-  // NUEVO: Autocompletado del cliente en POS
   const handleDocChange = async (val) => {
     setCustomerDoc(val);
     if (val.length >= 4) {
@@ -240,11 +252,9 @@ export default function App() {
   };
   const removeFromCart = (barcode) => setCart(cart.filter((x) => x.barcode !== barcode));
 
-  // CÁLCULO DE CAMBIO EN TIEMPO REAL
   const totalCart = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
   const numericAmountPaid = parseCOP(amountPaid);
   const changeGiven = numericAmountPaid > totalCart ? numericAmountPaid - totalCart : 0;
-  // Lo que realmente ingresa a caja (no más que el total de la venta)
   const receivedToRegister = numericAmountPaid > 0 ? numericAmountPaid : totalCart; 
 
   const handleProcessSale = async (saleType) => {
@@ -276,19 +286,12 @@ export default function App() {
         alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`);
         if (saleType === 'Facturada') setTimeout(() => window.print(), 300);
         
-        // REINICIO DE FORMULARIO POS PARA CONSUMIDOR FINAL (Limpia datos del cliente anterior)
-        setCart([]); 
-        setAmountPaid(''); 
-        setCustomerDoc(''); 
-        setCustomerName('Consumidor Final'); 
-        setCustomerEmail(''); 
-        loadProductsOnline(); 
-        loadTransactions();
+        setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); 
+        loadProductsOnline(); loadTransactions();
       }
     } catch (e) { alert('Error de red'); }
   };
 
-  // CRUD CAJA LOCAL
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
     const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 };
@@ -451,23 +454,26 @@ export default function App() {
         }
       `}</style>
 
-      {/* COMPROBANTE DE IMPRESIÓN */}
+      {/* COMPROBANTE DE IMPRESIÓN ACTUALIZADO PARA REPORTES Y FACTURAS */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
             <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px' }}>🌱 {storeConfig.razon_social}</h3>
-            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '9px', fontWeight: 'bold' }}>REPORTE DE TURNO #{printShiftData.id}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '9px', fontWeight: 'bold' }}>REPORTE DE TURNO #{printShiftData.id || printShiftData.shift_id}</p>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <p style={{ margin: '1px 0' }}>Empleado: <strong>{printShiftData.user_name}</strong></p>
             <p style={{ margin: '1px 0' }}>Apertura: {printShiftData.opened_at}</p>
             <p style={{ margin: '1px 0' }}>Cierre: {printShiftData.closed_at || 'En curso'}</p>
+            <p style={{ margin: '1px 0' }}>Ventas Totales: {printShiftData.sales_count || 0}</p>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Base Inicial:</span><span>${getShiftValFormatted(printShiftData.start_amount)}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Efectivo:</span><span>${getShiftValFormatted(printShiftData.cash_sales)}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Transferencia:</span><span>${getShiftValFormatted(printShiftData.transfer_sales)}</span></div>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}><span>TOTAL VENDIDO:</span><span>${getShiftValFormatted(printShiftData.total_sales)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}><span>TOTAL EN CAJA:</span><span>${getShiftValFormatted(printShiftData.end_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginTop: '2px' }}><span>EFECTIVO ESPERADO:</span><span>${getShiftValFormatted(printShiftData.expected_cash || (printShiftData.start_amount + printShiftData.cash_sales))}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}><span>EFECTIVO CONTADO:</span><span>${getShiftValFormatted(printShiftData.counted_cash ?? printShiftData.end_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}><span>DIFERENCIA:</span><span>${getShiftValFormatted(printShiftData.difference || 0)}</span></div>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
           </div>
         ) : lastInvoice ? (
@@ -514,7 +520,7 @@ export default function App() {
             {!activeShift ? (
               <button onClick={() => setShowShiftModal(true)} style={{ width: '100%', padding: '0.8rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ Iniciar Turno</button>
             ) : (
-              <div style={{ background: '#166534', color: '#4ade80', padding: '0.8rem', borderRadius: '4px', textAlign: 'center', fontWeight: 'bold', cursor: 'pointer' }} onClick={handleCloseShift}>
+              <div style={{ background: '#166534', color: '#4ade80', padding: '0.8rem', borderRadius: '4px', textAlign: 'center', fontWeight: 'bold', cursor: 'pointer' }} onClick={() => setShowCloseShiftModal(true)}>
                 🟢 Cerrar Turno #{activeShift.id}
               </div>
             )}
@@ -864,6 +870,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* MODAL DE APERTURA DE TURNO */}
       {showShiftModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '320px', color: '#fff' }}>
@@ -872,6 +879,53 @@ export default function App() {
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button onClick={handleOpenShift} style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Iniciar</button>
               <button onClick={() => setShowShiftModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NUEVO MODAL DE CIERRE DE TURNO (PIDE CONTAR BILLETES) */}
+      {showCloseShiftModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '320px', color: '#fff' }}>
+            <h3 style={{ margin: '0 0 1rem 0', color: '#f87171' }}>🔴 Cerrar Turno</h3>
+            <p style={{fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem'}}>Para cuadrar la caja, ingrese el efectivo total que hay físicamente en la caja registradora en este momento.</p>
+            <label style={{ fontSize: '0.85rem' }}>Efectivo Físico Contado ($):</label>
+            <input type="text" value={formatCOP(countedCashInput)} onChange={(e) => setCountedCashInput(e.target.value.replace(/\D/g, ''))} placeholder="Efectivo en caja" style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', margin: '0.5rem 0 1rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={handleCloseShift} style={{ flex: 1, padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Cerrar Turno</button>
+              <button onClick={() => setShowCloseShiftModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE REPORTE FINAL DESPUÉS DE CERRAR TURNO */}
+      {shiftSummary && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff' }}>
+            <h3 style={{ margin: '0 0 0.5rem 0', color: '#4ade80' }}>🔴 Reporte de Cierre de Turno</h3>
+            <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              <p style={{ margin: '0 0 0.5rem 0', color: '#94a3b8', textAlign: 'center' }}>Turno #{shiftSummary.id || shiftSummary.shift_id} - {shiftSummary.user_name}</p>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Número de Ventas:</span><span>{shiftSummary.sales_count || 0}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Ingresos Efectivo:</span><span style={{ color: '#4ade80' }}>${getShiftValFormatted(shiftSummary.cash_sales)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Ingresos Transf:</span><span style={{ color: '#38bdf8' }}>${getShiftValFormatted(shiftSummary.transfer_sales)}</span></div>
+              <hr style={{ borderColor: '#334155', margin: '0.5rem 0' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>Total Facturado:</span><span>${getShiftValFormatted(shiftSummary.total_sales)}</span></div>
+              <hr style={{ borderColor: '#334155', margin: '0.5rem 0' }} />
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}><span>Base Inicial (Mañana):</span><span>${getShiftValFormatted(shiftSummary.start_amount)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', color: '#4ade80' }}><span>Efectivo Esperado:</span><span>${getShiftValFormatted(shiftSummary.expected_cash || (shiftSummary.start_amount + shiftSummary.cash_sales))}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', fontWeight: 'bold' }}><span>Efectivo Contado:</span><span>${getShiftValFormatted(shiftSummary.counted_cash ?? shiftSummary.end_amount)}</span></div>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: shiftSummary.difference < 0 ? '#ef4444' : (shiftSummary.difference > 0 ? '#38bdf8' : '#22c55e') }}>
+                <span>Diferencia (Cuadre):</span><span>${getShiftValFormatted(shiftSummary.difference || 0)}</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={() => { setPrintShiftData(shiftSummary); setTimeout(() => window.print(), 300); }} style={{ flex: 1, padding: '0.8rem', background: '#38bdf8', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimir</button>
+              <button onClick={() => setShiftSummary(null)} style={{ flex: 1, padding: '0.8rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar</button>
             </div>
           </div>
         </div>
