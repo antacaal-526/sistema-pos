@@ -62,8 +62,9 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
   const [amountPaid, setAmountPaid] = useState('');
-  const [customerDoc, setCustomerDoc] = useState('222222222222');
+  const [customerDoc, setCustomerDoc] = useState(''); // Se limpia inicialmente para que se note al cajero
   const [customerName, setCustomerName] = useState('Consumidor Final');
+  const [customerEmail, setCustomerEmail] = useState(''); // NUEVO: Correo en Caja POS
 
   const [transactions, setTransactions] = useState([]);
   const [showTxModal, setShowTxModal] = useState(false);
@@ -107,6 +108,7 @@ export default function App() {
     }
   }, [currentUser]);
 
+  // Carga de datos online/offline...
   const loadProductsOnline = async () => {
     try {
       const res = await fetch(`${API_URL}/api/products`);
@@ -214,6 +216,18 @@ export default function App() {
     } catch (e) { alert('Error al cerrar el turno'); }
   };
 
+  // NUEVO: Autocompletado del cliente en POS
+  const handleDocChange = async (val) => {
+    setCustomerDoc(val);
+    if (val.length >= 4) {
+      const existing = await db.customers.where('id').equals(val).first();
+      if (existing) {
+        setCustomerName(existing.name);
+        if (existing.email) setCustomerEmail(existing.email);
+      }
+    }
+  };
+
   const addToCart = (p) => {
     if (!activeShift) { alert('⚠️ Inicie un turno para vender.'); setShowShiftModal(true); return; }
     const exist = cart.find((x) => x.barcode === p.barcode);
@@ -226,30 +240,55 @@ export default function App() {
   };
   const removeFromCart = (barcode) => setCart(cart.filter((x) => x.barcode !== barcode));
 
+  // CÁLCULO DE CAMBIO EN TIEMPO REAL
   const totalCart = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
   const numericAmountPaid = parseCOP(amountPaid);
-  const received = numericAmountPaid > 0 ? numericAmountPaid : totalCart;
-  const changeGiven = received >= totalCart ? received - totalCart : 0;
+  const changeGiven = numericAmountPaid > totalCart ? numericAmountPaid - totalCart : 0;
+  // Lo que realmente ingresa a caja (no más que el total de la venta)
+  const receivedToRegister = numericAmountPaid > 0 ? numericAmountPaid : totalCart; 
 
   const handleProcessSale = async (saleType) => {
-    if (cart.length === 0) return;
+    if (cart.length === 0) return alert('El carrito está vacío');
+    const finalDoc = customerDoc || '222222222222';
     const desc = cart.map((i) => `${i.quantity}x ${i.name}`).join(', ');
     try {
       const res = await fetch(`${API_URL}/api/sales`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shift_id: activeShift?.id || null, user_name: currentUser.name, customer_doc: customerDoc, customer_name: customerName, items: cart, description: desc, total: totalCart, payment_method: paymentMethod, amount_paid: received, change_given: changeGiven, sale_type: saleType })
+        body: JSON.stringify({ 
+          shift_id: activeShift?.id || null, 
+          user_name: currentUser.name, 
+          customer_doc: finalDoc, 
+          customer_name: customerName, 
+          customer_email: customerEmail, 
+          items: cart, 
+          description: desc, 
+          total: totalCart, 
+          payment_method: paymentMethod, 
+          amount_paid: receivedToRegister, 
+          change_given: changeGiven, 
+          sale_type: saleType 
+        })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setLastInvoice({ number: data.invoice_number, date: new Date().toLocaleString(), customerDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received, changeGiven, seller: currentUser.name });
+        setLastInvoice({ number: data.invoice_number, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
         alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`);
         if (saleType === 'Facturada') setTimeout(() => window.print(), 300);
-        setCart([]); setAmountPaid(''); loadProductsOnline(); loadTransactions();
+        
+        // REINICIO DE FORMULARIO POS PARA CONSUMIDOR FINAL (Limpia datos del cliente anterior)
+        setCart([]); 
+        setAmountPaid(''); 
+        setCustomerDoc(''); 
+        setCustomerName('Consumidor Final'); 
+        setCustomerEmail(''); 
+        loadProductsOnline(); 
+        loadTransactions();
       }
     } catch (e) { alert('Error de red'); }
   };
 
+  // CRUD CAJA LOCAL
   const handleSaveNewProduct = async (e) => {
     e.preventDefault();
     const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 };
@@ -451,6 +490,9 @@ export default function App() {
             </table>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}><span>TOTAL:</span><span>${lastInvoice.total.toLocaleString('es-CO')}</span></div>
+            <p style={{ margin: '1px 0', fontSize: '9px' }}>Pago: {lastInvoice.paymentMethod}</p>
+            <p style={{ margin: '1px 0', fontSize: '9px' }}>Recibido: ${lastInvoice.received.toLocaleString('es-CO')}</p>
+            <p style={{ margin: '1px 0', fontSize: '9px' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString('es-CO')}</p>
             <p style={{ textAlign: 'center', margin: '4px 0 0 0', fontSize: '9px' }}>{storeConfig.footer_msg}</p>
           </div>
         ) : null}
@@ -516,10 +558,11 @@ export default function App() {
 
               <div className="pos-cart">
                 <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>🛒 Carrito Local ({cart.length})</h3>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <input type="text" value={customerDoc} onChange={(e) => setCustomerDoc(e.target.value)} placeholder="NIT / CC" style={{ width: '40%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <input type="text" value={customerDoc} onChange={(e) => handleDocChange(e.target.value)} placeholder="NIT / CC" style={{ width: '40%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
                   <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nombre Cliente" style={{ width: '60%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
                 </div>
+                <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="📧 Correo para envío de factura PDF (opcional)" style={{ width: '100%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '1rem' }} />
                 
                 <div className="cart-items-wrapper">
                   {cart.map((item) => (
@@ -536,12 +579,29 @@ export default function App() {
                 </div>
 
                 <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}><span>Total:</span><span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span></div>
-                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '6px' }}>
-                    <option value="Efectivo">💵 Efectivo</option>
-                    <option value="Transferencia">📱 Transferencia</option>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                    <span>Total a Pagar:</span>
+                    <span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span>
+                  </div>
+
+                  {paymentMethod === 'Efectivo' && (
+                    <div style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', marginBottom: '1rem', border: '1px solid #334155' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Efectivo Recibido:</span>
+                        <input type="text" value={formatCOP(amountPaid)} onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))} placeholder={`Ej: ${totalCart}`} style={{ width: '50%', padding: '0.4rem', background: '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '4px', textAlign: 'right' }} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Cambio / Vueltas:</span>
+                        <strong style={{ color: changeGiven > 0 ? '#38bdf8' : '#94a3b8', fontSize: '1.1rem' }}>${changeGiven.toLocaleString('es-CO')}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  <select value={paymentMethod} onChange={(e) => { setPaymentMethod(e.target.value); setAmountPaid(''); }} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '6px' }}>
+                    <option value="Efectivo">💵 Pago en Efectivo</option>
+                    <option value="Transferencia">📱 Pago por Transferencia / Nequi</option>
                   </select>
-                  <input type="text" value={formatCOP(amountPaid)} onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))} placeholder={`Recibido ($)`} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '1rem', borderRadius: '6px' }} />
+                  
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button onClick={() => handleProcessSale('Registrada')} style={{ flex: 1, padding: '1rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>Registrar</button>
                     <button onClick={() => handleProcessSale('Facturada')} style={{ flex: 1, padding: '1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>Facturar</button>

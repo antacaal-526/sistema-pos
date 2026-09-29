@@ -5,17 +5,13 @@ const fs = require('fs');
 const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const db = require('./database');
-
 const app = express();
 app.use(cors());
 app.use(express.json());
-
 // Se eliminaron las migraciones manuales para evitar el error de columnas duplicadas en Turso.
-
 function getColombiaTimestamp() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
 }
-
 function createInvoicePDFBuffer(invoice, config) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 36 });
@@ -23,7 +19,6 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.on('data', (b) => buffers.push(b));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
-
     doc.fontSize(16).font('Helvetica-Bold').text(config.razon_social || 'TERRA FRUTOS SECOS', { align: 'center' });
     doc.fontSize(9).font('Helvetica').text(config.actividad || '', { align: 'center' });
     doc.text(`NIT: ${config.nit || ''} | TEL: ${config.telefono || ''}`, { align: 'center' });
@@ -31,7 +26,6 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.moveDown(0.5);
     doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
     doc.moveDown(0.5);
-
     doc.fontSize(10).font('Helvetica-Bold').text(`FACTURA DE VENTA: #${invoice.invoice_number}`);
     doc.font('Helvetica').fontSize(9);
     doc.text(`Fecha: ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })}`);
@@ -39,7 +33,6 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text(`Atendido por: ${invoice.user_name}`);
     doc.text(`Método de Pago: ${invoice.payment_method}`);
     doc.moveDown(0.8);
-
     doc.font('Helvetica-Bold');
     doc.text('Descripción', 36, doc.y, { width: 260 });
     const headerY = doc.y - 11;
@@ -48,7 +41,6 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.text('Subtotal', 460, headerY, { width: 80, align: 'right' });
     doc.moveDown(0.4);
     doc.font('Helvetica');
-
     invoice.items.forEach((item) => {
       const itemY = doc.y;
       const descText = item.discount_percent > 0 ? ` (-${item.discount_percent}%)` : '';
@@ -58,11 +50,9 @@ function createInvoicePDFBuffer(invoice, config) {
       doc.text(`$${(item.quantity * (item.sale_price || item.unit_price)).toLocaleString('es-CO')}`, 460, itemY, { width: 80, align: 'right' });
       doc.moveDown(0.3);
     });
-
     doc.moveDown(0.5);
     doc.text('----------------------------------------------------------------------------------------------------', { align: 'center' });
     doc.moveDown(0.3);
-
     doc.fontSize(11).font('Helvetica-Bold');
     doc.text(`TOTAL: $${Number(invoice.total).toLocaleString('es-CO')}`, { align: 'right' });
     doc.fontSize(9).font('Helvetica');
@@ -73,13 +63,12 @@ function createInvoicePDFBuffer(invoice, config) {
     doc.end();
   });
 }
-
 async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, pdfBuffer, config) {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey || !toEmail) return;
   const payload = {
     sender: { name: config.razon_social || 'TERRA FRUTOS SECOS', email: process.env.EMAIL_USER || 'terratunja2026@gmail.com' },
-    to: [{ email: toEmail, name: customerName || 'Cliente' }],
+    to: [{ email: toEmail, name: customerName || 'Cliente' }, { email: 'terratunja2026@gmail.com', name: 'Administracion Terra' }],
     subject: `Factura de Venta #${invoiceNumber} - ${config.razon_social || 'TERRA FRUTOS SECOS'}`,
     htmlContent: `
       <div style="font-family: sans-serif; color: #333; line-height: 1.5;">
@@ -99,9 +88,7 @@ async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, p
     body: JSON.stringify(payload)
   });
 }
-
 app.get('/api/ping', (req, res) => res.send('pong'));
-
 // --- CLIENTES GLOBALES ---
 app.get('/api/customers', (req, res) => {
   db.all('SELECT * FROM customers ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
@@ -119,7 +106,6 @@ app.post('/api/customers', (req, res) => {
     }
   );
 });
-
 // --- INVENTARIO FÁBRICA (PREVENTA) ---
 app.get('/api/preventa-products', (req, res) => {
   db.all('SELECT * FROM preventa_products ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
@@ -143,7 +129,6 @@ app.delete('/api/preventa-products/:barcode', (req, res) => {
     if (err) return res.status(500).json({ error: err.message }); res.json({ success: true });
   });
 });
-
 // --- PEDIDOS (PREVENTA Y TRAZABILIDAD) ---
 app.get('/api/orders/detailed', async (req, res) => {
   try {
@@ -161,25 +146,20 @@ app.get('/api/orders/detailed', async (req, res) => {
     res.json(detailedOrders);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 app.post('/api/orders', async (req, res) => {
   const { id, customer_id, customer_name, customer_email, created_by, total, notes, items, created_at } = req.body;
   const horaCol = getColombiaTimestamp();
-
   try {
     const existing = await new Promise(r => db.get('SELECT id FROM orders WHERE id = ?', [id], (e, row) => r(row)));
     if (existing) return res.json({ success: true, message: 'Pedido ya procesado', orderId: id });
-
     // Autoguardar cliente global
     await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`, [customer_id, customer_id, customer_name, customer_email, horaCol], r));
-
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO orders (id, customer_id, customer_name, customer_email, created_by, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
         [id, customer_id, customer_name, customer_email, created_by, total, notes, created_at || horaCol, horaCol],
         (err) => err ? reject(err) : resolve()
       );
     });
-
     for (const item of items) {
       const itemId = crypto.randomUUID();
       await new Promise((resolve, reject) => {
@@ -193,18 +173,14 @@ app.post('/api/orders', async (req, res) => {
     res.json({ success: true, orderId: id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 app.put('/api/orders/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body; 
   const horaCol = getColombiaTimestamp();
-
   try {
     const order = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [id], (e, row) => r(row)));
     if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
-
     const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
-
     if (status === 'DELIVERED') {
       for (const item of items) await new Promise(r => db.run('UPDATE preventa_products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], r));
     } else if (status === 'CANCELLED' && order.status === 'PENDING') {
@@ -216,13 +192,11 @@ app.put('/api/orders/:id/status', async (req, res) => {
     res.json({ success: true, newStatus: status });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 app.delete('/api/orders/:id', async (req, res) => {
   try {
     const order = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [req.params.id], (e, row) => r(row)));
     if (!order) return res.status(404).json({ error: 'No encontrado' });
     if (order.status !== 'PENDING') return res.status(400).json({ error: 'Sólo se pueden eliminar pedidos PENDIENTES. Los demás deben anularse.' });
-
     const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [order.id], (e, rows) => r(rows || [])));
     for (const item of items) await new Promise(r => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
     
@@ -232,31 +206,25 @@ app.delete('/api/orders/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 app.post('/api/payments', async (req, res) => {
   const { id, order_id, collector_id, payment_method, amount, collected_at } = req.body;
   const horaCol = getColombiaTimestamp();
-
   try {
     const existing = await new Promise(r => db.get('SELECT id FROM payments WHERE id = ?', [id], (e, row) => r(row)));
     if (existing) return res.json({ success: true });
-
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO payments (id, order_id, collector_id, payment_method, amount, collected_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [id, order_id, collector_id, payment_method, amount, collected_at || horaCol, horaCol],
         (err) => err ? reject(err) : resolve()
       );
     });
-
     await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
-
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
         [`Cobro Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
         (err) => err ? reject(err) : resolve()
       );
     });
-
     const orderInfo = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [order_id], (e, row) => r(row)));
     if (orderInfo && orderInfo.customer_email && orderInfo.customer_email.trim()) {
       (async () => {
@@ -265,7 +233,6 @@ app.post('/api/payments', async (req, res) => {
           const rowsConfig = await new Promise((r) => db.all('SELECT * FROM config', [], (e, d) => r(d || [])));
           const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
           rowsConfig.forEach((row) => { configObj[row.key] = row.value; });
-
           const pdfBuffer = await createInvoicePDFBuffer(
             { invoice_number: order_id.substring(0, 8).toUpperCase(), customer_name: orderInfo.customer_name, customer_doc: orderInfo.customer_id, user_name: collector_id, payment_method: payment_method, items: itemsRows.map(i => ({ name: i.product_name, quantity: i.quantity, unit_price: i.unit_price, discount_percent: i.discount_percent })), total: amount, amount_paid: amount, change_given: 0 },
             configObj
@@ -277,7 +244,6 @@ app.post('/api/payments', async (req, res) => {
     res.json({ success: true, paymentId: id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // --- USUARIOS, LOGIN, CAJA LOCAL, CONFIG (MANTENIDOS INTACTOS) ---
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
@@ -295,7 +261,6 @@ app.post('/api/users', (req, res) => {
   });
 });
 app.delete('/api/users/:id', (req, res) => { db.run('DELETE FROM users WHERE id = ?', [req.params.id], () => res.json({ success: true })); });
-
 app.get('/api/shifts', (req, res) => { db.all('SELECT * FROM shifts ORDER BY id DESC', [], (err, rows) => res.json(rows || [])); });
 app.get('/api/shifts/active', (req, res) => {
   const userName = req.query.user_name ? req.query.user_name.trim() : null;
@@ -324,7 +289,6 @@ app.post('/api/shifts/close', (req, res) => {
     });
   });
 });
-
 app.get('/api/products', (req, res) => { db.all('SELECT * FROM products ORDER BY name ASC', [], (err, rows) => res.json(rows || [])); });
 app.post('/api/products', (req, res) => {
   const { barcode, name, sale_price, stock, min_stock } = req.body;
@@ -340,8 +304,9 @@ app.put('/api/products/:barcode', (req, res) => {
 });
 app.delete('/api/products/:barcode', (req, res) => { db.run('DELETE FROM products WHERE barcode = ?', [req.params.barcode], () => res.json({ success: true })); });
 
+// --- VENTA CAJA POS LOCAL ACTUALIZADA CON CORREO ---
 app.post('/api/sales', async (req, res) => {
-  const { shift_id, user_name, customer_doc, customer_name, items, total, payment_method, amount_paid, change_given } = req.body;
+  const { shift_id, user_name, customer_doc, customer_name, customer_email, items, total, payment_method, amount_paid, change_given } = req.body;
   const invNumber = `TF-${Date.now().toString().slice(-6)}`;
   const horaCol = getColombiaTimestamp();
   try {
@@ -355,7 +320,29 @@ app.post('/api/sales', async (req, res) => {
       await new Promise((r) => db.run('UPDATE products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], r));
       await new Promise((r) => db.run('INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)', [saleRes.lastID, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price], r));
     }
+    
+    // AutoGuardado del cliente en caja
+    await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`, [customer_doc, customer_doc, customer_name, customer_email, horaCol], r));
+
     await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Venta POS', ?, ?, ?, ?)`, [`Venta POS Factura #${invNumber}`, total, user_name, horaCol], r));
+    
+    // Envio de factura por correo si se ingresó el email
+    if (customer_email && customer_email.trim()) {
+      (async () => {
+        try {
+          const rowsConfig = await new Promise((r) => db.all('SELECT * FROM config', [], (e, d) => r(d || [])));
+          const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
+          rowsConfig.forEach((row) => { configObj[row.key] = row.value; });
+
+          const pdfBuffer = await createInvoicePDFBuffer(
+            { invoice_number: invNumber, customer_name, customer_doc, user_name, payment_method, items: items.map(i => ({ name: i.name, quantity: i.quantity, unit_price: i.sale_price, discount_percent: 0 })), total, amount_paid, change_given },
+            configObj
+          );
+          await sendInvoiceByBrevo(customer_email.trim(), customer_name, invNumber, total, pdfBuffer, configObj);
+        } catch (mailErr) { console.error('Error enviando correo POS:', mailErr.message); }
+      })();
+    }
+
     return res.json({ success: true, invoice_number: invNumber });
   } catch (err) { return res.status(500).json({ error: err.message }); }
 });
@@ -366,7 +353,6 @@ app.post('/api/transactions', (req, res) => {
   db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`, [type, category, description, amount, user_name, getColombiaTimestamp()], () => res.json({ success: true }));
 });
 app.delete('/api/transactions/:id', (req, res) => { db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], () => res.json({ success: true })); });
-
 app.get('/api/config', (req, res) => {
   db.all('SELECT * FROM config', [], (err, rows) => {
     const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
@@ -381,9 +367,7 @@ app.post('/api/config', (req, res) => {
     });
   });
 });
-
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.use((req, res) => res.sendFile(path.join(__dirname, '../frontend/dist/index.html')));
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`Servidor Backend ejecutándose en el puerto ${PORT}`));
