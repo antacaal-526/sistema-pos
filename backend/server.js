@@ -8,32 +8,29 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- AUTOSANACIÓN SEGURA DE BASE DE DATOS ---
+// --- MIGRACIÓN A PRUEBA DE BALAS ---
+// Fuerza la creación de columnas. Si ya existen, ignora el error silenciosamente.
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS preventa_products (
     barcode TEXT PRIMARY KEY, name TEXT, price REAL, discount_rules TEXT,
     stock INTEGER DEFAULT 0, reserved_stock INTEGER DEFAULT 0, min_stock INTEGER DEFAULT 3
   )`);
 
-  const ensureColumn = (table, column, def) => {
-    db.all(`PRAGMA table_info(${table})`, (err, rows) => {
-      if (err) return;
-      if (!rows.some(r => r.name === column)) {
-        db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`, (e) => {
-          if (e && !e.message.includes('duplicate')) console.log(`Error añadiendo ${column}:`, e.message);
-        });
-      }
-    });
-  };
+  const columnsToEnsure = [
+    "ALTER TABLE orders ADD COLUMN customer_name TEXT",
+    "ALTER TABLE orders ADD COLUMN customer_email TEXT",
+    "ALTER TABLE orders ADD COLUMN customer_phone TEXT",
+    "ALTER TABLE orders ADD COLUMN notes TEXT",
+    "ALTER TABLE orders ADD COLUMN created_by TEXT",
+    "ALTER TABLE order_items ADD COLUMN product_name TEXT",
+    "ALTER TABLE order_items ADD COLUMN discount_percent REAL DEFAULT 0",
+    "ALTER TABLE customers ADD COLUMN phone TEXT",
+    "ALTER TABLE customers ADD COLUMN email TEXT"
+  ];
 
-  // AQUÍ ESTÁ LA SOLUCIÓN AL ERROR DE TU LOG:
-  ensureColumn('orders', 'customer_name', 'TEXT');
-  
-  ensureColumn('orders', 'customer_email', 'TEXT');
-  ensureColumn('orders', 'customer_phone', 'TEXT');
-  ensureColumn('customers', 'email', 'TEXT');
-  ensureColumn('customers', 'phone', 'TEXT');
-  ensureColumn('order_items', 'discount_percent', 'REAL DEFAULT 0');
+  columnsToEnsure.forEach(query => {
+    db.run(query, (err) => { /* Ignoramos el error duplicate column */ });
+  });
 });
 
 const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
@@ -181,17 +178,21 @@ app.get('/api/orders/detailed', async (req, res) => {
 });
 
 app.post('/api/orders', async (req, res) => {
-  const { id, customer_id, customer_name, customer_email, customer_phone, created_by, total, notes, items, created_at } = req.body;
-  const horaCol = getColombiaTimestamp();
-
   try {
+    const { id, customer_id, customer_name, customer_email, customer_phone, created_by, total, notes, items, created_at } = req.body;
+    const horaCol = getColombiaTimestamp();
+
+    if (!items || items.length === 0) {
+      throw new Error("El pedido no contiene productos (Items vacío).");
+    }
+
     try {
       await new Promise((resolve, reject) => {
         db.run(`INSERT INTO customers (id, document, name, email, phone, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email, phone=excluded.phone`, 
         [customer_id, customer_id, customer_name, customer_email, customer_phone, horaCol], 
         (err) => err ? reject(err) : resolve());
       });
-    } catch(e) { console.error("Aviso: No se pudo actualizar cliente:", e.message); }
+    } catch(e) { console.error("Aviso Cliente:", e.message); }
 
     const existing = await new Promise((resolve, reject) => {
       db.get('SELECT id, status FROM orders WHERE id = ?', [id], (err, row) => err ? reject(err) : resolve(row));
@@ -236,7 +237,8 @@ app.post('/api/orders', async (req, res) => {
     res.json({ success: true, orderId: id });
   } catch (err) { 
     console.error("Backend Error Guardando Pedido:", err);
-    res.status(500).json({ error: err.message }); 
+    // Devuelve un JSON estricto con el mensaje de error para que la App lo lea
+    res.status(500).json({ success: false, error: err.message, message: err.message }); 
   }
 });
 

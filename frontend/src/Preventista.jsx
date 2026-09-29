@@ -44,9 +44,11 @@ export default function Preventista({ user, onLogout }) {
     if (navigator.onLine) {
       setSyncStatus('Sincronizando...');
       const result = await processSyncQueue();
+      
       if (result && result.errors > 0) {
-        alert(`⚠️ Hubo un problema de conexión al sincronizar ${result.errors} pedido(s). Revisa el panel de Mis Pedidos.`);
+        alert(`⚠️️ Problema al sincronizar ${result.errors} pedido(s).\n\nEl servidor dice: ${result.message || 'Desconocido'}\n\nSi el error persiste, usa el botón rojo de Eliminar en esos pedidos atascados.`);
       }
+      
       await loadLocalData();
     } else {
       setSyncStatus('Sin conexión (Guardando local)');
@@ -211,7 +213,6 @@ export default function Preventista({ user, onLogout }) {
           </div>
         )}
 
-        {/* DISEÑO ERGONÓMICO CON SCROLL NATURAL DE PÁGINA COMPLETA */}
         {activeTab === 'carrito' && (
           <div>
             <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>

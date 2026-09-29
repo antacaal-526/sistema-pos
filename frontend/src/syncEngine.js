@@ -2,29 +2,19 @@ import { db } from './db';
 
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
-// Función para despertar a Render y verificar que está vivo antes de sincronizar
 const waitForServer = async () => {
-  for (let i = 0; i < 5; i++) { // Intenta 5 veces
+  for (let i = 0; i < 5; i++) {
     try {
-      console.log(`Despertando servidor (Intento ${i+1})...`);
-      // Un timeout de 15 segundos por cada intento
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-      
       const res = await fetch(`${API_URL}/api/ping`, { signal: controller.signal });
       clearTimeout(timeoutId);
-      
-      if (res.ok) {
-        console.log('✅ Servidor de Render Despierto y Listo!');
-        return true;
-      }
+      if (res.ok) return true;
     } catch (e) {
-      console.log(`⏳ Servidor aún dormido... esperando 5 segundos`);
-      // Espera 5 segundos antes de volver a intentar
-      await new Promise(r => setTimeout(r, 5000));
+      await new Promise(r => setTimeout(r, 4000));
     }
   }
-  return false; // Si después de 5 intentos y 1 minuto no responde, está caído
+  return false;
 };
 
 export const processSyncQueue = async () => {
@@ -32,13 +22,11 @@ export const processSyncQueue = async () => {
   
   let successCount = 0;
   let errorCount = 0;
+  let lastErrorMessage = '';
 
   try {
     const isAwake = await waitForServer();
-    if (!isAwake) {
-      console.error('El servidor de Render no respondió a tiempo.');
-      return { success: 0, errors: 1 };
-    }
+    if (!isAwake) return { success: 0, errors: 1, message: "El servidor de Render está apagado o sin respuesta." };
 
     const pendingOrders = await db.orders_local.where('sync_status').equals('pending').toArray();
     for (const order of pendingOrders) {
@@ -55,23 +43,23 @@ export const processSyncQueue = async () => {
             await db.orders_local.update(order.id, { sync_status: 'synced' });
             successCount++;
           } else {
-            console.error('El backend rechazó el pedido:', data.message);
-            // Si el backend dice "Pedido bloqueado", igual lo marcamos como sincronizado para sacarlo de la cola.
-            if(data.message.includes('bloqueado')) {
+            if(data.message && data.message.includes('bloqueado')) {
                 await db.orders_local.update(order.id, { sync_status: 'synced' });
                 successCount++;
             } else {
                 errorCount++;
+                lastErrorMessage = data.message || data.error || "Rechazado por el servidor.";
             }
           }
         } else {
-          const errText = await res.text();
-          console.error('Error HTTP al sincronizar:', errText);
+          // Captura el error exacto 500 del backend
+          const errData = await res.json().catch(() => ({}));
+          lastErrorMessage = errData.message || errData.error || `HTTP ${res.status}`;
           errorCount++;
         }
       } catch (err) { 
-        console.error('Error de red sincronizando pedido:', order.id, err); 
         errorCount++;
+        lastErrorMessage = "Error de Red: " + err.message;
       }
     }
 
@@ -93,9 +81,7 @@ export const processSyncQueue = async () => {
           });
           if (res.ok) await db.syncQueue.delete(task.id);
         }
-      } catch (e) {
-        console.error('Error sincronizando cola Entregador:', e);
-      }
+      } catch (e) {}
     }
 
     const [prodRes, prevRes, custRes, usersRes] = await Promise.all([
@@ -113,13 +99,11 @@ export const processSyncQueue = async () => {
     }
     if (usersRes.ok) await db.users.bulkPut(await usersRes.json());
     
-    console.log('✅ Sincronización completada exitosamente');
     window.dispatchEvent(new Event('sync-completed'));
     
-    return { success: successCount, errors: errorCount };
+    return { success: successCount, errors: errorCount, message: lastErrorMessage };
   } catch (error) { 
-    console.error('Fallo general en motor de sincronización:', error); 
-    return { success: successCount, errors: errorCount + 1 };
+    return { success: successCount, errors: errorCount + 1, message: error.message };
   }
 };
 
