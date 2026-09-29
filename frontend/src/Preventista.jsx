@@ -9,7 +9,6 @@ const formatCOP = (val) => {
   return parseInt(val, 10).toLocaleString('es-CO');
 };
 
-// Generador de ID 100% seguro para entornos offline y no-https
 const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 export default function Preventista({ user, onLogout }) {
@@ -41,10 +40,14 @@ export default function Preventista({ user, onLogout }) {
     };
   }, []);
 
-  const updateNetworkStatus = () => {
+  const updateNetworkStatus = async () => {
     if (navigator.onLine) {
       setSyncStatus('Sincronizando...');
-      processSyncQueue().then(() => loadLocalData());
+      const result = await processSyncQueue();
+      if (result && result.errors > 0) {
+        alert(`⚠️ Hubo un problema de conexión al sincronizar ${result.errors} pedido(s). Revisa el panel de Mis Pedidos.`);
+      }
+      await loadLocalData();
     } else {
       setSyncStatus('Sin conexión (Guardando local)');
     }
@@ -178,9 +181,9 @@ export default function Preventista({ user, onLogout }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif', overflow: 'hidden' }}>
       
-      <div style={{ background: '#1e293b', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
+      <div style={{ background: '#1e293b', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', flexShrink: 0 }}>
         <div>
           <strong style={{ color: '#38bdf8' }}>🌱 Preventa Fábrica</strong>
           <div style={{ fontSize: '0.75rem', color: navigator.onLine ? '#4ade80' : '#f87171', marginTop: '4px' }}>
@@ -190,7 +193,7 @@ export default function Preventista({ user, onLogout }) {
         <button onClick={onLogout} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', fontWeight: 'bold' }}>Salir</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '180px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '90px' }}>
         
         {activeTab === 'catalogo' && (
           <div>
@@ -208,9 +211,10 @@ export default function Preventista({ user, onLogout }) {
           </div>
         )}
 
+        {/* DISEÑO ERGONÓMICO CON SCROLL INDEPENDIENTE PARA PRODUCTOS */}
         {activeTab === 'carrito' && (
-          <div>
-            <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ flexShrink: 0, background: '#1e293b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
               <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>📝 Datos del Cliente</h3>
               <input type="text" placeholder="NIT / Cédula" value={clientDoc} onChange={e => handleDocChange(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
               <input type="text" placeholder="Nombre Comercial / Cliente" value={clientName} onChange={e => setClientName(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
@@ -219,7 +223,7 @@ export default function Preventista({ user, onLogout }) {
               <textarea placeholder="Observaciones / Dirección de entrega" value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} rows={2}></textarea>
             </div>
 
-            <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px' }}>
+            <div style={{ flex: 1, background: '#1e293b', padding: '1rem', borderRadius: '8px', overflowY: 'auto', marginBottom: cart.length > 0 ? '70px' : '0px' }}>
               <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>🛒 Productos ({cart.length})</h3>
               {cart.length === 0 ? <p style={{ color: '#94a3b8' }}>No hay productos añadidos.</p> : cart.map(item => (
                 <div key={item.barcode} style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', marginBottom: '0.6rem' }}>
@@ -231,7 +235,6 @@ export default function Preventista({ user, onLogout }) {
                       <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>+</button>
                     </div>
                   </div>
-                  
                   <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <span>Normal: ${formatCOP(item.normal_price)}</span>
@@ -244,13 +247,12 @@ export default function Preventista({ user, onLogout }) {
                   </div>
                 </div>
               ))}
+              {editingOrderId && (
+                <button onClick={() => { setCart([]); setClientDoc(''); setClientName(''); setClientEmail(''); setClientPhone(''); setNotes(''); setEditingOrderId(null); setActiveTab('pedidos'); }} style={{ width: '100%', marginTop: '1rem', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
+                  ❌ Cancelar Modificación
+                </button>
+              )}
             </div>
-            
-            {editingOrderId && (
-              <button onClick={() => { setCart([]); setClientDoc(''); setClientName(''); setClientEmail(''); setClientPhone(''); setNotes(''); setEditingOrderId(null); setActiveTab('pedidos'); }} style={{ width: '100%', marginTop: '1rem', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
-                ❌ Cancelar Modificación
-              </button>
-            )}
           </div>
         )}
 
@@ -285,7 +287,7 @@ export default function Preventista({ user, onLogout }) {
       </div>
 
       {activeTab === 'carrito' && cart.length > 0 && (
-        <div style={{ position: 'fixed', bottom: '70px', left: 0, right: 0, padding: '1rem', background: 'rgba(15, 23, 42, 0.95)', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ position: 'fixed', bottom: '70px', left: 0, right: 0, padding: '1rem', background: 'rgba(15, 23, 42, 0.95)', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 10 }}>
           <div><div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Total Pedido</div><strong style={{ fontSize: '1.2rem', color: '#22c55e' }}>${formatCOP(cartTotal)}</strong></div>
           <button onClick={handleSaveOrder} style={{ background: editingOrderId ? '#eab308' : '#16a34a', color: editingOrderId ? '#000' : '#fff', border: 'none', padding: '0.8rem 1.2rem', borderRadius: '6px', fontWeight: 'bold', fontSize: '1rem' }}>
             {editingOrderId ? '💾 Guardar Cambios' : '💾 Registrar'}
@@ -293,7 +295,7 @@ export default function Preventista({ user, onLogout }) {
         </div>
       )}
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#1e293b', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-around', padding: '0.5rem' }}>
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#1e293b', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-around', padding: '0.5rem', zIndex: 20 }}>
         <button onClick={() => setActiveTab('catalogo')} style={{ flex: 1, padding: '0.8rem 0', background: 'transparent', border: 'none', color: activeTab === 'catalogo' ? '#38bdf8' : '#94a3b8', fontWeight: activeTab === 'catalogo' ? 'bold' : 'normal', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
           <span style={{ fontSize: '1.2rem' }}>📦</span><span style={{ fontSize: '0.7rem' }}>Catálogo</span>
         </button>

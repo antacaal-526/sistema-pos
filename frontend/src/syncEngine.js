@@ -3,7 +3,9 @@ import { db } from './db';
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
 export const processSyncQueue = async () => {
-  if (!navigator.onLine) return;
+  if (!navigator.onLine) return { success: 0, errors: 0 };
+  let successCount = 0;
+  let errorCount = 0;
 
   try {
     const pendingOrders = await db.orders_local.where('sync_status').equals('pending').toArray();
@@ -14,13 +16,27 @@ export const processSyncQueue = async () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(order)
         });
+        
         if (res.ok) {
-          await db.orders_local.update(order.id, { sync_status: 'synced' });
+          const data = await res.json();
+          if (data.success) {
+            await db.orders_local.update(order.id, { sync_status: 'synced' });
+            successCount++;
+          } else {
+            console.error('El backend rechazó el pedido:', data.message);
+            errorCount++;
+          }
+        } else {
+          const errText = await res.text();
+          console.error('Error HTTP al sincronizar:', errText);
+          errorCount++;
         }
-      } catch (err) { console.error('Error sincronizando pedido:', order.id, err); }
+      } catch (err) { 
+        console.error('Error de red sincronizando pedido:', order.id, err); 
+        errorCount++;
+      }
     }
 
-    // SINCRONIZACIÓN DE LA COLA DEL ENTREGADOR
     const syncQueueTasks = await db.syncQueue.toArray();
     for (const task of syncQueueTasks) {
       try {
@@ -59,13 +75,13 @@ export const processSyncQueue = async () => {
     }
     if (usersRes.ok) await db.users.bulkPut(await usersRes.json());
     
-    console.log('✅ Sincronización completada');
-    
-    // Disparar evento para que la interfaz se refresque automáticamente
+    console.log('✅ Sincronización completada exitosamente');
     window.dispatchEvent(new Event('sync-completed'));
     
+    return { success: successCount, errors: errorCount };
   } catch (error) { 
-    console.error('Error en motor de sincronización:', error); 
+    console.error('Fallo general en motor de sincronización:', error); 
+    return { success: successCount, errors: errorCount + 1 };
   }
 };
 

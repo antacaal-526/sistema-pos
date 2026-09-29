@@ -8,7 +8,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Función segura para generar IDs en el backend (reemplazo de crypto que a veces falla en entornos locales)
+// Migraciones Seguras Silenciosas: Garantizan que las columnas existan sin crashear si ya estaban creadas.
+db.serialize(() => {
+  db.run("ALTER TABLE orders ADD COLUMN customer_phone TEXT", (err) => {
+    if(err && !err.message.includes('duplicate')) console.log(err.message);
+  });
+  db.run("ALTER TABLE customers ADD COLUMN phone TEXT", (err) => {
+    if(err && !err.message.includes('duplicate')) console.log(err.message);
+  });
+});
+
 const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 function getColombiaTimestamp() {
@@ -98,6 +107,7 @@ app.get('/api/ping', (req, res) => res.send('pong'));
 app.get('/api/customers', (req, res) => {
   db.all('SELECT * FROM customers ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
 });
+
 app.post('/api/customers', (req, res) => {
   const { id, document, name, phone, email, address, city, notes } = req.body;
   const doc = document || id;
@@ -137,12 +147,12 @@ app.delete('/api/preventa-products/:barcode', (req, res) => {
 
 app.get('/api/orders/detailed', async (req, res) => {
   try {
-    const orders = await new Promise(r => db.all(`
-      SELECT o.*, c.name as customer_name_real, c.document as customer_doc_real 
-      FROM orders o LEFT JOIN customers c ON o.customer_id = c.id 
-      ORDER BY o.created_at DESC`, [], (e, d) => r(d || [])));
-    const items = await new Promise(r => db.all('SELECT * FROM order_items', [], (e, d) => r(d || [])));
-    
+    const orders = await new Promise((resolve, reject) => {
+      db.all(`SELECT o.*, c.name as customer_name_real, c.document as customer_doc_real FROM orders o LEFT JOIN customers c ON o.customer_id = c.id ORDER BY o.created_at DESC`, [], (e, d) => e ? reject(e) : resolve(d || []));
+    });
+    const items = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM order_items', [], (e, d) => e ? reject(e) : resolve(d || []));
+    });
     const detailedOrders = orders.map(order => ({
       ...order,
       customer_name: order.customer_name_real || order.customer_name,
@@ -152,22 +162,33 @@ app.get('/api/orders/detailed', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// MOTOR ROBUSTO DE SINCRONIZACIÓN DE PEDIDOS (UPSERT)
 app.post('/api/orders', async (req, res) => {
   const { id, customer_id, customer_name, customer_email, customer_phone, created_by, total, notes, items, created_at } = req.body;
   const horaCol = getColombiaTimestamp();
 
   try {
-    await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, phone, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email, phone=excluded.phone`, [customer_id, customer_id, customer_name, customer_email, customer_phone, horaCol], r));
+    await new Promise((resolve, reject) => {
+      db.run(`INSERT INTO customers (id, document, name, email, phone, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email, phone=excluded.phone`, 
+      [customer_id, customer_id, customer_name, customer_email, customer_phone, horaCol], 
+      (err) => err ? reject(err) : resolve());
+    });
 
-    const existing = await new Promise(r => db.get('SELECT id, status FROM orders WHERE id = ?', [id], (e, row) => r(row)));
+    const existing = await new Promise((resolve, reject) => {
+      db.get('SELECT id, status FROM orders WHERE id = ?', [id], (err, row) => err ? reject(err) : resolve(row));
+    });
     
     if (existing) {
-      if (existing.status !== 'PENDING') return res.json({ success: true, message: 'Bloqueado', orderId: id });
-      const oldItems = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
-      for (const oItem of oldItems) {
-        await new Promise((resolve) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [oItem.quantity, oItem.product_barcode], resolve));
+      if (existing.status !== 'PENDING') {
+        return res.json({ success: true, message: 'Pedido bloqueado, ya procesado', orderId: id });
       }
-      await new Promise(r => db.run('DELETE FROM order_items WHERE order_id = ?', [id], r));
+      const oldItems = await new Promise((resolve, reject) => {
+        db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (err, rows) => err ? reject(err) : resolve(rows || []));
+      });
+      for (const oItem of oldItems) {
+        await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [oItem.quantity, oItem.product_barcode], (err) => err ? reject(err) : resolve()));
+      }
+      await new Promise((resolve, reject) => db.run('DELETE FROM order_items WHERE order_id = ?', [id], (err) => err ? reject(err) : resolve()));
       await new Promise((resolve, reject) => {
         db.run(`UPDATE orders SET customer_id=?, customer_name=?, customer_email=?, customer_phone=?, total=?, notes=?, updated_at=? WHERE id=?`,
           [customer_id, customer_name, customer_email, customer_phone, total, notes, horaCol, id],
@@ -191,10 +212,13 @@ app.post('/api/orders', async (req, res) => {
           (err) => err ? reject(err) : resolve()
         );
       });
-      await new Promise((resolve) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', [item.quantity, item.barcode], resolve));
+      await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock + ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => err ? reject(err) : resolve()));
     }
     res.json({ success: true, orderId: id });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error("Backend Error Guardando Pedido:", err);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.put('/api/orders/:id/status', async (req, res) => {
@@ -202,13 +226,14 @@ app.put('/api/orders/:id/status', async (req, res) => {
   const { status } = req.body; 
   const horaCol = getColombiaTimestamp();
   try {
-    const order = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [id], (e, row) => r(row)));
+    const order = await new Promise((resolve, reject) => db.get('SELECT * FROM orders WHERE id = ?', [id], (err, row) => err ? reject(err) : resolve(row)));
     if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
-    const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
+    const items = await new Promise((resolve, reject) => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (err, rows) => err ? reject(err) : resolve(rows || [])));
+    
     if (status === 'DELIVERED') {
-      for (const item of items) await new Promise(r => db.run('UPDATE preventa_products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], r));
+      for (const item of items) await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET stock = stock - ?, reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.quantity, item.product_barcode], (err) => err ? reject(err) : resolve()));
     } else if (status === 'CANCELLED' && order.status === 'PENDING') {
-      for (const item of items) await new Promise(r => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
+      for (const item of items) await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], (err) => err ? reject(err) : resolve()));
     }
     await new Promise((resolve, reject) => {
       db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', [status, horaCol, id], (err) => err ? reject(err) : resolve());
@@ -219,13 +244,14 @@ app.put('/api/orders/:id/status', async (req, res) => {
 
 app.delete('/api/orders/:id', async (req, res) => {
   try {
-    const order = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [req.params.id], (e, row) => r(row)));
+    const order = await new Promise((resolve, reject) => db.get('SELECT * FROM orders WHERE id = ?', [req.params.id], (err, row) => err ? reject(err) : resolve(row)));
     if (!order) return res.status(404).json({ error: 'No encontrado' });
     if (order.status !== 'PENDING') return res.status(400).json({ error: 'Sólo se pueden eliminar pedidos PENDIENTES. Los demás deben anularse.' });
-    const items = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [order.id], (e, rows) => r(rows || [])));
-    for (const item of items) await new Promise(r => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
     
-    await new Promise(r => db.run('DELETE FROM order_items WHERE order_id = ?', [order.id], r));
+    const items = await new Promise((resolve, reject) => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [order.id], (err, rows) => err ? reject(err) : resolve(rows || [])));
+    for (const item of items) await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], (err) => err ? reject(err) : resolve()));
+    
+    await new Promise((resolve, reject) => db.run('DELETE FROM order_items WHERE order_id = ?', [order.id], (err) => err ? reject(err) : resolve()));
     await new Promise((resolve, reject) => db.run('DELETE FROM orders WHERE id = ?', [order.id], (err) => err ? reject(err) : resolve()));
     
     res.json({ success: true });
@@ -236,7 +262,7 @@ app.post('/api/payments', async (req, res) => {
   const { id, order_id, collector_id, payment_method, amount, collected_at } = req.body;
   const horaCol = getColombiaTimestamp();
   try {
-    const existing = await new Promise(r => db.get('SELECT id FROM payments WHERE id = ?', [id], (e, row) => r(row)));
+    const existing = await new Promise((resolve, reject) => db.get('SELECT id FROM payments WHERE id = ?', [id], (err, row) => err ? reject(err) : resolve(row)));
     if (existing) return res.json({ success: true });
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO payments (id, order_id, collector_id, payment_method, amount, collected_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -244,14 +270,14 @@ app.post('/api/payments', async (req, res) => {
         (err) => err ? reject(err) : resolve()
       );
     });
-    await new Promise(r => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], r));
+    await new Promise((resolve, reject) => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], (err) => err ? reject(err) : resolve()));
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
         [`Cobro Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
         (err) => err ? reject(err) : resolve()
       );
     });
-    const orderInfo = await new Promise(r => db.get('SELECT * FROM orders WHERE id = ?', [order_id], (e, row) => r(row)));
+    const orderInfo = await new Promise((resolve, reject) => db.get('SELECT * FROM orders WHERE id = ?', [order_id], (err, row) => err ? reject(err) : resolve(row)));
     if (orderInfo && orderInfo.customer_email && orderInfo.customer_email.trim()) {
       (async () => {
         try {
@@ -331,7 +357,6 @@ app.post('/api/shifts/close', (req, res) => {
     });
   });
 });
-// NUEVO: ENDPOINT ELIMINAR REPORTE
 app.delete('/api/shifts/:id', (req, res) => {
   db.run('DELETE FROM shifts WHERE id = ?', [req.params.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
