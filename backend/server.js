@@ -26,6 +26,9 @@ db.serialize(() => {
     });
   };
 
+  // AQUÍ ESTÁ LA SOLUCIÓN AL ERROR DE TU LOG:
+  ensureColumn('orders', 'customer_name', 'TEXT');
+  
   ensureColumn('orders', 'customer_email', 'TEXT');
   ensureColumn('orders', 'customer_phone', 'TEXT');
   ensureColumn('customers', 'email', 'TEXT');
@@ -331,8 +334,6 @@ app.post('/api/users', (req, res) => {
 app.delete('/api/users/:id', (req, res) => { db.run('DELETE FROM users WHERE id = ?', [req.params.id], () => res.json({ success: true })); });
 
 app.get('/api/shifts', (req, res) => { db.all('SELECT * FROM shifts ORDER BY id DESC', [], (err, rows) => res.json(rows || [])); });
-
-// LA LÍNEA REPARADA (Separando el operador ternario en bloque seguro)
 app.get('/api/shifts/active', (req, res) => {
   const userName = req.query.user_name ? req.query.user_name.trim() : null;
   let queryStr = "SELECT * FROM shifts WHERE status = 'abierto' ORDER BY id DESC LIMIT 1";
@@ -343,7 +344,6 @@ app.get('/api/shifts/active', (req, res) => {
   }
   db.get(queryStr, params, (err, row) => res.json(row || null));
 });
-
 app.post('/api/shifts/open', (req, res) => {
   db.run("INSERT INTO shifts (user_name, start_amount, status, opened_at) VALUES (?, ?, 'abierto', ?)", [req.body.user_name, parseFloat(req.body.start_amount) || 0, getColombiaTimestamp()], function (err) {
     if (err) return res.status(500).json({ error: err.message }); res.json({ success: true, shiftId: this.lastID });
