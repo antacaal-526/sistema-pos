@@ -9,11 +9,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Migraciones Automáticas Silenciosas (Añade campo de teléfono si no existe)
-db.serialize(() => {
-  db.run(`ALTER TABLE orders ADD COLUMN customer_phone TEXT`, () => {});
-  db.run(`ALTER TABLE customers ADD COLUMN phone TEXT`, () => {});
-});
+// Se eliminaron las migraciones manuales porque las columnas de teléfono ya existen en Turso.
 
 function getColombiaTimestamp() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
@@ -387,6 +383,7 @@ app.post('/api/sales', async (req, res) => {
         } catch (mailErr) { console.error('Error enviando correo POS:', mailErr.message); }
       })();
     }
+
     return res.json({ success: true, invoice_number: invNumber });
   } catch (err) { return res.status(500).json({ error: err.message }); }
 });
