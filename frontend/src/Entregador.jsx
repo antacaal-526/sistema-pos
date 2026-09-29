@@ -108,11 +108,14 @@ export default function Entregador({ user, onLogout }) {
 
             {expandedOrderId === o.id && (
               <div style={{ padding: '1rem', background: '#0f172a', fontSize: '0.85rem' }}>
-                <p style={{ margin: '0 0 0.5rem 0', color: '#94a3b8' }}><strong>Preventista:</strong> {o.created_by}</p>
-                <p style={{ margin: '0 0 0.5rem 0', color: '#94a3b8' }}><strong>Fecha:</strong> {new Date(o.created_at).toLocaleString()}</p>
-                {o.notes && <p style={{ margin: '0 0 0.5rem 0', color: '#eab308' }}><strong>Obs:</strong> {o.notes}</p>}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>
+                  <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Preventista:</span><br/>{o.created_by}</div>
+                  <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Fecha:</span><br/>{new Date(o.created_at).toLocaleString()}</div>
+                  <div><span style={{ color: '#38bdf8', fontSize: '0.8rem', fontWeight: 'bold' }}>Teléfono:</span><br/>{o.customer_phone || 'N/A'}</div>
+                  {o.notes && <div><span style={{ color: '#eab308', fontSize: '0.8rem' }}>Obs:</span><br/>{o.notes}</div>}
+                </div>
                 
-                <h5 style={{ color: '#fff', margin: '1rem 0 0.5rem 0', borderBottom: '1px solid #334155', paddingBottom: '0.3rem' }}>Productos Solicitados:</h5>
+                <h5 style={{ color: '#fff', margin: '0.5rem 0', paddingBottom: '0.3rem' }}>Productos Solicitados:</h5>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                   {o.items && o.items.map(it => (
                     <li key={it.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', borderBottom: '1px dashed #334155', paddingBottom: '0.2rem' }}>

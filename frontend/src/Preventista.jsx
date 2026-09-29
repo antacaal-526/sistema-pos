@@ -18,7 +18,10 @@ export default function Preventista({ user, onLogout }) {
   const [clientDoc, setClientDoc] = useState('');
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
   const [notes, setNotes] = useState('');
+  
+  const [editingOrderId, setEditingOrderId] = useState(null);
 
   const [localOrders, setLocalOrders] = useState([]);
   const [syncStatus, setSyncStatus] = useState('Conectado');
@@ -51,7 +54,6 @@ export default function Preventista({ user, onLogout }) {
     else setSyncStatus('Modo Offline Activo');
   };
 
-  // AUTOCOMPLETADO NIT/CC OFFLINE
   const handleDocChange = async (val) => {
     setClientDoc(val);
     if (val.length >= 4) {
@@ -59,11 +61,11 @@ export default function Preventista({ user, onLogout }) {
       if (existing) {
         setClientName(existing.name);
         if (existing.email) setClientEmail(existing.email);
+        if (existing.phone) setClientPhone(existing.phone);
       }
     }
   };
 
-  // CÁLCULO MATEMÁTICO DE DESCUENTOS POR CANTIDAD
   const getCalculatedPriceInfo = (product, qty) => {
     let discountPercent = 0;
     if (product.discount_rules) {
@@ -95,7 +97,6 @@ export default function Preventista({ user, onLogout }) {
       newCart = [...cart, { ...p, quantity: 1, ...info }];
     }
     setCart(newCart);
-    alert(`Añadido: ${p.name}`);
   };
 
   const updateQty = (barcode, qty) => {
@@ -117,33 +118,44 @@ export default function Preventista({ user, onLogout }) {
     if (cart.length === 0) return alert('El pedido está vacío');
     if (!clientDoc || !clientName) return alert('Ingrese NIT/Cédula y Nombre del cliente');
 
-    const orderId = crypto.randomUUID();
+    const orderId = editingOrderId || crypto.randomUUID();
     const newOrder = {
       id: orderId,
       customer_id: clientDoc,
       customer_name: clientName,
       customer_email: clientEmail,
+      customer_phone: clientPhone,
       created_by: user.name,
       total: cartTotal,
       notes: notes,
       items: cart,
       sync_status: 'pending',
-      created_at: new Date().toISOString()
+      created_at: editingOrderId ? localOrders.find(o => o.id === editingOrderId)?.created_at : new Date().toISOString()
     };
 
-    // Auto-guarda en base de clientes local
-    await db.customers.put({ id: clientDoc, document: clientDoc, name: clientName, email: clientEmail });
+    await db.customers.put({ id: clientDoc, document: clientDoc, name: clientName, email: clientEmail, phone: clientPhone });
     await db.orders_local.put(newOrder);
-    alert('✅ Pedido Registrado Exitosamente');
     
-    setCart([]); setClientDoc(''); setClientName(''); setClientEmail(''); setNotes('');
+    alert(editingOrderId ? '✅ Pedido Modificado Exitosamente' : '✅ Pedido Registrado Exitosamente');
+    
+    setCart([]); setClientDoc(''); setClientName(''); setClientEmail(''); setClientPhone(''); setNotes(''); setEditingOrderId(null);
     setActiveTab('pedidos');
     
     if (navigator.onLine) updateNetworkStatus();
     else loadLocalData();
   };
 
-  // ELIMINACIÓN SEGURA
+  const handleEditOrder = (o) => {
+    setCart(o.items);
+    setClientDoc(o.customer_id);
+    setClientName(o.customer_name);
+    setClientEmail(o.customer_email || '');
+    setClientPhone(o.customer_phone || '');
+    setNotes(o.notes || '');
+    setEditingOrderId(o.id);
+    setActiveTab('carrito');
+  };
+
   const handleDeleteOrder = async (order) => {
     if (!window.confirm(`¿Estás seguro de eliminar el pedido de ${order.customer_name}?`)) return;
     try {
@@ -173,7 +185,7 @@ export default function Preventista({ user, onLogout }) {
         <button onClick={onLogout} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', fontWeight: 'bold' }}>Salir</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '80px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '120px' }}>
         
         {activeTab === 'catalogo' && (
           <div>
@@ -197,7 +209,8 @@ export default function Preventista({ user, onLogout }) {
               <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>📝 Datos del Cliente</h3>
               <input type="text" placeholder="NIT / Cédula" value={clientDoc} onChange={e => handleDocChange(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
               <input type="text" placeholder="Nombre Comercial / Cliente" value={clientName} onChange={e => setClientName(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
-              <input type="email" placeholder="Correo electrónico (Factura PDF)" value={clientEmail} onChange={e => setClientEmail(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
+              <input type="tel" placeholder="📞 Teléfono del Cliente" value={clientPhone} onChange={e => setClientPhone(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
+              <input type="email" placeholder="📧 Correo electrónico (Factura PDF)" value={clientEmail} onChange={e => setClientEmail(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '0.8rem' }} />
               <textarea placeholder="Observaciones / Dirección de entrega" value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} rows={2}></textarea>
             </div>
 
@@ -227,7 +240,12 @@ export default function Preventista({ user, onLogout }) {
                 </div>
               ))}
             </div>
-            <div style={{ height: '80px' }}></div> 
+            
+            {editingOrderId && (
+              <button onClick={() => { setCart([]); setClientDoc(''); setClientName(''); setClientEmail(''); setClientPhone(''); setNotes(''); setEditingOrderId(null); setActiveTab('pedidos'); }} style={{ width: '100%', marginTop: '1rem', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
+                ❌ Cancelar Modificación
+              </button>
+            )}
           </div>
         )}
 
@@ -248,9 +266,12 @@ export default function Preventista({ user, onLogout }) {
                   <span>ID: {o.id.substring(0,8)}</span>
                   <span>Total: <strong style={{ color: '#fff' }}>${formatCOP(o.total)}</strong></span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.8rem' }}>
                   <span style={{ fontSize: '0.75rem' }}>{new Date(o.created_at).toLocaleString()}</span>
-                  <button onClick={() => handleDeleteOrder(o)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>🗑️ Eliminar</button>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <button onClick={() => handleEditOrder(o)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>✏️ Modificar</button>
+                    <button onClick={() => handleDeleteOrder(o)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>🗑️ Eliminar</button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -261,7 +282,9 @@ export default function Preventista({ user, onLogout }) {
       {activeTab === 'carrito' && cart.length > 0 && (
         <div style={{ position: 'fixed', bottom: '70px', left: 0, right: 0, padding: '1rem', background: 'rgba(15, 23, 42, 0.95)', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div><div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Total Pedido</div><strong style={{ fontSize: '1.2rem', color: '#22c55e' }}>${formatCOP(cartTotal)}</strong></div>
-          <button onClick={handleSaveOrder} style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '0.8rem 1.5rem', borderRadius: '6px', fontWeight: 'bold', fontSize: '1rem' }}>💾 Registrar</button>
+          <button onClick={handleSaveOrder} style={{ background: editingOrderId ? '#eab308' : '#16a34a', color: editingOrderId ? '#000' : '#fff', border: 'none', padding: '0.8rem 1.2rem', borderRadius: '6px', fontWeight: 'bold', fontSize: '1rem' }}>
+            {editingOrderId ? '💾 Guardar Cambios' : '💾 Registrar'}
+          </button>
         </div>
       )}
 

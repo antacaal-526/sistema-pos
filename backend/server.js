@@ -9,6 +9,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Migraciones Automáticas Silenciosas (Añade campo de teléfono si no existe)
+db.serialize(() => {
+  db.run(`ALTER TABLE orders ADD COLUMN customer_phone TEXT`, () => {});
+  db.run(`ALTER TABLE customers ADD COLUMN phone TEXT`, () => {});
+});
+
 function getColombiaTimestamp() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
 }
@@ -93,7 +99,6 @@ async function sendInvoiceByBrevo(toEmail, customerName, invoiceNumber, total, p
 
 app.get('/api/ping', (req, res) => res.send('pong'));
 
-// --- CLIENTES GLOBALES ---
 app.get('/api/customers', (req, res) => {
   db.all('SELECT * FROM customers ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
 });
@@ -102,7 +107,7 @@ app.post('/api/customers', (req, res) => {
   const doc = document || id;
   db.run(`INSERT INTO customers (id, document, name, phone, email, address, city, notes, created_at) 
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
-          ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`,
+          ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email, phone=excluded.phone`,
     [doc, doc, name, phone, email, address, city, notes, getColombiaTimestamp()],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -111,7 +116,6 @@ app.post('/api/customers', (req, res) => {
   );
 });
 
-// --- INVENTARIO FÁBRICA (PREVENTA) ---
 app.get('/api/preventa-products', (req, res) => {
   db.all('SELECT * FROM preventa_products ORDER BY name ASC', [], (err, rows) => res.json(rows || []));
 });
@@ -135,7 +139,6 @@ app.delete('/api/preventa-products/:barcode', (req, res) => {
   });
 });
 
-// --- PEDIDOS (PREVENTA Y TRAZABILIDAD) ---
 app.get('/api/orders/detailed', async (req, res) => {
   try {
     const orders = await new Promise(r => db.all(`
@@ -153,19 +156,40 @@ app.get('/api/orders/detailed', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// LÓGICA DE MODIFICACIÓN DE PEDIDO (UPSERT) Y TELEFONO
 app.post('/api/orders', async (req, res) => {
-  const { id, customer_id, customer_name, customer_email, created_by, total, notes, items, created_at } = req.body;
+  const { id, customer_id, customer_name, customer_email, customer_phone, created_by, total, notes, items, created_at } = req.body;
   const horaCol = getColombiaTimestamp();
+
   try {
-    const existing = await new Promise(r => db.get('SELECT id FROM orders WHERE id = ?', [id], (e, row) => r(row)));
-    if (existing) return res.json({ success: true, message: 'Pedido ya procesado', orderId: id });
-    await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`, [customer_id, customer_id, customer_name, customer_email, horaCol], r));
-    await new Promise((resolve, reject) => {
-      db.run(`INSERT INTO orders (id, customer_id, customer_name, customer_email, created_by, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
-        [id, customer_id, customer_name, customer_email, created_by, total, notes, created_at || horaCol, horaCol],
-        (err) => err ? reject(err) : resolve()
-      );
-    });
+    await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, phone, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email, phone=excluded.phone`, [customer_id, customer_id, customer_name, customer_email, customer_phone, horaCol], r));
+
+    const existing = await new Promise(r => db.get('SELECT id, status FROM orders WHERE id = ?', [id], (e, row) => r(row)));
+    
+    if (existing) {
+      if (existing.status !== 'PENDING') {
+        return res.json({ success: true, message: 'Pedido bloqueado, ya procesado', orderId: id });
+      }
+      const oldItems = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
+      for (const oItem of oldItems) {
+        await new Promise((resolve) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [oItem.quantity, oItem.product_barcode], resolve));
+      }
+      await new Promise(r => db.run('DELETE FROM order_items WHERE order_id = ?', [id], r));
+      await new Promise((resolve, reject) => {
+        db.run(`UPDATE orders SET customer_id=?, customer_name=?, customer_email=?, customer_phone=?, total=?, notes=?, updated_at=? WHERE id=?`,
+          [customer_id, customer_name, customer_email, customer_phone, total, notes, horaCol, id],
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+    } else {
+      await new Promise((resolve, reject) => {
+        db.run(`INSERT INTO orders (id, customer_id, customer_name, customer_email, customer_phone, created_by, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+          [id, customer_id, customer_name, customer_email, customer_phone, created_by, total, notes, created_at || horaCol, horaCol],
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+    }
+
     for (const item of items) {
       const itemId = crypto.randomUUID();
       await new Promise((resolve, reject) => {
@@ -254,7 +278,6 @@ app.post('/api/payments', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- USUARIOS, LOGIN, CAJA LOCAL, CONFIG ---
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   db.get('SELECT id, name, username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?', [username.trim(), password.trim()], (err, user) => {
@@ -271,6 +294,7 @@ app.post('/api/users', (req, res) => {
   });
 });
 app.delete('/api/users/:id', (req, res) => { db.run('DELETE FROM users WHERE id = ?', [req.params.id], () => res.json({ success: true })); });
+
 app.get('/api/shifts', (req, res) => { db.all('SELECT * FROM shifts ORDER BY id DESC', [], (err, rows) => res.json(rows || [])); });
 app.get('/api/shifts/active', (req, res) => {
   const userName = req.query.user_name ? req.query.user_name.trim() : null;
@@ -282,20 +306,13 @@ app.post('/api/shifts/open', (req, res) => {
     if (err) return res.status(500).json({ error: err.message }); res.json({ success: true, shiftId: this.lastID });
   });
 });
-
-// NUEVO: CALCULO MATEMÁTICO COMPLETO AL CERRAR TURNO (REPORTE)
 app.post('/api/shifts/close', (req, res) => {
   const { shift_id, counted_cash } = req.body;
   const horaCol = getColombiaTimestamp();
-  
   db.get('SELECT * FROM shifts WHERE id = ?', [shift_id], (errShift, shift) => {
     if (!shift) return res.status(500).json({ error: 'Turno no encontrado' });
-    
-    // Contamos número de ventas
     db.get(`SELECT COUNT(id) as sales_count FROM sales WHERE shift_id = ?`, [shift_id], (errCnt, rowCnt) => {
       const salesCount = rowCnt ? rowCnt.sales_count : 0;
-      
-      // Sumamos ingresos
       db.all(`SELECT payment_method, SUM(total) as total_sales FROM sales WHERE shift_id = ? GROUP BY payment_method`, [shift_id], (err, rows) => {
         let cashSales = 0; let transferSales = 0;
         if (rows) {
@@ -304,12 +321,9 @@ app.post('/api/shifts/close', (req, res) => {
             else transferSales += r.total_sales; 
           });
         }
-        
         const totalSales = cashSales + transferSales;
         const startBase = shift.start_amount || 0;
         const expectedCash = startBase + cashSales;
-        
-        // Si el front no manda el conteo físico, asumimos que es igual a lo esperado (auto-cuadre).
         const realCash = counted_cash !== undefined ? parseFloat(counted_cash) : expectedCash;
         const difference = realCash - expectedCash;
 
@@ -317,24 +331,7 @@ app.post('/api/shifts/close', (req, res) => {
           [realCash, cashSales, transferSales, totalSales, horaCol, shift_id],
           function (errClose) { 
             if (errClose) return res.status(500).json({ error: errClose.message });
-            res.json({ 
-              success: true, 
-              summary: { 
-                id: shift_id,
-                user_name: shift.user_name,
-                opened_at: shift.opened_at,
-                closed_at: horaCol,
-                start_amount: startBase, 
-                cash_sales: cashSales, 
-                transfer_sales: transferSales, 
-                total_sales: totalSales, 
-                end_amount: realCash,
-                expected_cash: expectedCash,
-                counted_cash: realCash,
-                difference: difference,
-                sales_count: salesCount
-              } 
-            }); 
+            res.json({ success: true, summary: { id: shift_id, user_name: shift.user_name, opened_at: shift.opened_at, closed_at: horaCol, start_amount: startBase, cash_sales: cashSales, transfer_sales: transferSales, total_sales: totalSales, end_amount: realCash, expected_cash: expectedCash, counted_cash: realCash, difference: difference, sales_count: salesCount } }); 
           }
         );
       });
@@ -357,7 +354,6 @@ app.put('/api/products/:barcode', (req, res) => {
 });
 app.delete('/api/products/:barcode', (req, res) => { db.run('DELETE FROM products WHERE barcode = ?', [req.params.barcode], () => res.json({ success: true })); });
 
-// --- VENTA CAJA POS LOCAL ACTUALIZADA CON CORREO ---
 app.post('/api/sales', async (req, res) => {
   const { shift_id, user_name, customer_doc, customer_name, customer_email, items, total, payment_method, amount_paid, change_given } = req.body;
   const invNumber = `TF-${Date.now().toString().slice(-6)}`;
@@ -391,7 +387,6 @@ app.post('/api/sales', async (req, res) => {
         } catch (mailErr) { console.error('Error enviando correo POS:', mailErr.message); }
       })();
     }
-
     return res.json({ success: true, invoice_number: invNumber });
   } catch (err) { return res.status(500).json({ error: err.message }); }
 });
@@ -416,6 +411,7 @@ app.post('/api/config', (req, res) => {
     });
   });
 });
+
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.use((req, res) => res.sendFile(path.join(__dirname, '../frontend/dist/index.html')));
 const PORT = process.env.PORT || 3000;

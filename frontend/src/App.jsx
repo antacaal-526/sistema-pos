@@ -25,7 +25,6 @@ export default function App() {
   const [activeShift, setActiveShift] = useState(null);
   const [showShiftModal, setShowShiftModal] = useState(false);
   
-  // ESTADOS DEL NUEVO CIERRE DE TURNO
   const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
   const [countedCashInput, setCountedCashInput] = useState('');
   const [shiftSummary, setShiftSummary] = useState(null);
@@ -206,7 +205,6 @@ export default function App() {
     } catch (e) { alert('Error al abrir turno'); }
   };
 
-  // NUEVA LÓGICA DE CIERRE DE TURNO CON CUADRE DE CAJA
   const handleCloseShift = async () => {
     if (!activeShift) return;
     const counted = parseCOP(countedCashInput);
@@ -715,6 +713,7 @@ export default function App() {
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
                                   <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>NIT/CC:</span><br/>{o.customer_doc}</div>
                                   <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Correo:</span><br/>{o.customer_email || 'N/A'}</div>
+                                  <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Teléfono:</span><br/>{o.customer_phone || 'N/A'}</div>
                                   <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Notas:</span><br/>{o.notes || 'N/A'}</div>
                                 </div>
                                 <h5 style={{ margin: '0 0 0.5rem 0', color: '#38bdf8' }}>Productos de Fábrica Solicitados:</h5>
@@ -795,7 +794,7 @@ export default function App() {
                         <td style={{ fontSize: '0.85rem' }}><strong>{t.description}</strong></td>
                         <td style={{ fontWeight: 'bold', color: t.type === 'Ingreso' ? '#22c55e' : '#ef4444' }}>${t.amount?.toLocaleString('es-CO')}</td>
                         <td style={{ fontSize: '0.85rem' }}>{t.user_name}</td>
-                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteTransaction(t.id, t.description, t.category)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑️</button></td>
+                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteTransaction(t.id, t.description, t.category)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑️️</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -870,7 +869,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* MODAL DE APERTURA DE TURNO */}
       {showShiftModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '320px', color: '#fff' }}>
@@ -884,7 +882,6 @@ export default function App() {
         </div>
       )}
 
-      {/* NUEVO MODAL DE CIERRE DE TURNO (PIDE CONTAR BILLETES) */}
       {showCloseShiftModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '320px', color: '#fff' }}>
@@ -900,7 +897,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL DE REPORTE FINAL DESPUÉS DE CERRAR TURNO */}
       {shiftSummary && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff' }}>
