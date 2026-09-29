@@ -8,16 +8,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Migraciones Seguras Silenciosas: Garantizan que las columnas existan sin crashear si ya estaban creadas.
-db.serialize(() => {
-  db.run("ALTER TABLE orders ADD COLUMN customer_phone TEXT", (err) => {
-    if(err && !err.message.includes('duplicate')) console.log(err.message);
-  });
-  db.run("ALTER TABLE customers ADD COLUMN phone TEXT", (err) => {
-    if(err && !err.message.includes('duplicate')) console.log(err.message);
-  });
-});
-
+// Función segura para generar IDs en el backend (reemplazo de crypto que falla en celulares sin HTTPS)
 const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 function getColombiaTimestamp() {
