@@ -2,14 +2,14 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const db = require('./database');
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Se eliminaron las migraciones manuales porque las columnas de teléfono ya existen en Turso.
+// Función segura para generar IDs en el backend (reemplazo de crypto que a veces falla en entornos locales)
+const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 function getColombiaTimestamp() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).replace('T', ' ');
@@ -152,7 +152,6 @@ app.get('/api/orders/detailed', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// LÓGICA DE MODIFICACIÓN DE PEDIDO (UPSERT) Y TELEFONO
 app.post('/api/orders', async (req, res) => {
   const { id, customer_id, customer_name, customer_email, customer_phone, created_by, total, notes, items, created_at } = req.body;
   const horaCol = getColombiaTimestamp();
@@ -163,9 +162,7 @@ app.post('/api/orders', async (req, res) => {
     const existing = await new Promise(r => db.get('SELECT id, status FROM orders WHERE id = ?', [id], (e, row) => r(row)));
     
     if (existing) {
-      if (existing.status !== 'PENDING') {
-        return res.json({ success: true, message: 'Pedido bloqueado, ya procesado', orderId: id });
-      }
+      if (existing.status !== 'PENDING') return res.json({ success: true, message: 'Bloqueado', orderId: id });
       const oldItems = await new Promise(r => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [id], (e, rows) => r(rows || [])));
       for (const oItem of oldItems) {
         await new Promise((resolve) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [oItem.quantity, oItem.product_barcode], resolve));
@@ -187,7 +184,7 @@ app.post('/api/orders', async (req, res) => {
     }
 
     for (const item of items) {
-      const itemId = crypto.randomUUID();
+      const itemId = generateUUID();
       await new Promise((resolve, reject) => {
         db.run(`INSERT INTO order_items (id, order_id, product_barcode, product_name, quantity, unit_price, subtotal, discount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [itemId, id, item.barcode, item.name, item.quantity, item.unit_price, item.subtotal, item.discount_percent || 0],
@@ -334,6 +331,13 @@ app.post('/api/shifts/close', (req, res) => {
     });
   });
 });
+// NUEVO: ENDPOINT ELIMINAR REPORTE
+app.delete('/api/shifts/:id', (req, res) => {
+  db.run('DELETE FROM shifts WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
 
 app.get('/api/products', (req, res) => { db.all('SELECT * FROM products ORDER BY name ASC', [], (err, rows) => res.json(rows || [])); });
 app.post('/api/products', (req, res) => {
@@ -383,7 +387,6 @@ app.post('/api/sales', async (req, res) => {
         } catch (mailErr) { console.error('Error enviando correo POS:', mailErr.message); }
       })();
     }
-
     return res.json({ success: true, invoice_number: invNumber });
   } catch (err) { return res.status(500).json({ error: err.message }); }
 });

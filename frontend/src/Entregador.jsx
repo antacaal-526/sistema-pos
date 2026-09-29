@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { db } from './db';
+import { processSyncQueue } from './syncEngine';
 
 const API_URL = 'https://terra-pos-backend-526.onrender.com';
 
@@ -6,6 +8,8 @@ const formatCOP = (val) => {
   if (!val) return '0';
   return parseInt(val, 10).toLocaleString('es-CO');
 };
+
+const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 export default function Entregador({ user, onLogout }) {
   const [orders, setOrders] = useState([]);
@@ -15,19 +19,37 @@ export default function Entregador({ user, onLogout }) {
 
   useEffect(() => {
     fetchOrders();
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('sync-completed', fetchOrders);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('sync-completed', fetchOrders);
+    };
   }, []);
+
+  const handleOnline = async () => {
+    await processSyncQueue();
+  };
 
   const fetchOrders = async () => {
     setLoading(true);
+    if (!navigator.onLine) {
+      const cached = localStorage.getItem('entregador_routes');
+      if (cached) setOrders(JSON.parse(cached));
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_URL}/api/orders/detailed`);
       if (res.ok) {
         const data = await res.json();
         setOrders(data);
+        localStorage.setItem('entregador_routes', JSON.stringify(data));
       }
     } catch (e) {
-      console.error('Error fetching orders:', e);
-      alert('Error de red al obtener pedidos.');
+      const cached = localStorage.getItem('entregador_routes');
+      if (cached) setOrders(JSON.parse(cached));
     }
     setLoading(false);
   };
@@ -36,6 +58,18 @@ export default function Entregador({ user, onLogout }) {
     const isDeliver = actionType === 'DELIVERED';
     const msg = isDeliver ? '¿Confirmar entrega del pedido (Aún sin cobro)?' : `¿Confirmar Cobro por $${formatCOP(total)}?`;
     if (!window.confirm(msg)) return;
+
+    if (!navigator.onLine) {
+      const payload = isDeliver ? { orderId, status: 'DELIVERED' } : { id: generateUUID(), order_id: orderId, collector_id: user.name, payment_method: 'Efectivo', amount: total };
+      const type = isDeliver ? 'UPDATE_STATUS' : 'PROCESS_PAYMENT';
+      await db.syncQueue.add({ type, payload });
+      
+      const updatedOrders = orders.map(o => o.id === orderId ? { ...o, status: isDeliver ? 'DELIVERED' : 'PAID' } : o);
+      setOrders(updatedOrders);
+      localStorage.setItem('entregador_routes', JSON.stringify(updatedOrders));
+      alert('💾 Sin red: Acción guardada localmente. Se sincronizará al recuperar señal.');
+      return;
+    }
 
     try {
       if (isDeliver) {
@@ -48,7 +82,7 @@ export default function Entregador({ user, onLogout }) {
         await fetch(`${API_URL}/api/payments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: crypto.randomUUID(), order_id: orderId, collector_id: user.name, payment_method: 'Efectivo', amount: total })
+          body: JSON.stringify({ id: generateUUID(), order_id: orderId, collector_id: user.name, payment_method: 'Efectivo', amount: total })
         });
       }
       alert('✅ Acción registrada exitosamente.');
@@ -76,14 +110,17 @@ export default function Entregador({ user, onLogout }) {
       <div style={{ background: '#1e293b', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
         <div>
           <strong style={{ color: '#38bdf8' }}>🚚 Rutas y Cobros</strong>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>Entregador: {user.name}</div>
+          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>
+            Entregador: {user.name} <br/> 
+            {navigator.onLine ? <span style={{color: '#4ade80'}}>Conectado</span> : <span style={{color: '#f87171'}}>⚠️ Modo Offline Activo</span>}
+          </div>
         </div>
         <button onClick={onLogout} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', fontWeight: 'bold' }}>Salir</button>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '80px' }}>
-        <button onClick={fetchOrders} style={{ width: '100%', padding: '0.8rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', marginBottom: '1rem' }}>
-          {loading ? 'Sincronizando...' : '🔄 Actualizar Nube'}
+        <button onClick={() => { processSyncQueue(); fetchOrders(); }} style={{ width: '100%', padding: '0.8rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', marginBottom: '1rem' }}>
+          {loading ? 'Sincronizando...' : '🔄 Sincronizar y Actualizar Rutas'}
         </button>
 
         <h3 style={{ color: '#e2e8f0', marginBottom: '1rem' }}>{activeTab === 'pendientes' ? 'Rutas Pendientes' : 'Historial de Cobros'}</h3>

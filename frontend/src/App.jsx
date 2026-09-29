@@ -20,6 +20,8 @@ const parseCOP = (val) => {
   return cleanNum ? parseInt(cleanNum, 10) : 0;
 };
 
+const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeShift, setActiveShift] = useState(null);
@@ -106,7 +108,15 @@ export default function App() {
         loadProductsLocal();
       }
     }
+    window.addEventListener('sync-completed', handleSyncCompleted);
+    return () => window.removeEventListener('sync-completed', handleSyncCompleted);
   }, [currentUser]);
+
+  const handleSyncCompleted = () => {
+    loadTransactions();
+    loadShifts();
+    loadPreventaOrders();
+  };
 
   const loadProductsOnline = async () => {
     try {
@@ -225,6 +235,20 @@ export default function App() {
         alert('Error al cerrar: ' + (data.error || ''));
       }
     } catch (e) { alert('Error de red al cerrar el turno'); }
+  };
+
+  // NUEVO: Eliminar reporte de turno
+  const handleDeleteShift = async (id) => {
+    if (!window.confirm(`¿Estás seguro de eliminar el reporte de turno #${id}? Esta acción no se puede deshacer.`)) return;
+    try {
+      const res = await fetch(`${API_URL}/api/shifts/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        alert('🗑️ Reporte eliminado correctamente.');
+        loadShifts();
+      } else {
+        alert('No se pudo eliminar el reporte.');
+      }
+    } catch (e) { alert('Error de red'); }
   };
 
   const handleDocChange = async (val) => {
@@ -452,7 +476,7 @@ export default function App() {
         }
       `}</style>
 
-      {/* COMPROBANTE DE IMPRESIÓN ACTUALIZADO PARA REPORTES Y FACTURAS */}
+      {/* COMPROBANTE DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -794,7 +818,7 @@ export default function App() {
                         <td style={{ fontSize: '0.85rem' }}><strong>{t.description}</strong></td>
                         <td style={{ fontWeight: 'bold', color: t.type === 'Ingreso' ? '#22c55e' : '#ef4444' }}>${t.amount?.toLocaleString('es-CO')}</td>
                         <td style={{ fontSize: '0.85rem' }}>{t.user_name}</td>
-                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteTransaction(t.id, t.description, t.category)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑️️</button></td>
+                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteTransaction(t.id, t.description, t.category)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -818,7 +842,7 @@ export default function App() {
                         <td><strong>{u.name}</strong></td>
                         <td>{u.username}</td>
                         <td><span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: u.role === 'Administrador' ? '#1e40af' : '#334155', fontSize: '0.8rem' }}>{u.role}</span></td>
-                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteUser(u.id, u.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑️</button></td>
+                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteUser(u.id, u.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑️️</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -844,7 +868,10 @@ export default function App() {
                         <tr key={s.id} style={{ fontSize: '0.85rem' }}>
                           <td>#{s.id}</td><td><strong>{s.user_name}</strong></td><td>{s.closed_at || 'En curso'}</td>
                           <td style={{ color: '#4ade80' }}>${getShiftValFormatted(s.cash_sales)}</td><td style={{ color: '#38bdf8' }}>${getShiftValFormatted(s.transfer_sales)}</td><td style={{ fontWeight: 'bold' }}>${getShiftValFormatted(s.total_sales)}</td>
-                          <td style={{ textAlign: 'center' }}><button onClick={() => handlePrintShiftReport(s)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px' }}>🖨️</button></td>
+                          <td style={{ textAlign: 'center', display:'flex', gap:'5px', justifyContent:'center' }}>
+                            <button onClick={() => handlePrintShiftReport(s)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🖨️</button>
+                            <button onClick={() => handleDeleteShift(s.id)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🗑️</button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -946,7 +973,7 @@ export default function App() {
       {editingProduct && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <form onSubmit={handleUpdateProduct} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar Local</h3>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️️ Editar Local</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Precio Local ($)" value={formatCOP(editingProduct.sale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="number" placeholder="Stock" value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />

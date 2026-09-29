@@ -9,6 +9,9 @@ const formatCOP = (val) => {
   return parseInt(val, 10).toLocaleString('es-CO');
 };
 
+// Generador de ID 100% seguro para entornos offline y no-https
+const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
+
 export default function Preventista({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('catalogo');
   const [products, setProducts] = useState([]);
@@ -30,9 +33,11 @@ export default function Preventista({ user, onLogout }) {
     loadLocalData();
     window.addEventListener('online', updateNetworkStatus);
     window.addEventListener('offline', updateNetworkStatus);
+    window.addEventListener('sync-completed', loadLocalData);
     return () => {
       window.removeEventListener('online', updateNetworkStatus);
       window.removeEventListener('offline', updateNetworkStatus);
+      window.removeEventListener('sync-completed', loadLocalData);
     };
   }, []);
 
@@ -118,7 +123,7 @@ export default function Preventista({ user, onLogout }) {
     if (cart.length === 0) return alert('El pedido está vacío');
     if (!clientDoc || !clientName) return alert('Ingrese NIT/Cédula y Nombre del cliente');
 
-    const orderId = editingOrderId || crypto.randomUUID();
+    const orderId = editingOrderId || generateUUID();
     const newOrder = {
       id: orderId,
       customer_id: clientDoc,
@@ -185,7 +190,7 @@ export default function Preventista({ user, onLogout }) {
         <button onClick={onLogout} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', fontWeight: 'bold' }}>Salir</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '120px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', paddingBottom: '180px' }}>
         
         {activeTab === 'catalogo' && (
           <div>

@@ -14,11 +14,34 @@ export const processSyncQueue = async () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(order)
         });
-        
         if (res.ok) {
           await db.orders_local.update(order.id, { sync_status: 'synced' });
         }
       } catch (err) { console.error('Error sincronizando pedido:', order.id, err); }
+    }
+
+    // SINCRONIZACIÓN DE LA COLA DEL ENTREGADOR
+    const syncQueueTasks = await db.syncQueue.toArray();
+    for (const task of syncQueueTasks) {
+      try {
+        if (task.type === 'UPDATE_STATUS') {
+          const res = await fetch(`${API_URL}/api/orders/${task.payload.orderId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: task.payload.status })
+          });
+          if (res.ok) await db.syncQueue.delete(task.id);
+        } else if (task.type === 'PROCESS_PAYMENT') {
+          const res = await fetch(`${API_URL}/api/payments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(task.payload)
+          });
+          if (res.ok) await db.syncQueue.delete(task.id);
+        }
+      } catch (e) {
+        console.error('Error sincronizando cola Entregador:', e);
+      }
     }
 
     const [prodRes, prevRes, custRes, usersRes] = await Promise.all([
@@ -32,12 +55,18 @@ export const processSyncQueue = async () => {
     if (prevRes.ok) await db.preventa_products.bulkPut(await prevRes.json());
     if (custRes.ok) {
       const custData = await custRes.json();
-      await db.customers.bulkPut(custData.map(c => ({...c, id: c.document || c.id}))); // Guardar normalizado
+      await db.customers.bulkPut(custData.map(c => ({...c, id: c.document || c.id})));
     }
     if (usersRes.ok) await db.users.bulkPut(await usersRes.json());
     
-    console.log('✅ Sincronización bidireccional completada');
-  } catch (error) { console.error('Error en motor de sincronización:', error); }
+    console.log('✅ Sincronización completada');
+    
+    // Disparar evento para que la interfaz se refresque automáticamente
+    window.dispatchEvent(new Event('sync-completed'));
+    
+  } catch (error) { 
+    console.error('Error en motor de sincronización:', error); 
+  }
 };
 
 window.addEventListener('online', processSyncQueue);
