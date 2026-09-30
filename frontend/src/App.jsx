@@ -237,7 +237,6 @@ export default function App() {
     } catch (e) { alert('Error de red al cerrar el turno'); }
   };
 
-  // NUEVO: Eliminar reporte de turno
   const handleDeleteShift = async (id) => {
     if (!window.confirm(`¿Estás seguro de eliminar el reporte de turno #${id}? Esta acción no se puede deshacer.`)) return;
     try {
@@ -249,6 +248,22 @@ export default function App() {
         alert('No se pudo eliminar el reporte.');
       }
     } catch (e) { alert('Error de red'); }
+  };
+
+  // NUEVO: ELIMINAR PEDIDO DESDE EL PANEL DE ADMINISTRADOR
+  const handleDeletePreventaOrderAdmin = async (id, customerName) => {
+    if (!window.confirm(`¿Estás seguro de eliminar el pedido de ${customerName || 'este cliente'}?`)) return;
+    try {
+      const res = await fetch(`${API_URL}/api/orders/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        alert('🗑️ Pedido eliminado correctamente.');
+        loadPreventaOrders();
+        loadPreventaProductsOnline(); // Actualiza el stock
+      } else {
+        const err = await res.json();
+        alert(`⚠️ No se pudo eliminar: ${err.error}`);
+      }
+    } catch (e) { alert('Error de conexión.'); }
   };
 
   const handleDocChange = async (val) => {
@@ -283,24 +298,48 @@ export default function App() {
     if (cart.length === 0) return alert('El carrito está vacío');
     const finalDoc = customerDoc || '222222222222';
     const desc = cart.map((i) => `${i.quantity}x ${i.name}`).join(', ');
+    const invNumber = `TF-${Date.now().toString().slice(-6)}`;
+    
+    const payload = { 
+      shift_id: activeShift?.id || null, 
+      user_name: currentUser.name, 
+      customer_doc: finalDoc, 
+      customer_name: customerName, 
+      customer_email: customerEmail, 
+      items: cart, 
+      description: desc, 
+      total: totalCart, 
+      payment_method: paymentMethod, 
+      amount_paid: receivedToRegister, 
+      change_given: changeGiven, 
+      sale_type: saleType,
+      invoice_number: invNumber
+    };
+
+    // VENTA OFFLINE POS (Mostrador local)
+    if (!navigator.onLine) {
+      await db.syncQueue.add({ type: 'PROCESS_POS_SALE', payload });
+      
+      for (const item of cart) {
+        const p = await db.products.get(item.barcode);
+        if (p) await db.products.update(item.barcode, { stock: p.stock - item.quantity });
+      }
+      
+      setLastInvoice({ number: invNumber, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
+      alert(`💾 Venta Guardada Offline. Factura #: ${invNumber}\nSe sincronizará cuando regrese el Internet.`);
+      if (saleType === 'Facturada') setTimeout(() => window.print(), 300);
+      
+      setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); 
+      loadProductsLocal();
+      return;
+    }
+
+    // VENTA NORMAL ONLINE
     try {
       const res = await fetch(`${API_URL}/api/sales`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          shift_id: activeShift?.id || null, 
-          user_name: currentUser.name, 
-          customer_doc: finalDoc, 
-          customer_name: customerName, 
-          customer_email: customerEmail, 
-          items: cart, 
-          description: desc, 
-          total: totalCart, 
-          payment_method: paymentMethod, 
-          amount_paid: receivedToRegister, 
-          change_given: changeGiven, 
-          sale_type: saleType 
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -476,7 +515,7 @@ export default function App() {
         }
       `}</style>
 
-      {/* COMPROBANTE DE IMPRESIÓN */}
+      {/* COMPROBANTE DE IMPRESIÓN ACTUALIZADO PARA REPORTES Y FACTURAS */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -724,9 +763,12 @@ export default function App() {
                             {o.status === 'PAID' && <span style={{ background: '#22c55e', color: '#fff', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>✅ Cobrado</span>}
                           </td>
                           <td style={{ color: '#22c55e', fontWeight: 'bold' }}>${formatCOP(o.total)}</td>
-                          <td style={{ textAlign: 'center' }}>
+                          <td style={{ textAlign: 'center', display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
                             <button onClick={() => setExpandedOrderId(expandedOrderId === o.id ? null : o.id)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
                               {expandedOrderId === o.id ? 'Ocultar' : 'Detalles'}
+                            </button>
+                            <button onClick={() => handleDeletePreventaOrderAdmin(o.id, o.customer_name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                              🗑️
                             </button>
                           </td>
                         </tr>
@@ -842,7 +884,7 @@ export default function App() {
                         <td><strong>{u.name}</strong></td>
                         <td>{u.username}</td>
                         <td><span style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', background: u.role === 'Administrador' ? '#1e40af' : '#334155', fontSize: '0.8rem' }}>{u.role}</span></td>
-                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteUser(u.id, u.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑️️</button></td>
+                        <td style={{ textAlign: 'center' }}><button onClick={() => handleDeleteUser(u.id, u.name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px' }}>🗑</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -973,7 +1015,7 @@ export default function App() {
       {editingProduct && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <form onSubmit={handleUpdateProduct} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️️ Editar Local</h3>
+            <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar Local</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Precio Local ($)" value={formatCOP(editingProduct.sale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="number" placeholder="Stock" value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />

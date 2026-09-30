@@ -52,7 +52,6 @@ export const processSyncQueue = async () => {
             }
           }
         } else {
-          // Captura el error exacto 500 del backend
           const errData = await res.json().catch(() => ({}));
           lastErrorMessage = errData.message || errData.error || `HTTP ${res.status}`;
           errorCount++;
@@ -75,6 +74,14 @@ export const processSyncQueue = async () => {
           if (res.ok) await db.syncQueue.delete(task.id);
         } else if (task.type === 'PROCESS_PAYMENT') {
           const res = await fetch(`${API_URL}/api/payments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(task.payload)
+          });
+          if (res.ok) await db.syncQueue.delete(task.id);
+        } else if (task.type === 'PROCESS_POS_SALE') {
+          // NUEVO: Procesa las Ventas del POS cuando no hay internet en caja
+          const res = await fetch(`${API_URL}/api/sales`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(task.payload)

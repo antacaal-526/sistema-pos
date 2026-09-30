@@ -8,8 +8,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Se eliminó la autosanación porque Turso crashea el servidor si se intenta alterar una tabla existente.
-// Las columnas customer_phone, customer_email, etc., ya existen exitosamente en la base de datos.
+// --- AUTOSANACIÓN SEGURA DE BASE DE DATOS ---
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS preventa_products (
+    barcode TEXT PRIMARY KEY, name TEXT, price REAL, discount_rules TEXT,
+    stock INTEGER DEFAULT 0, reserved_stock INTEGER DEFAULT 0, min_stock INTEGER DEFAULT 3
+  )`);
+
+  const ensureColumn = (table, column, def) => {
+    db.all(`PRAGMA table_info(${table})`, (err, rows) => {
+      if (err) return;
+      if (!rows.some(r => r.name === column)) {
+        db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`, (e) => {
+          if (e && !e.message.includes('duplicate')) console.log(`Error añadiendo ${column}:`, e.message);
+        });
+      }
+    });
+  };
+
+  ensureColumn('orders', 'customer_name', 'TEXT');
+  ensureColumn('orders', 'customer_email', 'TEXT');
+  ensureColumn('orders', 'customer_phone', 'TEXT');
+  ensureColumn('customers', 'email', 'TEXT');
+  ensureColumn('customers', 'phone', 'TEXT');
+  ensureColumn('order_items', 'discount_percent', 'REAL DEFAULT 0');
+});
 
 const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
@@ -214,7 +237,6 @@ app.post('/api/orders', async (req, res) => {
     }
     res.json({ success: true, orderId: id });
   } catch (err) { 
-    console.error("Backend Error Guardando Pedido:", err);
     res.status(500).json({ success: false, error: err.message, message: err.message }); 
   }
 });
@@ -256,12 +278,18 @@ app.delete('/api/orders/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// MODIFICADO: Agrega productos a la contabilidad
 app.post('/api/payments', async (req, res) => {
   const { id, order_id, collector_id, payment_method, amount, collected_at } = req.body;
   const horaCol = getColombiaTimestamp();
   try {
     const existing = await new Promise((resolve, reject) => db.get('SELECT id FROM payments WHERE id = ?', [id], (err, row) => err ? reject(err) : resolve(row)));
     if (existing) return res.json({ success: true });
+    
+    // Obtenemos los items ANTES de insertar la transaccion para detallar la contabilidad
+    const itemsRows = await new Promise(r => db.all('SELECT * FROM order_items WHERE order_id = ?', [order_id], (e, rows) => r(rows || [])));
+    const itemsDesc = itemsRows.map(i => `${i.quantity}x ${i.product_name}`).join(', ');
+
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO payments (id, order_id, collector_id, payment_method, amount, collected_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [id, order_id, collector_id, payment_method, amount, collected_at || horaCol, horaCol],
@@ -269,17 +297,19 @@ app.post('/api/payments', async (req, res) => {
       );
     });
     await new Promise((resolve, reject) => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], (err) => err ? reject(err) : resolve()));
+    
+    // Transaccion con detalle de productos
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
-        [`Cobro Preventa #${order_id.substring(0, 8)} (${payment_method})`, amount, collector_id, horaCol],
+        [`Cobro Preventa #${order_id.substring(0, 8)} | ${itemsDesc}`, amount, collector_id, horaCol],
         (err) => err ? reject(err) : resolve()
       );
     });
+    
     const orderInfo = await new Promise((resolve, reject) => db.get('SELECT * FROM orders WHERE id = ?', [order_id], (err, row) => err ? reject(err) : resolve(row)));
     if (orderInfo && orderInfo.customer_email && orderInfo.customer_email.trim()) {
       (async () => {
         try {
-          const itemsRows = await new Promise(r => db.all('SELECT * FROM order_items WHERE order_id = ?', [order_id], (e, rows) => r(rows || [])));
           const rowsConfig = await new Promise((r) => db.all('SELECT * FROM config', [], (e, d) => r(d || [])));
           const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
           rowsConfig.forEach((row) => { configObj[row.key] = row.value; });
@@ -382,9 +412,10 @@ app.put('/api/products/:barcode', (req, res) => {
 });
 app.delete('/api/products/:barcode', (req, res) => { db.run('DELETE FROM products WHERE barcode = ?', [req.params.barcode], () => res.json({ success: true })); });
 
+// MODIFICADO: Agrega productos a la contabilidad del POS
 app.post('/api/sales', async (req, res) => {
-  const { shift_id, user_name, customer_doc, customer_name, customer_email, items, total, payment_method, amount_paid, change_given } = req.body;
-  const invNumber = `TF-${Date.now().toString().slice(-6)}`;
+  const { shift_id, user_name, customer_doc, customer_name, customer_email, items, total, payment_method, amount_paid, change_given, invoice_number } = req.body;
+  const invNumber = invoice_number || `TF-${Date.now().toString().slice(-6)}`;
   const horaCol = getColombiaTimestamp();
   try {
     const saleRes = await new Promise((resolve, reject) => {
@@ -398,7 +429,10 @@ app.post('/api/sales', async (req, res) => {
       await new Promise((r) => db.run('INSERT INTO sale_items (sale_id, product_barcode, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?)', [saleRes.lastID, item.barcode, item.name, item.quantity, item.sale_price, item.quantity * item.sale_price], r));
     }
     await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`, [customer_doc, customer_doc, customer_name, customer_email, horaCol], r));
-    await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Venta POS', ?, ?, ?, ?)`, [`Venta POS Factura #${invNumber}`, total, user_name, horaCol], r));
+    
+    // Detalle de items para la tabla de contabilidad
+    const itemsDesc = items.map(i => `${i.quantity}x ${i.name}`).join(', ');
+    await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Venta POS', ?, ?, ?, ?)`, [`Venta POS #${invNumber} | ${itemsDesc}`, total, user_name, horaCol], r));
     
     if (customer_email && customer_email.trim()) {
       (async () => {
