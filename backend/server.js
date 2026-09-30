@@ -8,30 +8,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- MIGRACIÓN A PRUEBA DE BALAS ---
-// Fuerza la creación de columnas. Si ya existen, ignora el error silenciosamente.
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS preventa_products (
-    barcode TEXT PRIMARY KEY, name TEXT, price REAL, discount_rules TEXT,
-    stock INTEGER DEFAULT 0, reserved_stock INTEGER DEFAULT 0, min_stock INTEGER DEFAULT 3
-  )`);
-
-  const columnsToEnsure = [
-    "ALTER TABLE orders ADD COLUMN customer_name TEXT",
-    "ALTER TABLE orders ADD COLUMN customer_email TEXT",
-    "ALTER TABLE orders ADD COLUMN customer_phone TEXT",
-    "ALTER TABLE orders ADD COLUMN notes TEXT",
-    "ALTER TABLE orders ADD COLUMN created_by TEXT",
-    "ALTER TABLE order_items ADD COLUMN product_name TEXT",
-    "ALTER TABLE order_items ADD COLUMN discount_percent REAL DEFAULT 0",
-    "ALTER TABLE customers ADD COLUMN phone TEXT",
-    "ALTER TABLE customers ADD COLUMN email TEXT"
-  ];
-
-  columnsToEnsure.forEach(query => {
-    db.run(query, (err) => { /* Ignoramos el error duplicate column */ });
-  });
-});
+// Se eliminó la autosanación porque Turso crashea el servidor si se intenta alterar una tabla existente.
+// Las columnas customer_phone, customer_email, etc., ya existen exitosamente en la base de datos.
 
 const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
@@ -237,7 +215,6 @@ app.post('/api/orders', async (req, res) => {
     res.json({ success: true, orderId: id });
   } catch (err) { 
     console.error("Backend Error Guardando Pedido:", err);
-    // Devuelve un JSON estricto con el mensaje de error para que la App lo lea
     res.status(500).json({ success: false, error: err.message, message: err.message }); 
   }
 });
