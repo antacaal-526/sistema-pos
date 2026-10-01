@@ -241,16 +241,16 @@ export default function App() {
     if (!window.confirm(`¿Estás seguro de eliminar el reporte de turno #${id}? Esta acción no se puede deshacer.`)) return;
     try {
       const res = await fetch(`${API_URL}/api/shifts/${id}`, { method: 'DELETE' });
-      if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
         alert('🗑️ Reporte eliminado correctamente.');
         loadShifts();
       } else {
-        alert('No se pudo eliminar el reporte.');
+        alert(`No se pudo eliminar el reporte. Servidor dice: ${data.error || 'Error desconocido'}`);
       }
     } catch (e) { alert('Error de red'); }
   };
 
-  // NUEVO: ELIMINAR PEDIDO DESDE EL PANEL DE ADMINISTRADOR
   const handleDeletePreventaOrderAdmin = async (id, customerName) => {
     if (!window.confirm(`¿Estás seguro de eliminar el pedido de ${customerName || 'este cliente'}?`)) return;
     try {
@@ -258,12 +258,33 @@ export default function App() {
       if (res.ok) {
         alert('🗑️ Pedido eliminado correctamente.');
         loadPreventaOrders();
-        loadPreventaProductsOnline(); // Actualiza el stock
+        loadPreventaProductsOnline(); 
       } else {
         const err = await res.json();
         alert(`⚠️ No se pudo eliminar: ${err.error}`);
       }
     } catch (e) { alert('Error de conexión.'); }
+  };
+
+  // NUEVO: FUNCION DE CIERRE DE MES Y OPTIMIZACION
+  const handleMonthClose = async () => {
+    if (!window.confirm("⚠️ ADVERTENCIA DE CIERRE DE MES ⚠️\n\n¿Estás seguro de que deseas ELIMINAR TODO EL HISTORIAL de Ventas, Turnos Cerrados, Pedidos Cobrados y Contabilidad?\n\nEsta acción dejará el sistema en cero para iniciar un nuevo mes y NO se puede deshacer. Asegúrate de haber descargado los CSV primero.")) return;
+    if (!window.confirm("¿ÚLTIMA CONFIRMACIÓN? Se borrará el historial viejo para liberar espacio y acelerar el sistema.")) return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/clean-history`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert('✅ CIERRE DE MES COMPLETADO. El historial ha sido limpiado y el sistema está optimizado.');
+        loadShifts();
+        loadTransactions();
+        loadPreventaOrders();
+      } else {
+        alert(`Error al limpiar: ${data.error || 'Desconocido'}`);
+      }
+    } catch(e) {
+      alert('Error de conexión.');
+    }
   };
 
   const handleDocChange = async (val) => {
@@ -316,7 +337,6 @@ export default function App() {
       invoice_number: invNumber
     };
 
-    // VENTA OFFLINE POS (Mostrador local)
     if (!navigator.onLine) {
       await db.syncQueue.add({ type: 'PROCESS_POS_SALE', payload });
       
@@ -334,7 +354,6 @@ export default function App() {
       return;
     }
 
-    // VENTA NORMAL ONLINE
     try {
       const res = await fetch(`${API_URL}/api/sales`, {
         method: 'POST',
@@ -515,7 +534,7 @@ export default function App() {
         }
       `}</style>
 
-      {/* COMPROBANTE DE IMPRESIÓN ACTUALIZADO PARA REPORTES Y FACTURAS */}
+      {/* COMPROBANTE DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -933,6 +952,16 @@ export default function App() {
                 <input type="text" value={storeConfig.telefono} onChange={(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Teléfono" />
                 <button type="submit" style={{ padding: '1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>💾 Guardar Cambios</button>
               </form>
+
+              <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', marginTop: '1.5rem' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#ef4444' }}>🧹 Cierre de Mes (Optimización)</h3>
+                <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
+                  Utiliza esta opción al finalizar el mes para eliminar el historial antiguo (Ventas, Turnos, Pedidos Cobrados y Contabilidad). Esto liberará espacio y hará que el sistema funcione mucho más rápido. ¡Recuerda descargar tus reportes CSV primero!
+                </p>
+                <button onClick={handleMonthClose} style={{ width: '100%', padding: '1rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  ⚠️ EJECUTAR CIERRE DE MES
+                </button>
+              </div>
             </div>
           )}
         </div>

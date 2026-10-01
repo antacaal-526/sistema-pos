@@ -8,32 +8,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- AUTOSANACIÓN SEGURA DE BASE DE DATOS ---
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS preventa_products (
-    barcode TEXT PRIMARY KEY, name TEXT, price REAL, discount_rules TEXT,
-    stock INTEGER DEFAULT 0, reserved_stock INTEGER DEFAULT 0, min_stock INTEGER DEFAULT 3
-  )`);
-
-  const ensureColumn = (table, column, def) => {
-    db.all(`PRAGMA table_info(${table})`, (err, rows) => {
-      if (err) return;
-      if (!rows.some(r => r.name === column)) {
-        db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`, (e) => {
-          if (e && !e.message.includes('duplicate')) console.log(`Error añadiendo ${column}:`, e.message);
-        });
-      }
-    });
-  };
-
-  ensureColumn('orders', 'customer_name', 'TEXT');
-  ensureColumn('orders', 'customer_email', 'TEXT');
-  ensureColumn('orders', 'customer_phone', 'TEXT');
-  ensureColumn('customers', 'email', 'TEXT');
-  ensureColumn('customers', 'phone', 'TEXT');
-  ensureColumn('order_items', 'discount_percent', 'REAL DEFAULT 0');
-});
-
 const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 function getColombiaTimestamp() {
@@ -278,16 +252,14 @@ app.delete('/api/orders/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// MODIFICADO: Agrega productos a la contabilidad
 app.post('/api/payments', async (req, res) => {
-  const { id, order_id, collector_id, payment_method, amount, collected_at } = req.body;
+  const { id, order_id, collector_id, payment_method, amount, collected_at, shift_id } = req.body;
   const horaCol = getColombiaTimestamp();
   try {
     const existing = await new Promise((resolve, reject) => db.get('SELECT id FROM payments WHERE id = ?', [id], (err, row) => err ? reject(err) : resolve(row)));
     if (existing) return res.json({ success: true });
     
-    // Obtenemos los items ANTES de insertar la transaccion para detallar la contabilidad
-    const itemsRows = await new Promise(r => db.all('SELECT * FROM order_items WHERE order_id = ?', [order_id], (e, rows) => r(rows || [])));
+    const itemsRows = await new Promise((resolve) => db.all('SELECT * FROM order_items WHERE order_id = ?', [order_id], (e, rows) => resolve(rows || [])));
     const itemsDesc = itemsRows.map(i => `${i.quantity}x ${i.product_name}`).join(', ');
 
     await new Promise((resolve, reject) => {
@@ -296,15 +268,24 @@ app.post('/api/payments', async (req, res) => {
         (err) => err ? reject(err) : resolve()
       );
     });
+    
     await new Promise((resolve, reject) => db.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', ['PAID', horaCol, order_id], (err) => err ? reject(err) : resolve()));
     
-    // Transaccion con detalle de productos
     await new Promise((resolve, reject) => {
       db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Cobro Ruta', ?, ?, ?, ?)`,
         [`Cobro Preventa #${order_id.substring(0, 8)} | ${itemsDesc}`, amount, collector_id, horaCol],
         (err) => err ? reject(err) : resolve()
       );
     });
+
+    if (shift_id) {
+       await new Promise((resolve, reject) => {
+        db.run(`INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'Facturada', ?)`,
+          [shift_id, collector_id, `COBRO-${order_id.substring(0, 6)}`, 'N/A', `Cobro Ruta #${order_id.substring(0, 6)}`, amount, amount, payment_method, amount, 0, horaCol],
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+    }
     
     const orderInfo = await new Promise((resolve, reject) => db.get('SELECT * FROM orders WHERE id = ?', [order_id], (err, row) => err ? reject(err) : resolve(row)));
     if (orderInfo && orderInfo.customer_email && orderInfo.customer_email.trim()) {
@@ -390,11 +371,41 @@ app.post('/api/shifts/close', (req, res) => {
     });
   });
 });
-app.delete('/api/shifts/:id', (req, res) => {
-  db.run('DELETE FROM shifts WHERE id = ?', [req.params.id], (err) => {
-    if (err) return res.status(500).json({ error: err.message });
+
+// AQUI ESTÁ EL ARREGLO DEL BOTÓN ELIMINAR TURNO (Robusto y con promesas)
+app.delete('/api/shifts/:id', async (req, res) => {
+  try {
+    await new Promise((resolve, reject) => {
+      db.run('DELETE FROM shifts WHERE id = ?', [req.params.id], (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
     res.json({ success: true });
-  });
+  } catch (err) {
+    console.error("Error al eliminar turno:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// NUEVO: ENDPOINT DE CIERRE DE MES (Limpieza extrema)
+app.post('/api/clean-history', async (req, res) => {
+  try {
+    await new Promise((r, rej) => db.run("DELETE FROM transactions", [], (e) => e ? rej(e) : r()));
+    await new Promise((r, rej) => db.run("DELETE FROM shifts WHERE status = 'cerrado'", [], (e) => e ? rej(e) : r()));
+    await new Promise((r, rej) => db.run("DELETE FROM sale_items", [], (e) => e ? rej(e) : r()));
+    await new Promise((r, rej) => db.run("DELETE FROM sales", [], (e) => e ? rej(e) : r()));
+    
+    // Borrar pedidos que ya fueron cobrados
+    const paidOrders = await new Promise((r, rej) => db.all("SELECT id FROM orders WHERE status = 'PAID'", [], (e, rows) => e ? rej(e) : r(rows || [])));
+    for(let o of paidOrders) {
+       await new Promise(r => db.run("DELETE FROM order_items WHERE order_id = ?", [o.id], r));
+       await new Promise(r => db.run("DELETE FROM orders WHERE id = ?", [o.id], r));
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/products', (req, res) => { db.all('SELECT * FROM products ORDER BY name ASC', [], (err, rows) => res.json(rows || [])); });
@@ -412,7 +423,6 @@ app.put('/api/products/:barcode', (req, res) => {
 });
 app.delete('/api/products/:barcode', (req, res) => { db.run('DELETE FROM products WHERE barcode = ?', [req.params.barcode], () => res.json({ success: true })); });
 
-// MODIFICADO: Agrega productos a la contabilidad del POS
 app.post('/api/sales', async (req, res) => {
   const { shift_id, user_name, customer_doc, customer_name, customer_email, items, total, payment_method, amount_paid, change_given, invoice_number } = req.body;
   const invNumber = invoice_number || `TF-${Date.now().toString().slice(-6)}`;
@@ -430,7 +440,6 @@ app.post('/api/sales', async (req, res) => {
     }
     await new Promise(r => db.run(`INSERT INTO customers (id, document, name, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email`, [customer_doc, customer_doc, customer_name, customer_email, horaCol], r));
     
-    // Detalle de items para la tabla de contabilidad
     const itemsDesc = items.map(i => `${i.quantity}x ${i.name}`).join(', ');
     await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Ingreso', 'Venta POS', ?, ?, ?, ?)`, [`Venta POS #${invNumber} | ${itemsDesc}`, total, user_name, horaCol], r));
     
