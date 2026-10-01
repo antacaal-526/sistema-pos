@@ -245,6 +245,8 @@ app.delete('/api/orders/:id', async (req, res) => {
     const items = await new Promise((resolve, reject) => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [order.id], (err, rows) => err ? reject(err) : resolve(rows || [])));
     for (const item of items) await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], (err) => err ? reject(err) : resolve()));
     
+    // Primero borramos dependencias por Foreign Key constraints
+    await new Promise((resolve, reject) => db.run('DELETE FROM payments WHERE order_id = ?', [order.id], (err) => err ? reject(err) : resolve()));
     await new Promise((resolve, reject) => db.run('DELETE FROM order_items WHERE order_id = ?', [order.id], (err) => err ? reject(err) : resolve()));
     await new Promise((resolve, reject) => db.run('DELETE FROM orders WHERE id = ?', [order.id], (err) => err ? reject(err) : resolve()));
     
@@ -372,7 +374,6 @@ app.post('/api/shifts/close', (req, res) => {
   });
 });
 
-// AQUI ESTÁ EL ARREGLO DEL BOTÓN ELIMINAR TURNO (Robusto y con promesas)
 app.delete('/api/shifts/:id', async (req, res) => {
   try {
     await new Promise((resolve, reject) => {
@@ -388,22 +389,29 @@ app.delete('/api/shifts/:id', async (req, res) => {
   }
 });
 
-// NUEVO: ENDPOINT DE CIERRE DE MES (Limpieza extrema)
+// AQUI SE CORRIGE EL FOREIGN KEY CONSTRAINT PARA EL CIERRE DE MES
 app.post('/api/clean-history', async (req, res) => {
   try {
+    // 1. Borrar todas las transacciones (Ingresos y Egresos sueltos)
     await new Promise((r, rej) => db.run("DELETE FROM transactions", [], (e) => e ? rej(e) : r()));
-    await new Promise((r, rej) => db.run("DELETE FROM shifts WHERE status = 'cerrado'", [], (e) => e ? rej(e) : r()));
+    
+    // 2. Borrar las ventas POS (Requiere borrar primero el detalle de la venta)
     await new Promise((r, rej) => db.run("DELETE FROM sale_items", [], (e) => e ? rej(e) : r()));
     await new Promise((r, rej) => db.run("DELETE FROM sales", [], (e) => e ? rej(e) : r()));
     
-    // Borrar pedidos que ya fueron cobrados
+    // 3. Borrar turnos cerrados de la base
+    await new Promise((r, rej) => db.run("DELETE FROM shifts WHERE status = 'cerrado'", [], (e) => e ? rej(e) : r()));
+    
+    // 4. Borrar pedidos cobrados respetando el ORDEN de las claves foráneas
     const paidOrders = await new Promise((r, rej) => db.all("SELECT id FROM orders WHERE status = 'PAID'", [], (e, rows) => e ? rej(e) : r(rows || [])));
     for(let o of paidOrders) {
+       await new Promise(r => db.run("DELETE FROM payments WHERE order_id = ?", [o.id], r));
        await new Promise(r => db.run("DELETE FROM order_items WHERE order_id = ?", [o.id], r));
        await new Promise(r => db.run("DELETE FROM orders WHERE id = ?", [o.id], r));
     }
     res.json({ success: true });
   } catch (err) {
+    console.error("Error de base de datos en Cierre de Mes:", err);
     res.status(500).json({ error: err.message });
   }
 });

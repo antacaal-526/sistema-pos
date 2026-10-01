@@ -266,7 +266,6 @@ export default function App() {
     } catch (e) { alert('Error de conexión.'); }
   };
 
-  // NUEVO: FUNCION DE CIERRE DE MES Y OPTIMIZACION
   const handleMonthClose = async () => {
     if (!window.confirm("⚠️ ADVERTENCIA DE CIERRE DE MES ⚠️\n\n¿Estás seguro de que deseas ELIMINAR TODO EL HISTORIAL de Ventas, Turnos Cerrados, Pedidos Cobrados y Contabilidad?\n\nEsta acción dejará el sistema en cero para iniciar un nuevo mes y NO se puede deshacer. Asegúrate de haber descargado los CSV primero.")) return;
     if (!window.confirm("¿ÚLTIMA CONFIRMACIÓN? Se borrará el historial viejo para liberar espacio y acelerar el sistema.")) return;
@@ -298,16 +297,39 @@ export default function App() {
     }
   };
 
+  // SISTEMA ANTI-QUIEBRE DE STOCK PARA LA CAJA (Validación de existencia)
   const addToCart = (p) => {
     if (!activeShift) { alert('⚠️ Inicie un turno para vender.'); setShowShiftModal(true); return; }
+    
+    if (p.stock <= 0) {
+      alert(`⚠️ STOCK AGOTADO: No hay inventario de ${p.name}.`);
+      return;
+    }
+
     const exist = cart.find((x) => x.barcode === p.barcode);
-    if (exist) setCart(cart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)));
-    else setCart([...cart, { ...p, quantity: 1, sale_price: p.sale_price }]);
+    if (exist) {
+      if (exist.quantity + 1 > p.stock) {
+         alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name} disponibles.`);
+         return;
+      }
+      setCart(cart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)));
+    } else {
+      setCart([...cart, { ...p, quantity: 1, sale_price: p.sale_price }]);
+    }
   };
+
   const updateQty = (barcode, qty) => {
-    if (qty <= 0) setCart(cart.filter((x) => x.barcode !== barcode));
-    else setCart(cart.map((x) => (x.barcode === barcode ? { ...x, quantity: qty } : x)));
+    if (qty <= 0) { setCart(cart.filter((x) => x.barcode !== barcode)); return; }
+    
+    const p = products.find(x => x.barcode === barcode);
+    if (p && qty > p.stock) {
+      alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name}.`);
+      return;
+    }
+    
+    setCart(cart.map((x) => (x.barcode === barcode ? { ...x, quantity: qty } : x)));
   };
+  
   const removeFromCart = (barcode) => setCart(cart.filter((x) => x.barcode !== barcode));
 
   const totalCart = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
@@ -534,7 +556,6 @@ export default function App() {
         }
       `}</style>
 
-      {/* COMPROBANTE DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -713,7 +734,7 @@ export default function App() {
                         <td>{p.barcode}</td>
                         <td style={{ minWidth: '150px' }}>{p.name}</td>
                         <td style={{ color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td>
-                        <td style={{ fontWeight: 'bold' }}>{p.stock}</td>
+                        <td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
                         <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️</button><button onClick={() => handleDeleteProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                       </tr>
                     ))}
@@ -747,7 +768,7 @@ export default function App() {
                           <td style={{ minWidth: '150px' }}>{p.name}</td>
                           <td style={{ color: '#eab308', fontWeight: 'bold' }}>${p.price?.toLocaleString('es-CO')}</td>
                           <td style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{rulesPreview}</td>
-                          <td style={{ fontWeight: 'bold' }}>{p.stock}</td>
+                          <td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
                           <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => openEditPreventaModal(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️ Configurar</button><button onClick={() => handleDeletePreventaProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                         </tr>
                       );
