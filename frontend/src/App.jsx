@@ -20,6 +20,8 @@ const parseCOP = (val) => {
   return cleanNum ? parseInt(cleanNum, 10) : 0;
 };
 
+const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeShift, setActiveShift] = useState(null);
@@ -179,7 +181,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/api/shifts/${id}`, { method: 'DELETE' });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) { alert('🗑️️ Reporte eliminado correctamente.'); loadShifts(); } 
+      if (res.ok && data.success) { alert('🗑️ Reporte eliminado correctamente.'); loadShifts(); } 
       else { alert(`No se pudo eliminar el reporte. Servidor dice: ${data.error || 'Error desconocido'}`); }
     } catch (e) { alert('Error de red'); }
   };
@@ -217,7 +219,7 @@ export default function App() {
     if (p.stock <= 0) { alert(`⚠️ STOCK AGOTADO: No hay inventario de ${p.name}.`); return; }
     const exist = cart.find((x) => x.barcode === p.barcode);
     if (exist) {
-      if (exist.quantity + 1 > p.stock) { alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name} disponibles.`); return; }
+      if (exist.quantity + 1 > p.stock) { alert(`⚠️️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name} disponibles.`); return; }
       setCart(cart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)));
     } else { setCart([...cart, { ...p, quantity: 1, sale_price: p.sale_price }]); }
   };
@@ -322,7 +324,7 @@ export default function App() {
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#121824', padding: '1rem' }}>
         <form onSubmit={handleLogin} style={{ background: '#1e293b', padding: '2rem', borderRadius: '8px', color: '#fff', width: '100%', maxWidth: '360px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.5)' }}>
           <h2 style={{ color: '#38bdf8', textAlign: 'center' }}>🌱 TERRA FRUTOS SECOS</h2>
-          <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1.5rem' }}>{navigator.onLine ? 'Conectado al Servidor' : '⚠️ Modo Offline (Sin Red)'}</p>
+          <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1.5rem' }}>{navigator.onLine ? 'Conectado al Servidor' : '⚠️️ Modo Offline (Sin Red)'}</p>
           {loginError && <div style={{ background: '#f87171', color: '#7f1d1d', padding: '0.5rem', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.85rem' }}>{loginError}</div>}
           <input type="text" placeholder="Usuario" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', margin: '0.5rem 0 1rem 0', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: '#fff' }} required />
           <input type="password" placeholder="Contraseña" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', margin: '0.5rem 0 1.5rem 0', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: '#fff' }} required />
@@ -337,7 +339,8 @@ export default function App() {
   if (currentUser.role.toLowerCase() === 'preventista') return <Preventista user={currentUser} onLogout={handleLogout} />;
   if (currentUser.role.toLowerCase() === 'entregador') return <Entregador user={currentUser} onLogout={handleLogout} />;
 
-  const isAdmin = currentUser.role === 'Administrador' || currentUser.role.toLowerCase() === 'administrador';
+  // VALIDACIÓN ROBUSTA DE ROL ADMINISTRADOR (A prueba de fallos)
+  const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase().includes('admin');
 
   const filteredDailyShifts = shiftsList.filter((s) => {
     const matchesUser = filterUser ? s.user_name.toLowerCase().includes(filterUser.toLowerCase()) : true;
@@ -357,7 +360,6 @@ export default function App() {
 
   return (
     <>
-      {/* CSS OPTIMIZADO PARA ERGONOMÍA EN CELULAR */}
       <style>{`
         html, body, #root { height: 100%; min-height: 100vh; margin: 0; padding: 0; background: #0f172a; color: #fff; font-family: sans-serif; overflow-x: hidden; }
         .pos-layout { display: flex; flex-direction: row; min-height: 100vh; height: 100%; }
@@ -382,18 +384,12 @@ export default function App() {
           .pos-layout { flex-direction: column; height: auto; display: block; }
           .pos-sidebar { width: 100%; box-sizing: border-box; border-right: none; border-bottom: 1px solid #334155; padding: 1rem; position: relative; }
           .sidebar-top-section { flex-direction: row; justify-content: space-between; align-items: flex-start; padding-bottom: 1rem; }
-          
-          /* MEJORA 1: Cuadrícula visible de botones (No más fila deslizable escondida) */
           .nav-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding-bottom: 0.5rem; border-top: 1px solid #334155; margin-top: 0.8rem; padding-top: 0.8rem; }
           .nav-btn { white-space: normal; text-align: center; padding: 0.6rem 0.5rem; font-size: 0.85rem; }
-          
           .pos-content { padding: 0.8rem; overflow: visible; height: auto; }
           .pos-grid-container { flex-direction: column; height: auto; display: flex; gap: 1rem; }
-          
-          /* MEJORA 2: Ergonomía del Carrito limitando la altura de los productos */
           .pos-products-area { display: flex; flex-direction: column; }
           .products-grid { max-height: 35vh; overflow-y: auto; padding-right: 5px; border-bottom: 2px dashed #475569; padding-bottom: 1rem; }
-          
           .pos-cart { width: 100%; box-sizing: border-box; height: auto; margin-top: 0; }
           .cart-items-wrapper { max-height: 30vh; overflow-y: auto; padding-right: 5px; }
           .stats-grid { grid-template-columns: 1fr; }
@@ -469,6 +465,8 @@ export default function App() {
 
           <div className="nav-buttons">
             <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local (Caja)</button>
+            
+            {/* SIEMPRE DISPONIBLE PARA ADMINISTRADORES */}
             {isAdmin && (
               <>
                 <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
@@ -794,7 +792,7 @@ export default function App() {
                 <input type="text" value={storeConfig.razon_social} onChange={(e) => setStoreConfig({ ...storeConfig, razon_social: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Razón Social" />
                 <input type="text" value={storeConfig.nit} onChange={(e) => setStoreConfig({ ...storeConfig, nit: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="NIT" />
                 <input type="text" value={storeConfig.direccion} onChange={(e) => setStoreConfig({ ...storeConfig, direccion: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Dirección" />
-                <input type="text" value={storeConfig.telefono} onChange={(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Teléfono" />
+                <input type="text" value={storeConfig.telefono} onChange={(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Телефонo" />
                 <button type="submit" style={{ padding: '1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>💾 Guardar Cambios</button>
               </form>
 
