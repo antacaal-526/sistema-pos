@@ -20,17 +20,13 @@ const parseCOP = (val) => {
   return cleanNum ? parseInt(cleanNum, 10) : 0;
 };
 
-const generateUUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
-
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeShift, setActiveShift] = useState(null);
   const [showShiftModal, setShowShiftModal] = useState(false);
-  
   const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
   const [countedCashInput, setCountedCashInput] = useState('');
   const [shiftSummary, setShiftSummary] = useState(null);
-  
   const [shiftBaseInput, setShiftBaseInput] = useState('');
   const [activeTab, setActiveTab] = useState('pos');
 
@@ -42,7 +38,6 @@ export default function App() {
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
-
   const [products, setProducts] = useState([]);
   const [invSearch, setInvSearch] = useState('');
   const [outSearch, setOutSearch] = useState('');
@@ -59,7 +54,6 @@ export default function App() {
   
   const [preventaOrders, setPreventaOrders] = useState([]);
   const [expandedOrderId, setExpandedOrderId] = useState(null);
-
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
@@ -71,7 +65,6 @@ export default function App() {
   const [restockCart, setRestockCart] = useState([]);
   const [restockSearch, setRestockSearch] = useState('');
   const [isRestocking, setIsRestocking] = useState(false);
-
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isShiftProcessing, setIsShiftProcessing] = useState(false);
@@ -79,7 +72,6 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [showTxModal, setShowTxModal] = useState(false);
   const [newTx, setNewTx] = useState({ type: 'Ingreso', category: 'Varios', description: '', amount: '' });
-
   const [usersList, setUsersList] = useState([]);
   const [showUserModal, setShowUserModal] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'Cajero' });
@@ -122,69 +114,18 @@ export default function App() {
   }, [currentUser]);
 
   const handleSyncCompleted = () => {
-    loadTransactions();
-    loadShifts();
-    loadPreventaOrders();
+    loadTransactions(); loadShifts(); loadPreventaOrders();
   };
 
-  const loadProductsOnline = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/products`);
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data);
-        await db.products.bulkPut(data);
-      }
-    } catch (e) { loadProductsLocal(); }
-  };
+  const loadProductsOnline = async () => { try { const res = await fetch(`${API_URL}/api/products`); if (res.ok) { const data = await res.json(); setProducts(data); await db.products.bulkPut(data); } } catch (e) { loadProductsLocal(); } };
   const loadProductsLocal = async () => { setProducts(await db.products.toArray()); };
-
-  const loadPreventaProductsOnline = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/preventa-products`);
-      if (res.ok) {
-        const data = await res.json();
-        setPreventaProducts(data);
-        await db.preventa_products.bulkPut(data);
-      }
-    } catch (e) {}
-  };
-
-  const loadPreventaOrders = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/orders/detailed`);
-      if (res.ok) setPreventaOrders(await res.json());
-    } catch (e) {}
-  };
-
-  const loadUsersOnline = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/users`);
-      if (res.ok) { const data = await res.json(); setUsersList(data); await db.users.bulkPut(data); }
-    } catch (e) {}
-  };
-
-  const loadConfig = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/config`);
-      if (res.ok) {
-        const data = await res.json();
-        setStoreConfig((prev) => ({ ...prev, ...data }));
-      }
-    } catch (e) {}
-  };
-
-  const loadTransactions = async () => {
-    try { const res = await fetch(`${API_URL}/api/transactions`); if (res.ok) setTransactions(await res.json()); } catch (e) {}
-  };
-
-  const loadShifts = async () => {
-    try { const res = await fetch(`${API_URL}/api/shifts`); if (res.ok) setShiftsList(await res.json()); } catch (e) {}
-  };
-
-  const checkActiveShift = async (userName) => {
-    try { const res = await fetch(`${API_URL}/api/shifts/active?user_name=${encodeURIComponent(userName)}`); if (res.ok) setActiveShift(await res.json()); } catch (e) {}
-  };
+  const loadPreventaProductsOnline = async () => { try { const res = await fetch(`${API_URL}/api/preventa-products`); if (res.ok) { const data = await res.json(); setPreventaProducts(data); await db.preventa_products.bulkPut(data); } } catch (e) {} };
+  const loadPreventaOrders = async () => { try { const res = await fetch(`${API_URL}/api/orders/detailed`); if (res.ok) setPreventaOrders(await res.json()); } catch (e) {} };
+  const loadUsersOnline = async () => { try { const res = await fetch(`${API_URL}/api/users`); if (res.ok) { const data = await res.json(); setUsersList(data); await db.users.bulkPut(data); } } catch (e) {} };
+  const loadConfig = async () => { try { const res = await fetch(`${API_URL}/api/config`); if (res.ok) { const data = await res.json(); setStoreConfig((prev) => ({ ...prev, ...data })); } } catch (e) {} };
+  const loadTransactions = async () => { try { const res = await fetch(`${API_URL}/api/transactions`); if (res.ok) setTransactions(await res.json()); } catch (e) {} };
+  const loadShifts = async () => { try { const res = await fetch(`${API_URL}/api/shifts`); if (res.ok) setShiftsList(await res.json()); } catch (e) {} };
+  const checkActiveShift = async (userName) => { try { const res = await fetch(`${API_URL}/api/shifts/active?user_name=${encodeURIComponent(userName)}`); if (res.ok) setActiveShift(await res.json()); } catch (e) {} };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -194,28 +135,16 @@ export default function App() {
     if (!navigator.onLine) {
       try {
         const localUser = await db.users.where('username').equals(loginUser.toLowerCase().trim()).first();
-        if (localUser && localUser.password === loginPass.trim()) {
-          setCurrentUser(localUser);
-          localStorage.setItem('pos_user', JSON.stringify(localUser));
-        } else {
-          setLoginError('Sin conexión. Usuario/Clave local incorrectos.');
-        }
+        if (localUser && localUser.password === loginPass.trim()) { setCurrentUser(localUser); localStorage.setItem('pos_user', JSON.stringify(localUser)); } 
+        else { setLoginError('Sin conexión. Usuario/Clave local incorrectos.'); }
       } catch (err) { setLoginError('Error validando en base local.'); }
-      setIsLoggingIn(false);
-      return;
+      setIsLoggingIn(false); return;
     }
     try {
-      const res = await fetch(`${API_URL}/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: loginUser, password: loginPass })
-      });
+      const res = await fetch(`${API_URL}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: loginUser, password: loginPass }) });
       const data = await res.json();
-      if (res.ok && data.success) {
-        setCurrentUser(data.user);
-        localStorage.setItem('pos_user', JSON.stringify(data.user));
-        processSyncQueue();
-      } else setLoginError(data.error || 'Credenciales incorrectas');
+      if (res.ok && data.success) { setCurrentUser(data.user); localStorage.setItem('pos_user', JSON.stringify(data.user)); processSyncQueue(); } 
+      else setLoginError(data.error || 'Credenciales incorrectas');
     } catch (e) { setLoginError('Error de red al conectar con el servidor.'); }
     finally { setIsLoggingIn(false); }
   };
@@ -238,21 +167,10 @@ export default function App() {
     setIsShiftProcessing(true);
     const counted = parseCOP(countedCashInput);
     try {
-      const res = await fetch(`${API_URL}/api/shifts/close`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ shift_id: activeShift.id, counted_cash: counted }) 
-      });
+      const res = await fetch(`${API_URL}/api/shifts/close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shift_id: activeShift.id, counted_cash: counted }) });
       const data = await res.json();
-      if (res.ok && data.success) { 
-        setShiftSummary(data.summary); 
-        setActiveShift(null); 
-        setShowCloseShiftModal(false);
-        setCountedCashInput('');
-        loadShifts(); 
-      } else {
-        alert('Error al cerrar: ' + (data.error || ''));
-      }
+      if (res.ok && data.success) { setShiftSummary(data.summary); setActiveShift(null); setShowCloseShiftModal(false); setCountedCashInput(''); loadShifts(); } 
+      else { alert('Error al cerrar: ' + (data.error || '')); }
     } catch (e) { alert('Error de red al cerrar el turno'); }
     finally { setIsShiftProcessing(false); }
   };
@@ -262,12 +180,8 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/api/shifts/${id}`, { method: 'DELETE' });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        alert('🗑️ Reporte eliminado correctamente.');
-        loadShifts();
-      } else {
-        alert(`No se pudo eliminar el reporte. Servidor dice: ${data.error || 'Error desconocido'}`);
-      }
+      if (res.ok && data.success) { alert('🗑️ Reporte eliminado correctamente.'); loadShifts(); } 
+      else { alert(`No se pudo eliminar el reporte. Servidor dice: ${data.error || 'Error desconocido'}`); }
     } catch (e) { alert('Error de red'); }
   };
 
@@ -275,77 +189,44 @@ export default function App() {
     if (!window.confirm(`¿Estás seguro de eliminar el pedido de ${customerName || 'este cliente'}?`)) return;
     try {
       const res = await fetch(`${API_URL}/api/orders/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        alert('🗑️ Pedido eliminado correctamente.');
-        loadPreventaOrders();
-        loadPreventaProductsOnline(); 
-      } else {
-        const err = await res.json();
-        alert(`⚠️ No se pudo eliminar: ${err.error}`);
-      }
+      if (res.ok) { alert('🗑️ Pedido eliminado correctamente.'); loadPreventaOrders(); loadPreventaProductsOnline(); } 
+      else { const err = await res.json(); alert(`⚠️ No se pudo eliminar: ${err.error}`); }
     } catch (e) { alert('Error de conexión.'); }
   };
 
   const handleMonthClose = async () => {
     if (!window.confirm("⚠️ ADVERTENCIA DE CIERRE DE MES ⚠️\n\n¿Estás seguro de que deseas ELIMINAR TODO EL HISTORIAL de Ventas, Turnos Cerrados, Pedidos Cobrados y Contabilidad?\n\nEsta acción dejará el sistema en cero para iniciar un nuevo mes y NO se puede deshacer. Asegúrate de haber descargado los CSV primero.")) return;
     if (!window.confirm("¿ÚLTIMA CONFIRMACIÓN? Se borrará el historial viejo para liberar espacio y acelerar el sistema.")) return;
-
     try {
       const res = await fetch(`${API_URL}/api/clean-history`, { method: 'POST' });
       const data = await res.json();
-      if (res.ok && data.success) {
-        alert('✅ CIERRE DE MES COMPLETADO. El historial ha sido limpiado y el sistema está optimizado.');
-        loadShifts();
-        loadTransactions();
-        loadPreventaOrders();
-      } else {
-        alert(`Error al limpiar: ${data.error || 'Desconocido'}`);
-      }
-    } catch(e) {
-      alert('Error de conexión.');
-    }
+      if (res.ok && data.success) { alert('✅ CIERRE DE MES COMPLETADO. El historial ha sido limpiado y el sistema está optimizado.'); loadShifts(); loadTransactions(); loadPreventaOrders(); } 
+      else { alert(`Error al limpiar: ${data.error || 'Desconocido'}`); }
+    } catch(e) { alert('Error de conexión.'); }
   };
 
   const handleDocChange = async (val) => {
     setCustomerDoc(val);
     if (val.length >= 4) {
       const existing = await db.customers.where('id').equals(val).first();
-      if (existing) {
-        setCustomerName(existing.name);
-        if (existing.email) setCustomerEmail(existing.email);
-      }
+      if (existing) { setCustomerName(existing.name); if (existing.email) setCustomerEmail(existing.email); }
     }
   };
 
   const addToCart = (p) => {
     if (!activeShift) { alert('⚠️ Inicie un turno para vender.'); setShowShiftModal(true); return; }
-    
-    if (p.stock <= 0) {
-      alert(`⚠️ STOCK AGOTADO: No hay inventario de ${p.name}.`);
-      return;
-    }
-
+    if (p.stock <= 0) { alert(`⚠️ STOCK AGOTADO: No hay inventario de ${p.name}.`); return; }
     const exist = cart.find((x) => x.barcode === p.barcode);
     if (exist) {
-      if (exist.quantity + 1 > p.stock) {
-         alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name} disponibles.`);
-         return;
-      }
+      if (exist.quantity + 1 > p.stock) { alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name} disponibles.`); return; }
       setCart(cart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)));
-    } else {
-      setCart([...cart, { ...p, quantity: 1, sale_price: p.sale_price }]);
-    }
+    } else { setCart([...cart, { ...p, quantity: 1, sale_price: p.sale_price }]); }
   };
 
   const updateQty = (barcode, qty) => {
     if (qty <= 0) { setCart(cart.filter((x) => x.barcode !== barcode)); return; }
-    
     const p = products.find(x => x.barcode === barcode);
-    if (p && qty > p.stock) {
-      alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name}.`);
-      return;
-    }
-    
+    if (p && qty > p.stock) { alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name}.`); return; }
     setCart(cart.map((x) => (x.barcode === barcode ? { ...x, quantity: qty } : x)));
   };
   
@@ -353,11 +234,8 @@ export default function App() {
 
   const addToRestockCart = (p) => {
     const exist = restockCart.find((x) => x.barcode === p.barcode);
-    if (exist) {
-      setRestockCart(restockCart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)));
-    } else {
-      setRestockCart([...restockCart, { ...p, quantity: 1 }]);
-    }
+    if (exist) { setRestockCart(restockCart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x))); } 
+    else { setRestockCart([...restockCart, { ...p, quantity: 1 }]); }
   };
 
   const updateRestockQty = (barcode, qty) => {
@@ -367,33 +245,16 @@ export default function App() {
 
   const handleProcessRestock = async () => {
     if (restockCart.length === 0) return alert('La lista está vacía');
-    if (!window.confirm("¿Confirmar el ingreso de esta mercancía al inventario del Local?")) return;
-    
+    if (!window.confirm("¿Confirmar el ingreso de esta mercancía al inventario de la Caja Local?")) return;
     if (isRestocking) return;
     setIsRestocking(true);
-
     try {
-      const res = await fetch(`${API_URL}/api/restock-local`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: restockCart, user_name: currentUser.name })
-      });
+      const res = await fetch(`${API_URL}/api/restock-local`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: restockCart, user_name: currentUser.name }) });
       const data = await res.json();
-      
-      if (res.ok && data.success) {
-        alert('✅ Ingreso completado. El inventario local ha sido actualizado.');
-        setRestockCart([]);
-        setRestockSearch('');
-        loadProductsOnline();
-        loadTransactions();
-      } else {
-        alert(`Error al abastecer: ${data.error || 'Desconocido'}`);
-      }
-    } catch (e) {
-      alert('Error de red al intentar registrar el abastecimiento.');
-    } finally {
-      setIsRestocking(false);
-    }
+      if (res.ok && data.success) { alert('✅ Ingreso completado. El inventario local ha sido actualizado.'); setRestockCart([]); setRestockSearch(''); loadProductsOnline(); loadTransactions(); } 
+      else { alert(`Error al abastecer: ${data.error || 'Desconocido'}`); }
+    } catch (e) { alert('Error de red al intentar registrar el abastecimiento.'); } 
+    finally { setIsRestocking(false); }
   };
 
   const totalCart = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
@@ -405,165 +266,57 @@ export default function App() {
     if (cart.length === 0) return alert('El carrito está vacío');
     if (isProcessing) return;
     setIsProcessing(true);
-
     const finalDoc = customerDoc || '222222222222';
     const desc = cart.map((i) => `${i.quantity}x ${i.name}`).join(', ');
     const invNumber = `TF-${Date.now().toString().slice(-6)}`;
-    
-    const payload = { 
-      shift_id: activeShift?.id || null, 
-      user_name: currentUser.name, 
-      customer_doc: finalDoc, 
-      customer_name: customerName, 
-      customer_email: customerEmail, 
-      items: cart, 
-      description: desc, 
-      total: totalCart, 
-      payment_method: paymentMethod, 
-      amount_paid: receivedToRegister, 
-      change_given: changeGiven, 
-      sale_type: saleType,
-      invoice_number: invNumber
-    };
+    const payload = { shift_id: activeShift?.id || null, user_name: currentUser.name, customer_doc: finalDoc, customer_name: customerName, customer_email: customerEmail, items: cart, description: desc, total: totalCart, payment_method: paymentMethod, amount_paid: receivedToRegister, change_given: changeGiven, sale_type: saleType, invoice_number: invNumber };
 
     if (!navigator.onLine) {
       await db.syncQueue.add({ type: 'PROCESS_POS_SALE', payload });
-      
-      for (const item of cart) {
-        const p = await db.products.get(item.barcode);
-        if (p) await db.products.update(item.barcode, { stock: p.stock - item.quantity });
-      }
-      
+      for (const item of cart) { const p = await db.products.get(item.barcode); if (p) await db.products.update(item.barcode, { stock: p.stock - item.quantity }); }
       setLastInvoice({ number: invNumber, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
-      
-      if (saleType === 'Facturada') {
-          setTimeout(() => window.print(), 100);
-      } else {
-          alert(`💾 Venta Guardada Offline. Factura #: ${invNumber}`);
-      }
-      
+      if (saleType === 'Facturada') { setTimeout(() => window.print(), 100); } else { alert(`💾 Venta Guardada Offline. Factura #: ${invNumber}`); }
       setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
-      loadProductsLocal();
-      setIsProcessing(false);
-      return;
+      loadProductsLocal(); setIsProcessing(false); return;
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/sales`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const res = await fetch(`${API_URL}/api/sales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (res.ok && data.success) {
         setLastInvoice({ number: data.invoice_number, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
-        
-        if (saleType === 'Facturada') {
-            setTimeout(() => window.print(), 100); 
-        } else {
-            alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`);
-        }
-        
+        if (saleType === 'Facturada') { setTimeout(() => window.print(), 100); } else { alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`); }
         setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
         loadProductsOnline(); loadTransactions();
       }
-    } catch (e) { 
-        alert('Error de red. Verifique su internet o actúe en modo Offline.'); 
-    } finally {
-        setIsProcessing(false);
-    }
+    } catch (e) { alert('Error de red. Verifique su internet o actúe en modo Offline.'); } 
+    finally { setIsProcessing(false); }
   };
 
-  const handleSaveNewProduct = async (e) => {
-    e.preventDefault();
-    const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 };
-    await fetch(`${API_URL}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    setShowAddModal(false); loadProductsOnline();
-  };
-  const handleUpdateProduct = async (e) => {
-    e.preventDefault();
-    const payload = { ...editingProduct, sale_price: parseCOP(editingProduct.sale_price), stock: parseCOP(editingProduct.stock), min_stock: parseCOP(editingProduct.min_stock) || 3 };
-    await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    setEditingProduct(null); loadProductsOnline();
-  };
-  const handleDeleteProduct = async (barcode) => {
-    if (window.confirm('¿Eliminar producto local?')) { await fetch(`${API_URL}/api/products/${barcode}`, { method: 'DELETE' }); loadProductsOnline(); }
-  };
+  const handleSaveNewProduct = async (e) => { e.preventDefault(); const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 }; await fetch(`${API_URL}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setShowAddModal(false); loadProductsOnline(); };
+  const handleUpdateProduct = async (e) => { e.preventDefault(); const payload = { ...editingProduct, sale_price: parseCOP(editingProduct.sale_price), stock: parseCOP(editingProduct.stock), min_stock: parseCOP(editingProduct.min_stock) || 3 }; await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setEditingProduct(null); loadProductsOnline(); };
+  const handleDeleteProduct = async (barcode) => { if (window.confirm('¿Eliminar producto local?')) { await fetch(`${API_URL}/api/products/${barcode}`, { method: 'DELETE' }); loadProductsOnline(); } };
 
   const openAddPreventaModal = () => { setNewPreventaProd({ barcode: '', name: '', price: '', stock: '', min_stock: '3' }); setDiscountRules([]); setShowAddPreventaModal(true); };
-  const openEditPreventaModal = (p) => {
-    setEditingPreventaProduct(p);
-    try { setDiscountRules(JSON.parse(p.discount_rules) || []); } catch(e) { setDiscountRules([]); }
-  };
+  const openEditPreventaModal = (p) => { setEditingPreventaProduct(p); try { setDiscountRules(JSON.parse(p.discount_rules) || []); } catch(e) { setDiscountRules([]); } };
   const addDiscountRule = () => setDiscountRules([...discountRules, { min: '', max: '', discount: '' }]);
   const removeDiscountRule = (index) => setDiscountRules(discountRules.filter((_, i) => i !== index));
   const updateDiscountRule = (index, field, value) => { const updated = [...discountRules]; updated[index][field] = value; setDiscountRules(updated); };
 
-  const handleSavePreventaProduct = async (e) => {
-    e.preventDefault();
-    const payload = { ...newPreventaProd, price: parseCOP(newPreventaProd.price), stock: parseCOP(newPreventaProd.stock), min_stock: parseCOP(newPreventaProd.min_stock) || 3, discount_rules: JSON.stringify(discountRules) };
-    await fetch(`${API_URL}/api/preventa-products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    setShowAddPreventaModal(false); loadPreventaProductsOnline();
-  };
-  const handleUpdatePreventaProduct = async (e) => {
-    e.preventDefault();
-    const payload = { ...editingPreventaProduct, price: parseCOP(editingPreventaProduct.price), stock: parseCOP(editingPreventaProduct.stock), min_stock: parseCOP(editingPreventaProduct.min_stock) || 3, discount_rules: JSON.stringify(discountRules) };
-    await fetch(`${API_URL}/api/preventa-products/${editingPreventaProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    setEditingPreventaProduct(null); loadPreventaProductsOnline();
-  };
-  const handleDeletePreventaProduct = async (barcode) => {
-    if (window.confirm('¿Eliminar producto de fábrica?')) { await fetch(`${API_URL}/api/preventa-products/${barcode}`, { method: 'DELETE' }); loadPreventaProductsOnline(); }
-  };
+  const handleSavePreventaProduct = async (e) => { e.preventDefault(); const payload = { ...newPreventaProd, price: parseCOP(newPreventaProd.price), stock: parseCOP(newPreventaProd.stock), min_stock: parseCOP(newPreventaProd.min_stock) || 3, discount_rules: JSON.stringify(discountRules) }; await fetch(`${API_URL}/api/preventa-products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setShowAddPreventaModal(false); loadPreventaProductsOnline(); };
+  const handleUpdatePreventaProduct = async (e) => { e.preventDefault(); const payload = { ...editingPreventaProduct, price: parseCOP(editingPreventaProduct.price), stock: parseCOP(editingPreventaProduct.stock), min_stock: parseCOP(editingPreventaProduct.min_stock) || 3, discount_rules: JSON.stringify(discountRules) }; await fetch(`${API_URL}/api/preventa-products/${editingPreventaProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setEditingPreventaProduct(null); loadPreventaProductsOnline(); };
+  const handleDeletePreventaProduct = async (barcode) => { if (window.confirm('¿Eliminar producto de fábrica?')) { await fetch(`${API_URL}/api/preventa-products/${barcode}`, { method: 'DELETE' }); loadPreventaProductsOnline(); } };
 
-  const handleSaveTransaction = async (e) => {
-    e.preventDefault();
-    const numericAmount = parseCOP(newTx.amount);
-    if (numericAmount <= 0) return alert('Monto inválido');
-    try {
-      const res = await fetch(`${API_URL}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newTx, amount: numericAmount, user_name: currentUser.name }) });
-      if (res.ok) { alert(`✅ ${newTx.type} registrado`); setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' }); setShowTxModal(false); loadTransactions(); }
-    } catch (e) { alert('Error conectando al servidor'); }
-  };
-  const handleDeleteTransaction = async (id, description, category) => {
-    if (!window.confirm(`¿Está seguro de eliminar el registro contable "${description}"?`)) return;
-    try {
-      const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' });
-      if (res.ok) { alert('🗑️ Registro eliminado'); loadTransactions(); }
-    } catch (e) { alert('Error conectando al servidor'); }
-  };
+  const handleSaveTransaction = async (e) => { e.preventDefault(); const numericAmount = parseCOP(newTx.amount); if (numericAmount <= 0) return alert('Monto inválido'); try { const res = await fetch(`${API_URL}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newTx, amount: numericAmount, user_name: currentUser.name }) }); if (res.ok) { alert(`✅ ${newTx.type} registrado`); setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' }); setShowTxModal(false); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
+  const handleDeleteTransaction = async (id, description, category) => { if (!window.confirm(`¿Está seguro de eliminar el registro contable "${description}"?`)) return; try { const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑️ Registro eliminado'); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
 
-  const handleSaveUser = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${API_URL}/api/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) });
-      if (res.ok) { alert('👤 Empleado creado'); setNewUser({ name: '', username: '', password: '', role: 'Cajero' }); setShowUserModal(false); loadUsersOnline(); }
-    } catch (e) { alert('Error conectando al servidor'); }
-  };
-  const handleDeleteUser = async (id, name) => {
-    if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual');
-    if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return;
-    try {
-      const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' });
-      if (res.ok) { alert('🗑️ Usuario eliminado'); loadUsersOnline(); }
-    } catch (e) { alert('Error conectando al servidor'); }
-  };
+  const handleSaveUser = async (e) => { e.preventDefault(); try { const res = await fetch(`${API_URL}/api/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) }); if (res.ok) { alert('👤 Empleado creado'); setNewUser({ name: '', username: '', password: '', role: 'Cajero' }); setShowUserModal(false); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
+  const handleDeleteUser = async (id, name) => { if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual'); if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return; try { const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑️ Usuario eliminado'); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
 
-  const handleSaveConfig = async (e) => {
-    e.preventDefault();
-    await fetch(`${API_URL}/api/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(storeConfig) });
-    alert('Configuración guardada');
-  };
-
+  const handleSaveConfig = async (e) => { e.preventDefault(); await fetch(`${API_URL}/api/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(storeConfig) }); alert('Configuración guardada'); };
   const handlePrintShiftReport = (shift) => { setPrintShiftData(shift); setTimeout(() => window.print(), 300); };
   
-  const handleExportCSV = () => {
-    let csvContent = 'data:text/csv;charset=utf-8,FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n';
-    transactions.forEach((t) => { csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`; });
-    const link = document.createElement('a');
-    link.setAttribute('href', encodeURI(csvContent));
-    link.setAttribute('download', `Reporte_Contable_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-  };
+  const handleExportCSV = () => { let csvContent = 'data:text/csv;charset=utf-8,FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n'; transactions.forEach((t) => { csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`; }); const link = document.createElement('a'); link.setAttribute('href', encodeURI(csvContent)); link.setAttribute('download', `Reporte_Contable_${new Date().toISOString().slice(0, 10)}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
 
   if (!currentUser) {
     return (
@@ -607,56 +360,19 @@ export default function App() {
     <>
       <style>{`
         html, body, #root { height: 100%; min-height: 100vh; margin: 0; padding: 0; background: #0f172a; color: #fff; font-family: sans-serif; overflow-x: hidden; }
-        
         .pos-layout { display: flex; flex-direction: row; min-height: 100vh; height: 100%; }
-        
-        .pos-sidebar { 
-          width: 260px; 
-          background: #1e293b; 
-          padding: 1.5rem 1rem; 
-          display: flex; 
-          flex-direction: column; 
-          border-right: 1px solid #334155; 
-          flex-shrink: 0; 
-          overflow-y: auto; 
-        }
-        
-        .sidebar-top-section { 
-          display: flex; 
-          flex-direction: column; 
-          gap: 1rem;
-          margin-bottom: 1.5rem; 
-          padding-bottom: 1.5rem;
-          border-bottom: 1px solid #334155;
-        }
-
-        .nav-buttons { 
-          display: flex; 
-          flex-direction: column; 
-          gap: 0.4rem; 
-        }
-        
-        .nav-btn { 
-          padding: 0.9rem 1rem; 
-          text-align: left; 
-          background: transparent; 
-          color: #cbd5e1; 
-          border: none; 
-          border-radius: 6px; 
-          cursor: pointer;
-          font-size: 0.95rem;
-          transition: all 0.2s ease;
-        }
+        .pos-sidebar { width: 260px; background: #1e293b; padding: 1.5rem 1rem; display: flex; flex-direction: column; border-right: 1px solid #334155; flex-shrink: 0; overflow-y: auto; }
+        .sidebar-top-section { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
+        .nav-buttons { display: flex; flex-direction: column; gap: 0.4rem; }
+        .nav-btn { padding: 0.9rem 1rem; text-align: left; background: transparent; color: #cbd5e1; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; transition: all 0.2s ease; }
         .nav-btn:hover { background: #334155; color: #fff; }
         .nav-btn.active { background: #2563eb; color: #fff; font-weight: bold; }
-
         .pos-content { flex: 1; padding: 1.5rem; overflow-y: auto; overflow-x: hidden; }
         .pos-grid-container { display: flex; gap: 1.25rem; height: 100%; align-items: stretch; }
         .pos-products-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; overflow-y: auto; padding-right: 4px; padding-bottom: 2rem; }
         .pos-cart { width: 400px; background: #1e293b; border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; border: 1px solid #334155; flex-shrink: 0; }
         .cart-items-wrapper { flex: 1; overflow-y: auto; padding-right: 6px; min-height: 150px; }
-        
         .responsive-table-wrapper { width: 100%; overflow-x: auto; background: #1e293b; border-radius: 8px; }
         .responsive-table { width: 100%; border-collapse: collapse; min-width: 600px; }
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
@@ -678,7 +394,6 @@ export default function App() {
         }
       `}</style>
 
-      {/* COMPROBANTE DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -730,14 +445,10 @@ export default function App() {
 
       <div className="no-print pos-layout">
         <div className="pos-sidebar">
-          
           <div className="sidebar-top-section">
             <div>
               <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
-              <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
-                {currentUser.name} <br/> 
-                <span style={{ color: '#38bdf8' }}>{currentUser.role}</span>
-              </div>
+              <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{currentUser.name} <br/> <span style={{ color: '#38bdf8' }}>{currentUser.role}</span></div>
             </div>
             <button onClick={handleLogout} style={{ width: '100%', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
           </div>
@@ -746,15 +457,12 @@ export default function App() {
             {!activeShift ? (
               <button onClick={() => setShowShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>▶️ Iniciar Turno</button>
             ) : (
-              <button onClick={() => setShowCloseShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#166534', color: '#4ade80', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>
-                🟢 Cerrar Turno #{activeShift.id}
-              </button>
+              <button onClick={() => setShowCloseShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#166534', color: '#4ade80', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>🟢 Cerrar Turno #{activeShift.id}</button>
             )}
           </div>
 
           <div className="nav-buttons">
             <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local (Caja)</button>
-            
             {isAdmin && (
               <>
                 <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
@@ -775,89 +483,42 @@ export default function App() {
           {activeTab === 'pos' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
-                <input 
-                  type="text" 
-                  placeholder="🔍 Buscar o Escanear Código de Barras aquí..." 
-                  value={search} 
-                  onChange={(e) => setSearch(e.target.value)} 
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const matched = products.find((p) => p.barcode === search.trim() || p.barcode === search.trim().toUpperCase());
-                      if (matched) {
-                        addToCart(matched);
-                        setSearch('');
-                      }
-                    }
-                  }}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} 
-                />
+                <input type="text" placeholder="🔍 Buscar o Escanear Código de Barras aquí..." value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const matched = products.find((p) => p.barcode === search.trim() || p.barcode === search.trim().toUpperCase()); if (matched) { addToCart(matched); setSearch(''); } } }} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
                 <div className="products-grid">
                   {products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search)).map((p) => (
                     <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
-                      <h4 style={{ margin: '0.5rem 0', fontSize: '0.95rem' }}>{p.name}</h4>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <strong style={{ color: '#22c55e', fontSize: '1.1rem' }}>${p.sale_price?.toLocaleString('es-CO')}</strong>
-                        <span style={{ fontSize: '0.75rem', background: '#334155', padding: '0.2rem 0.4rem', borderRadius: '4px' }}>Stk: {p.stock}</span>
-                      </div>
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span><h4 style={{ margin: '0.5rem 0', fontSize: '0.95rem' }}>{p.name}</h4>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><strong style={{ color: '#22c55e', fontSize: '1.1rem' }}>${p.sale_price?.toLocaleString('es-CO')}</strong><span style={{ fontSize: '0.75rem', background: '#334155', padding: '0.2rem 0.4rem', borderRadius: '4px' }}>Stk: {p.stock}</span></div>
                     </div>
                   ))}
                 </div>
               </div>
-
               <div className="pos-cart">
                 <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>🛒 Carrito Local ({cart.length})</h3>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                  <input type="text" value={customerDoc} onChange={(e) => handleDocChange(e.target.value)} placeholder="NIT / CC" style={{ width: '40%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-                  <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nombre Cliente" style={{ width: '60%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
-                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}><input type="text" value={customerDoc} onChange={(e) => handleDocChange(e.target.value)} placeholder="NIT / CC" style={{ width: '40%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} /><input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nombre Cliente" style={{ width: '60%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} /></div>
                 <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="📧 Correo para envío de factura PDF (opcional)" style={{ width: '100%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '1rem' }} />
-                
                 <div className="cart-items-wrapper">
                   {cart.map((item) => (
                     <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.8rem', borderRadius: '6px' }}>
                       <div style={{ flex: 1 }}><strong style={{ fontSize: '0.9rem' }}>{item.name}</strong><br /><span style={{ color: '#22c55e', fontWeight: 'bold' }}>${(item.sale_price * item.quantity).toLocaleString('es-CO')}</span></div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>-</button>
-                        <span style={{ fontWeight: 'bold' }}>{item.quantity}</span>
-                        <button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>+</button>
-                        <button onClick={() => removeFromCart(item.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem', borderRadius: '4px' }}>❌</button>
+                        <button onClick={() => updateQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>-</button><span style={{ fontWeight: 'bold' }}>{item.quantity}</span><button onClick={() => updateQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>+</button><button onClick={() => removeFromCart(item.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem', borderRadius: '4px' }}>❌</button>
                       </div>
                     </div>
                   ))}
                 </div>
-
                 <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                    <span>Total a Pagar:</span>
-                    <span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span>
-                  </div>
-
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>Total a Pagar:</span><span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span></div>
                   {paymentMethod === 'Efectivo' && (
                     <div style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', marginBottom: '1rem', border: '1px solid #334155' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Efectivo Recibido:</span>
-                        <input type="text" value={formatCOP(amountPaid)} onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))} placeholder={`Ej: ${totalCart}`} style={{ width: '50%', padding: '0.4rem', background: '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '4px', textAlign: 'right' }} />
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Cambio / Vueltas:</span>
-                        <strong style={{ color: changeGiven > 0 ? '#38bdf8' : '#94a3b8', fontSize: '1.1rem' }}>${changeGiven.toLocaleString('es-CO')}</strong>
-                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}><span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Efectivo Recibido:</span><input type="text" value={formatCOP(amountPaid)} onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))} placeholder={`Ej: ${totalCart}`} style={{ width: '50%', padding: '0.4rem', background: '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '4px', textAlign: 'right' }} /></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Cambio / Vueltas:</span><strong style={{ color: changeGiven > 0 ? '#38bdf8' : '#94a3b8', fontSize: '1.1rem' }}>${changeGiven.toLocaleString('es-CO')}</strong></div>
                     </div>
                   )}
-
-                  <select value={paymentMethod} onChange={(e) => { setPaymentMethod(e.target.value); setAmountPaid(''); }} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '6px' }}>
-                    <option value="Efectivo">💵 Pago en Efectivo</option>
-                    <option value="Transferencia">📱 Pago por Transferencia / Nequi</option>
-                  </select>
-                  
+                  <select value={paymentMethod} onChange={(e) => { setPaymentMethod(e.target.value); setAmountPaid(''); }} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', marginBottom: '0.5rem', borderRadius: '6px' }}><option value="Efectivo">💵 Pago en Efectivo</option><option value="Transferencia">📱 Pago por Transferencia / Nequi</option></select>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button disabled={isProcessing} onClick={() => handleProcessSale('Registrada')} style={{ flex: 1, padding: '1rem', background: isProcessing ? '#475569' : '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
-                      {isProcessing ? 'Procesando...' : 'Registrar'}
-                    </button>
-                    <button disabled={isProcessing} onClick={() => handleProcessSale('Facturada')} style={{ flex: 1, padding: '1rem', background: isProcessing ? '#475569' : '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
-                      {isProcessing ? 'Procesando...' : 'Facturar'}
-                    </button>
+                    <button disabled={isProcessing} onClick={() => handleProcessSale('Registrada')} style={{ flex: 1, padding: '1rem', background: isProcessing ? '#475569' : '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>{isProcessing ? 'Procesando...' : 'Registrar'}</button>
+                    <button disabled={isProcessing} onClick={() => handleProcessSale('Facturada')} style={{ flex: 1, padding: '1rem', background: isProcessing ? '#475569' : '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>{isProcessing ? 'Procesando...' : 'Facturar'}</button>
                   </div>
                 </div>
               </div>
@@ -867,56 +528,31 @@ export default function App() {
           {activeTab === 'restock' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
-                <div style={{ marginBottom: '1rem' }}>
-                  <p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: '0 0 0.5rem 0' }}>Busca los productos que entraron físicamente al local para sumar sus cantidades. (Este proceso no resta mercancía de la fábrica, es totalmente independiente).</p>
-                </div>
-                <input 
-                  type="text" 
-                  placeholder="🔍 Buscar producto para ingresar al Local..." 
-                  value={restockSearch} 
-                  onChange={(e) => setRestockSearch(e.target.value)} 
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const matched = products.find((p) => p.barcode === restockSearch.trim() || p.barcode === restockSearch.trim().toUpperCase());
-                      if (matched) { addToRestockCart(matched); setRestockSearch(''); }
-                    }
-                  }}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #10b981', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} 
-                />
+                <div style={{ marginBottom: '1rem' }}><p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: '0 0 0.5rem 0' }}>Busca los productos que entraron físicamente al local para sumar sus cantidades. (Este proceso es totalmente independiente a la fábrica).</p></div>
+                <input type="text" placeholder="🔍 Buscar producto para ingresar al Local..." value={restockSearch} onChange={(e) => setRestockSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const matched = products.find((p) => p.barcode === restockSearch.trim() || p.barcode === restockSearch.trim().toUpperCase()); if (matched) { addToRestockCart(matched); setRestockSearch(''); } } }} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #10b981', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
                 <div className="products-grid">
                   {products.filter((p) => p.name.toLowerCase().includes(restockSearch.toLowerCase()) || p.barcode.includes(restockSearch)).map((p) => (
                     <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', border: '1px solid #10b981', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
-                      <h4 style={{ margin: '0.5rem 0', fontSize: '0.95rem' }}>{p.name}</h4>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.85rem', background: '#334155', padding: '0.2rem 0.4rem', borderRadius: '4px', color: '#fff' }}>Stock Actual: {p.stock}</span>
-                      </div>
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span><h4 style={{ margin: '0.5rem 0', fontSize: '0.95rem' }}>{p.name}</h4>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ fontSize: '0.85rem', background: '#334155', padding: '0.2rem 0.4rem', borderRadius: '4px', color: '#fff' }}>Stock Actual: {p.stock}</span></div>
                     </div>
                   ))}
                 </div>
               </div>
-
               <div className="pos-cart" style={{ border: '1px solid #10b981' }}>
                 <h3 style={{ margin: '0 0 1rem 0', color: '#10b981', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>📦 Mercancía a Ingresar ({restockCart.length})</h3>
-                
                 <div className="cart-items-wrapper">
                   {restockCart.map((item) => (
                     <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.8rem', borderRadius: '6px' }}>
                       <div style={{ flex: 1 }}><strong style={{ fontSize: '0.9rem' }}>{item.name}</strong></div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <button onClick={() => updateRestockQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>-</button>
-                        <span style={{ fontWeight: 'bold' }}>{item.quantity}</span>
-                        <button onClick={() => updateRestockQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>+</button>
-                        <button onClick={() => setRestockCart(restockCart.filter((x) => x.barcode !== item.barcode))} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem', borderRadius: '4px' }}>❌</button>
+                        <button onClick={() => updateRestockQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>-</button><span style={{ fontWeight: 'bold' }}>{item.quantity}</span><button onClick={() => updateRestockQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>+</button><button onClick={() => setRestockCart(restockCart.filter((x) => x.barcode !== item.barcode))} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem', borderRadius: '4px' }}>❌</button>
                       </div>
                     </div>
                   ))}
                 </div>
-
                 <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
-                  <button disabled={isRestocking} onClick={handleProcessRestock} style={{ width: '100%', padding: '1rem', background: isRestocking ? '#475569' : '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
-                    {isRestocking ? 'Procesando ingreso...' : '✅ CONFIRMAR INGRESO A CAJA'}
-                  </button>
+                  <button disabled={isRestocking} onClick={handleProcessRestock} style={{ width: '100%', padding: '1rem', background: isRestocking ? '#475569' : '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>{isRestocking ? 'Procesando...' : '✅ CONFIRMAR INGRESO'}</button>
                 </div>
               </div>
             </div>
@@ -925,8 +561,7 @@ export default function App() {
           {activeTab === 'inventory' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Inventario Local (Caja)</h2>
-                <button onClick={() => setShowAddModal(true)} style={{ padding: '0.8rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Ingresar Producto Local</button>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Inventario Local (Caja)</h2><button onClick={() => setShowAddModal(true)} style={{ padding: '0.8rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Ingresar Producto Local</button>
               </div>
               <input type="text" placeholder="🔍 Buscar en caja..." value={invSearch} onChange={(e) => setInvSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
@@ -935,10 +570,7 @@ export default function App() {
                   <tbody>
                     {products.filter((p) => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch)).map((p) => (
                       <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
-                        <td>{p.barcode}</td>
-                        <td style={{ minWidth: '150px' }}>{p.name}</td>
-                        <td style={{ color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td>
-                        <td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
+                        <td>{p.barcode}</td><td style={{ minWidth: '150px' }}>{p.name}</td><td style={{ color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td><td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
                         <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️</button><button onClick={() => handleDeleteProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                       </tr>
                     ))}
@@ -951,8 +583,7 @@ export default function App() {
           {activeTab === 'fabrica_inventory' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-                <h2 style={{ color: '#eab308', margin: 0 }}>🏭 Inventario Fábrica (Catálogo Preventistas)</h2>
-                <button onClick={openAddPreventaModal} style={{ padding: '0.8rem 1.2rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Nuevo Producto Fábrica</button>
+                <h2 style={{ color: '#eab308', margin: 0 }}>🏭 Inventario Fábrica</h2><button onClick={openAddPreventaModal} style={{ padding: '0.8rem 1.2rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Nuevo Producto Fábrica</button>
               </div>
               <input type="text" placeholder="🔍 Buscar producto en fábrica..." value={invPreventaSearch} onChange={(e) => setInvPreventaSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
@@ -961,18 +592,10 @@ export default function App() {
                   <tbody>
                     {preventaProducts.filter((p) => p.name.toLowerCase().includes(invPreventaSearch.toLowerCase()) || p.barcode.includes(invPreventaSearch)).map((p) => {
                       let rulesPreview = "Sin descuento";
-                      try {
-                        const rules = JSON.parse(p.discount_rules);
-                        if (rules && rules.length > 0) rulesPreview = rules.map(r => `${r.min}${r.max ? ` a ${r.max}` : '+'}: -${r.discount}%`).join(' | ');
-                      } catch(e){}
-
+                      try { const rules = JSON.parse(p.discount_rules); if (rules && rules.length > 0) rulesPreview = rules.map(r => `${r.min}${r.max ? ` a ${r.max}` : '+'}: -${r.discount}%`).join(' | '); } catch(e){}
                       return (
                         <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
-                          <td>{p.barcode}</td>
-                          <td style={{ minWidth: '150px' }}>{p.name}</td>
-                          <td style={{ color: '#eab308', fontWeight: 'bold' }}>${p.price?.toLocaleString('es-CO')}</td>
-                          <td style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{rulesPreview}</td>
-                          <td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
+                          <td>{p.barcode}</td><td style={{ minWidth: '150px' }}>{p.name}</td><td style={{ color: '#eab308', fontWeight: 'bold' }}>${p.price?.toLocaleString('es-CO')}</td><td style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{rulesPreview}</td><td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
                           <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => openEditPreventaModal(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️ Configurar</button><button onClick={() => handleDeletePreventaProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                         </tr>
                       );
@@ -986,10 +609,8 @@ export default function App() {
           {activeTab === 'preventa_orders' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📋 Trazabilidad Pedidos Preventista</h2>
-                <button onClick={loadPreventaOrders} style={{ padding: '0.8rem 1.2rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>🔄 Actualizar</button>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📋 Trazabilidad Pedidos Preventista</h2><button onClick={loadPreventaOrders} style={{ padding: '0.8rem 1.2rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>🔄 Actualizar</button>
               </div>
-              
               <div className="responsive-table-wrapper">
                 <table className="responsive-table">
                   <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th>ID</th><th>Fecha</th><th>Preventista</th><th>Cliente</th><th>Estado</th><th>Total</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
@@ -997,10 +618,7 @@ export default function App() {
                     {preventaOrders.map(o => (
                       <React.Fragment key={o.id}>
                         <tr style={{ borderBottom: expandedOrderId === o.id ? 'none' : '1px solid #334155' }}>
-                          <td style={{ fontSize: '0.8rem' }}>{o.id.substring(0,8)}</td>
-                          <td style={{ fontSize: '0.8rem' }}>{new Date(o.created_at).toLocaleString()}</td>
-                          <td><strong>{o.created_by}</strong></td>
-                          <td>{o.customer_name}</td>
+                          <td style={{ fontSize: '0.8rem' }}>{o.id.substring(0,8)}</td><td style={{ fontSize: '0.8rem' }}>{new Date(o.created_at).toLocaleString()}</td><td><strong>{o.created_by}</strong></td><td>{o.customer_name}</td>
                           <td>
                             {o.status === 'PENDING' && <span style={{ background: '#eab308', color: '#000', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>⏳ Pendiente</span>}
                             {o.status === 'DELIVERED' && <span style={{ background: '#38bdf8', color: '#000', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>🚚 Entregado</span>}
@@ -1008,31 +626,19 @@ export default function App() {
                           </td>
                           <td style={{ color: '#22c55e', fontWeight: 'bold' }}>${formatCOP(o.total)}</td>
                           <td style={{ textAlign: 'center', display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                            <button onClick={() => setExpandedOrderId(expandedOrderId === o.id ? null : o.id)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
-                              {expandedOrderId === o.id ? 'Ocultar' : 'Detalles'}
-                            </button>
-                            <button onClick={() => handleDeletePreventaOrderAdmin(o.id, o.customer_name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
-                              🗑️
-                            </button>
+                            <button onClick={() => setExpandedOrderId(expandedOrderId === o.id ? null : o.id)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>{expandedOrderId === o.id ? 'Ocultar' : 'Detalles'}</button>
+                            <button onClick={() => handleDeletePreventaOrderAdmin(o.id, o.customer_name)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>🗑️</button>
                           </td>
                         </tr>
                         {expandedOrderId === o.id && (
                           <tr>
                             <td colSpan="7" style={{ padding: 0 }}>
                               <div style={{ background: '#0f172a', padding: '1rem', borderBottom: '1px solid #334155' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-                                  <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>NIT/CC:</span><br/>{o.customer_doc}</div>
-                                  <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Correo:</span><br/>{o.customer_email || 'N/A'}</div>
-                                  <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Teléfono:</span><br/>{o.customer_phone || 'N/A'}</div>
-                                  <div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Notas:</span><br/>{o.notes || 'N/A'}</div>
-                                </div>
-                                <h5 style={{ margin: '0 0 0.5rem 0', color: '#38bdf8' }}>Productos de Fábrica Solicitados:</h5>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}><div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>NIT/CC:</span><br/>{o.customer_doc}</div><div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Correo:</span><br/>{o.customer_email || 'N/A'}</div><div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Teléfono:</span><br/>{o.customer_phone || 'N/A'}</div><div><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Notas:</span><br/>{o.notes || 'N/A'}</div></div>
+                                <h5 style={{ margin: '0 0 0.5rem 0', color: '#38bdf8' }}>Productos Solicitados:</h5>
                                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gridTemplateColumns: '1fr', gap: '0.5rem' }}>
                                   {o.items.map(it => (
-                                    <li key={it.id} style={{ display: 'flex', justifyContent: 'space-between', background: '#1e293b', padding: '0.5rem', borderRadius: '4px' }}>
-                                      <span>{it.quantity}x {it.product_name} <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>(${formatCOP(it.unit_price)} c/u)</span></span>
-                                      <span style={{ fontWeight: 'bold' }}>${formatCOP(it.subtotal)}</span>
-                                    </li>
+                                    <li key={it.id} style={{ display: 'flex', justifyContent: 'space-between', background: '#1e293b', padding: '0.5rem', borderRadius: '4px' }}><span>{it.quantity}x {it.product_name} <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>(${formatCOP(it.unit_price)} c/u)</span></span><span style={{ fontWeight: 'bold' }}>${formatCOP(it.subtotal)}</span></li>
                                   ))}
                                 </ul>
                               </div>
@@ -1156,7 +762,7 @@ export default function App() {
                           <td style={{ color: '#4ade80' }}>${getShiftValFormatted(s.cash_sales)}</td><td style={{ color: '#38bdf8' }}>${getShiftValFormatted(s.transfer_sales)}</td><td style={{ fontWeight: 'bold' }}>${getShiftValFormatted(s.total_sales)}</td>
                           <td style={{ textAlign: 'center', display:'flex', gap:'5px', justifyContent:'center' }}>
                             <button onClick={() => handlePrintShiftReport(s)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🖨️</button>
-                            <button onClick={() => handleDeleteShift(s.id)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🗑️</button>
+                            <button onClick={() => handleDeleteShift(s.id)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🗑️️</button>
                           </td>
                         </tr>
                       ))}
