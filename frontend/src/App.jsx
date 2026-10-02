@@ -680,6 +680,7 @@ export default function App() {
         }
       `}</style>
 
+      {/* COMPROBANTE DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -731,7 +732,6 @@ export default function App() {
 
       <div className="no-print pos-layout">
         <div className="pos-sidebar">
-          
           <div className="sidebar-top-section">
             <div>
               <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
@@ -755,6 +755,7 @@ export default function App() {
 
           <div className="nav-buttons">
             <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local (Caja)</button>
+            
             {isAdmin && (
               <>
                 <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
