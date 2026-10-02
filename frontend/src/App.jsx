@@ -68,7 +68,11 @@ export default function App() {
   const [customerName, setCustomerName] = useState('Consumidor Final');
   const [customerEmail, setCustomerEmail] = useState('');
   
-  // ESTADOS DE CARGA PARA EVITAR CONGELAMIENTO EN LA PANTALLA
+  // NUEVO: ESTADO PARA ABASTECER LOCAL (Restock)
+  const [restockCart, setRestockCart] = useState([]);
+  const [restockSearch, setRestockSearch] = useState('');
+  const [isRestocking, setIsRestocking] = useState(false);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isShiftProcessing, setIsShiftProcessing] = useState(false);
@@ -88,9 +92,7 @@ export default function App() {
   const [printShiftData, setPrintShiftData] = useState(null);
 
   useEffect(() => {
-    // Ping de arranque: Toca el servidor silenciosamente apenas se abre la app para irlo despertando
     fetch(`${API_URL}/api/ping`).catch(() => {});
-
     const savedUser = localStorage.getItem('pos_user');
     if (savedUser) {
       try {
@@ -350,6 +352,53 @@ export default function App() {
   
   const removeFromCart = (barcode) => setCart(cart.filter((x) => x.barcode !== barcode));
 
+  // --- NUEVA LÓGICA: ABASTECIMIENTO AL LOCAL (Independiente) ---
+  const addToRestockCart = (p) => {
+    const exist = restockCart.find((x) => x.barcode === p.barcode);
+    if (exist) {
+      setRestockCart(restockCart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)));
+    } else {
+      setRestockCart([...restockCart, { ...p, quantity: 1 }]);
+    }
+  };
+
+  const updateRestockQty = (barcode, qty) => {
+    if (qty <= 0) { setRestockCart(restockCart.filter((x) => x.barcode !== barcode)); return; }
+    setRestockCart(restockCart.map((x) => (x.barcode === barcode ? { ...x, quantity: qty } : x)));
+  };
+
+  const handleProcessRestock = async () => {
+    if (restockCart.length === 0) return alert('La lista está vacía');
+    if (!window.confirm("¿Confirmar el ingreso de esta nueva mercancía al inventario de la Caja Local?")) return;
+    
+    if (isRestocking) return;
+    setIsRestocking(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/restock-local`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: restockCart, user_name: currentUser.name })
+      });
+      const data = await res.json();
+      
+      if (res.ok && data.success) {
+        alert('✅ Ingreso completado. El inventario de la Caja Local ha sido actualizado.');
+        setRestockCart([]);
+        setRestockSearch('');
+        loadProductsOnline();
+        loadTransactions();
+      } else {
+        alert(`Error al abastecer: ${data.error || 'Desconocido'}`);
+      }
+    } catch (e) {
+      alert('Error de red al intentar registrar el abastecimiento.');
+    } finally {
+      setIsRestocking(false);
+    }
+  };
+  // ---------------------------------------------
+
   const totalCart = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
   const numericAmountPaid = parseCOP(amountPaid);
   const changeGiven = numericAmountPaid > totalCart ? numericAmountPaid - totalCart : 0;
@@ -592,7 +641,7 @@ export default function App() {
         }
       `}</style>
 
-      {/* COMPROBANTE DE IMPRESIÓN ACTUALIZADO PARA REPORTES Y FACTURAS */}
+      {/* COMPROBANTE DE IMPRESIÓN */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -669,6 +718,8 @@ export default function App() {
                 <>
                   <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
                   <button onClick={() => setActiveTab('fabrica_inventory')} className={`nav-btn ${activeTab === 'fabrica_inventory' ? 'active' : ''}`}>🏭 Inventario Fábrica</button>
+                  {/* NUEVA PESTAÑA */}
+                  <button onClick={() => setActiveTab('restock')} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Abastecer Local</button>
                   <button onClick={() => setActiveTab('preventa_orders')} className={`nav-btn ${activeTab === 'preventa_orders' ? 'active' : ''}`}>📋 Pedidos Preventista</button>
                   <button onClick={() => setActiveTab('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
                   <button onClick={() => setActiveTab('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
@@ -769,6 +820,65 @@ export default function App() {
                       {isProcessing ? 'Procesando...' : 'Facturar'}
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* NUEVO MÓDULO: ABASTECIMIENTO AL LOCAL (Independiente) */}
+          {activeTab === 'restock' && (
+            <div className="pos-grid-container">
+              <div className="pos-products-area">
+                <div style={{ marginBottom: '1rem' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: '0 0 0.5rem 0' }}>Busca los productos que entraron físicamente al local para sumar sus cantidades. (Este proceso no resta mercancía de la fábrica, es totalmente independiente).</p>
+                </div>
+                <input 
+                  type="text" 
+                  placeholder="🔍 Buscar producto para ingresar al Local..." 
+                  value={restockSearch} 
+                  onChange={(e) => setRestockSearch(e.target.value)} 
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const matched = products.find((p) => p.barcode === restockSearch.trim() || p.barcode === restockSearch.trim().toUpperCase());
+                      if (matched) { addToRestockCart(matched); setRestockSearch(''); }
+                    }
+                  }}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #10b981', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} 
+                />
+                <div className="products-grid">
+                  {products.filter((p) => p.name.toLowerCase().includes(restockSearch.toLowerCase()) || p.barcode.includes(restockSearch)).map((p) => (
+                    <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', border: '1px solid #10b981', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
+                      <h4 style={{ margin: '0.5rem 0', fontSize: '0.95rem' }}>{p.name}</h4>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.85rem', background: '#334155', padding: '0.2rem 0.4rem', borderRadius: '4px', color: '#fff' }}>Stock Actual: {p.stock}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pos-cart" style={{ border: '1px solid #10b981' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#10b981', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>📦 Mercancía a Ingresar ({restockCart.length})</h3>
+                
+                <div className="cart-items-wrapper">
+                  {restockCart.map((item) => (
+                    <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.8rem', borderRadius: '6px' }}>
+                      <div style={{ flex: 1 }}><strong style={{ fontSize: '0.9rem' }}>{item.name}</strong></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button onClick={() => updateRestockQty(item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>-</button>
+                        <span style={{ fontWeight: 'bold' }}>{item.quantity}</span>
+                        <button onClick={() => updateRestockQty(item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '30px', height: '30px', borderRadius: '4px', fontWeight: 'bold' }}>+</button>
+                        <button onClick={() => setRestockCart(restockCart.filter((x) => x.barcode !== item.barcode))} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.4rem', borderRadius: '4px' }}>❌</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
+                  <button disabled={isRestocking} onClick={handleProcessRestock} style={{ width: '100%', padding: '1rem', background: isRestocking ? '#475569' : '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
+                    {isRestocking ? 'Procesando ingreso...' : '✅ CONFIRMAR INGRESO A CAJA'}
+                  </button>
                 </div>
               </div>
             </div>
