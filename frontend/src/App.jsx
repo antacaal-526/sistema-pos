@@ -68,7 +68,7 @@ export default function App() {
   const [customerName, setCustomerName] = useState('Consumidor Final');
   const [customerEmail, setCustomerEmail] = useState('');
   
-  // NUEVO: ESTADO PARA ABASTECER LOCAL (Restock)
+  // ESTADOS DEL MÓDULO ABASTECER LOCAL
   const [restockCart, setRestockCart] = useState([]);
   const [restockSearch, setRestockSearch] = useState('');
   const [isRestocking, setIsRestocking] = useState(false);
@@ -352,7 +352,7 @@ export default function App() {
   
   const removeFromCart = (barcode) => setCart(cart.filter((x) => x.barcode !== barcode));
 
-  // --- NUEVA LÓGICA: ABASTECIMIENTO AL LOCAL (Independiente) ---
+  // LOGICA DE ABASTECIMIENTO RECUPERADA AQUI
   const addToRestockCart = (p) => {
     const exist = restockCart.find((x) => x.barcode === p.barcode);
     if (exist) {
@@ -369,7 +369,7 @@ export default function App() {
 
   const handleProcessRestock = async () => {
     if (restockCart.length === 0) return alert('La lista está vacía');
-    if (!window.confirm("¿Confirmar el ingreso de esta nueva mercancía al inventario de la Caja Local?")) return;
+    if (!window.confirm("¿Confirmar el ingreso de esta mercancía al inventario del Local?")) return;
     
     if (isRestocking) return;
     setIsRestocking(true);
@@ -383,7 +383,7 @@ export default function App() {
       const data = await res.json();
       
       if (res.ok && data.success) {
-        alert('✅ Ingreso completado. El inventario de la Caja Local ha sido actualizado.');
+        alert('✅ Ingreso completado. El stock de caja ha sido actualizado.');
         setRestockCart([]);
         setRestockSearch('');
         loadProductsOnline();
@@ -397,7 +397,6 @@ export default function App() {
       setIsRestocking(false);
     }
   };
-  // ---------------------------------------------
 
   const totalCart = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
   const numericAmountPaid = parseCOP(amountPaid);
@@ -610,16 +609,56 @@ export default function App() {
     <>
       <style>{`
         html, body, #root { height: 100%; min-height: 100vh; margin: 0; padding: 0; background: #0f172a; color: #fff; font-family: sans-serif; overflow-x: hidden; }
+        
         .pos-layout { display: flex; flex-direction: row; min-height: 100vh; height: 100%; }
-        .pos-sidebar { width: 240px; background: #1e293b; padding: 1rem; display: flex; flex-direction: column; border-right: 1px solid #334155; flex-shrink: 0; overflow-y: auto; }
+        
+        .pos-sidebar { 
+          width: 260px; 
+          background: #1e293b; 
+          padding: 1.5rem 1rem; 
+          display: flex; 
+          flex-direction: column; 
+          border-right: 1px solid #334155; 
+          flex-shrink: 0; 
+          overflow-y: auto; 
+        }
+        
+        .sidebar-top-section { 
+          display: flex; 
+          flex-direction: column; 
+          gap: 1rem;
+          margin-bottom: 1.5rem; 
+          padding-bottom: 1.5rem;
+          border-bottom: 1px solid #334155;
+        }
+
+        .nav-buttons { 
+          display: flex; 
+          flex-direction: column; 
+          gap: 0.4rem; 
+        }
+        
+        .nav-btn { 
+          padding: 0.9rem 1rem; 
+          text-align: left; 
+          background: transparent; 
+          color: #cbd5e1; 
+          border: none; 
+          border-radius: 6px; 
+          cursor: pointer;
+          font-size: 0.95rem;
+          transition: all 0.2s ease;
+        }
+        .nav-btn:hover { background: #334155; color: #fff; }
+        .nav-btn.active { background: #2563eb; color: #fff; font-weight: bold; }
+
         .pos-content { flex: 1; padding: 1.5rem; overflow-y: auto; overflow-x: hidden; }
         .pos-grid-container { display: flex; gap: 1.25rem; height: 100%; align-items: stretch; }
         .pos-products-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; overflow-y: auto; padding-right: 4px; padding-bottom: 2rem; }
         .pos-cart { width: 400px; background: #1e293b; border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; border: 1px solid #334155; flex-shrink: 0; }
         .cart-items-wrapper { flex: 1; overflow-y: auto; padding-right: 6px; min-height: 150px; }
-        .nav-btn { padding: 0.8rem; text-align: left; background: transparent; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 0.3rem; }
-        .nav-btn.active { background: #2563eb; font-weight: bold; }
+        
         .responsive-table-wrapper { width: 100%; overflow-x: auto; background: #1e293b; border-radius: 8px; }
         .responsive-table { width: 100%; border-collapse: collapse; min-width: 600px; }
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
@@ -628,9 +667,9 @@ export default function App() {
         @media (max-width: 768px) {
           .pos-layout { flex-direction: column; height: auto; display: block; }
           .pos-sidebar { width: 100%; box-sizing: border-box; border-right: none; border-bottom: 1px solid #334155; padding: 1rem; position: relative; }
-          .sidebar-top-section { display: flex; justify-content: space-between; align-items: flex-start; }
-          .nav-buttons { display: flex; flex-direction: row; overflow-x: auto; gap: 0.5rem; padding-bottom: 0.5rem; border-top: 1px solid #334155; margin-top: 0.8rem; padding-top: 0.8rem; }
-          .nav-btn { white-space: nowrap; text-align: center; padding: 0.6rem 1rem; margin-bottom: 0; }
+          .sidebar-top-section { flex-direction: row; justify-content: space-between; align-items: flex-start; padding-bottom: 1rem; }
+          .nav-buttons { flex-direction: row; overflow-x: auto; gap: 0.5rem; padding-bottom: 0.5rem; border-top: 1px solid #334155; margin-top: 0.8rem; padding-top: 0.8rem; }
+          .nav-btn { white-space: nowrap; text-align: center; padding: 0.6rem 1rem; }
           .pos-content { padding: 0.8rem; overflow: visible; height: auto; }
           .pos-grid-container { flex-direction: column; height: auto; display: block; }
           .pos-products-area { overflow: visible; height: auto; }
@@ -693,42 +732,43 @@ export default function App() {
 
       <div className="no-print pos-layout">
         <div className="pos-sidebar">
-          <div>
-            <div className="sidebar-top-section">
-              <div>
-                <h3 style={{ color: '#38bdf8', fontSize: '1.1rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
-                <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '1rem' }}>
-                  {currentUser.name} <span style={{ color: '#38bdf8', marginLeft: '5px' }}>({currentUser.role})</span>
-                </div>
+          
+          <div className="sidebar-top-section">
+            <div>
+              <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
+              <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                {currentUser.name} <br/> 
+                <span style={{ color: '#38bdf8' }}>{currentUser.role}</span>
               </div>
-              <button onClick={handleLogout} style={{ padding: '0.5rem 1rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Salir</button>
             </div>
+            <button onClick={handleLogout} style={{ width: '100%', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
+          </div>
 
+          <div style={{ marginBottom: '1.5rem' }}>
             {!activeShift ? (
-              <button onClick={() => setShowShiftModal(true)} style={{ width: '100%', padding: '0.8rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ Iniciar Turno</button>
+              <button onClick={() => setShowShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>▶️ Iniciar Turno</button>
             ) : (
-              <div style={{ background: '#166534', color: '#4ade80', padding: '0.8rem', borderRadius: '4px', textAlign: 'center', fontWeight: 'bold', cursor: 'pointer' }} onClick={() => setShowCloseShiftModal(true)}>
+              <button onClick={() => setShowCloseShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#166534', color: '#4ade80', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>
                 🟢 Cerrar Turno #{activeShift.id}
-              </div>
+              </button>
             )}
+          </div>
 
-            <div className="nav-buttons">
-              <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local</button>
-              {isAdmin && (
-                <>
-                  <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
-                  <button onClick={() => setActiveTab('fabrica_inventory')} className={`nav-btn ${activeTab === 'fabrica_inventory' ? 'active' : ''}`}>🏭 Inventario Fábrica</button>
-                  {/* NUEVA PESTAÑA */}
-                  <button onClick={() => setActiveTab('restock')} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Abastecer Local</button>
-                  <button onClick={() => setActiveTab('preventa_orders')} className={`nav-btn ${activeTab === 'preventa_orders' ? 'active' : ''}`}>📋 Pedidos Preventista</button>
-                  <button onClick={() => setActiveTab('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
-                  <button onClick={() => setActiveTab('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
-                  <button onClick={() => setActiveTab('employees')} className={`nav-btn ${activeTab === 'employees' ? 'active' : ''}`}>👥 Empleados</button>
-                  <button onClick={() => setActiveTab('reports')} className={`nav-btn ${activeTab === 'reports' ? 'active' : ''}`}>📊 Reportes</button>
-                  <button onClick={() => setActiveTab('dian')} className={`nav-btn ${activeTab === 'dian' ? 'active' : ''}`}>⚙️ Config</button>
-                </>
-              )}
-            </div>
+          <div className="nav-buttons">
+            <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local (Caja)</button>
+            {isAdmin && (
+              <>
+                <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
+                <button onClick={() => setActiveTab('fabrica_inventory')} className={`nav-btn ${activeTab === 'fabrica_inventory' ? 'active' : ''}`}>🏭 Inventario Fábrica</button>
+                <button onClick={() => setActiveTab('restock')} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Abastecer Local</button>
+                <button onClick={() => setActiveTab('preventa_orders')} className={`nav-btn ${activeTab === 'preventa_orders' ? 'active' : ''}`}>📋 Pedidos Preventista</button>
+                <button onClick={() => setActiveTab('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
+                <button onClick={() => setActiveTab('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
+                <button onClick={() => setActiveTab('employees')} className={`nav-btn ${activeTab === 'employees' ? 'active' : ''}`}>👥 Empleados</button>
+                <button onClick={() => setActiveTab('reports')} className={`nav-btn ${activeTab === 'reports' ? 'active' : ''}`}>📊 Reportes</button>
+                <button onClick={() => setActiveTab('dian')} className={`nav-btn ${activeTab === 'dian' ? 'active' : ''}`}>⚙️ Config</button>
+              </>
+            )}
           </div>
         </div>
 
@@ -825,7 +865,7 @@ export default function App() {
             </div>
           )}
 
-          {/* NUEVO MÓDULO: ABASTECIMIENTO AL LOCAL (Independiente) */}
+          {/* MÓDULO RECUPERADO: ABASTECER LOCAL */}
           {activeTab === 'restock' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
