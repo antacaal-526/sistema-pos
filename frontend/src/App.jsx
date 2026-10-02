@@ -67,6 +67,11 @@ export default function App() {
   const [customerDoc, setCustomerDoc] = useState('');
   const [customerName, setCustomerName] = useState('Consumidor Final');
   const [customerEmail, setCustomerEmail] = useState('');
+  
+  // ESTADOS DE CARGA PARA EVITAR CONGELAMIENTO EN LA PANTALLA
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isShiftProcessing, setIsShiftProcessing] = useState(false);
 
   const [transactions, setTransactions] = useState([]);
   const [showTxModal, setShowTxModal] = useState(false);
@@ -83,6 +88,9 @@ export default function App() {
   const [printShiftData, setPrintShiftData] = useState(null);
 
   useEffect(() => {
+    // Ping de arranque: Toca el servidor silenciosamente apenas se abre la app para irlo despertando
+    fetch(`${API_URL}/api/ping`).catch(() => {});
+
     const savedUser = localStorage.getItem('pos_user');
     if (savedUser) {
       try {
@@ -179,6 +187,8 @@ export default function App() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
     setLoginError('');
     if (!navigator.onLine) {
       try {
@@ -186,9 +196,12 @@ export default function App() {
         if (localUser && localUser.password === loginPass.trim()) {
           setCurrentUser(localUser);
           localStorage.setItem('pos_user', JSON.stringify(localUser));
-          return;
-        } else return setLoginError('Sin conexión. Usuario/Clave local incorrectos.');
-      } catch (err) { return setLoginError('Error validando en base local.'); }
+        } else {
+          setLoginError('Sin conexión. Usuario/Clave local incorrectos.');
+        }
+      } catch (err) { setLoginError('Error validando en base local.'); }
+      setIsLoggingIn(false);
+      return;
     }
     try {
       const res = await fetch(`${API_URL}/api/login`, {
@@ -202,21 +215,26 @@ export default function App() {
         localStorage.setItem('pos_user', JSON.stringify(data.user));
         processSyncQueue();
       } else setLoginError(data.error || 'Credenciales incorrectas');
-    } catch (e) { setLoginError('Error de red.'); }
+    } catch (e) { setLoginError('Error de red al conectar con el servidor.'); }
+    finally { setIsLoggingIn(false); }
   };
 
   const handleLogout = () => { localStorage.removeItem('pos_user'); setCurrentUser(null); setActiveShift(null); setCart([]); };
 
   const handleOpenShift = async () => {
+    if (isShiftProcessing) return;
+    setIsShiftProcessing(true);
     const baseValue = parseCOP(shiftBaseInput);
     try {
       const res = await fetch(`${API_URL}/api/shifts/open`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_name: currentUser.name, start_amount: baseValue }) });
       if (res.ok) { setShowShiftModal(false); setShiftBaseInput(''); checkActiveShift(currentUser.name); loadShifts(); }
-    } catch (e) { alert('Error al abrir turno'); }
+    } catch (e) { alert('Error al abrir turno. Revise su conexión.'); }
+    finally { setIsShiftProcessing(false); }
   };
 
   const handleCloseShift = async () => {
-    if (!activeShift) return;
+    if (!activeShift || isShiftProcessing) return;
+    setIsShiftProcessing(true);
     const counted = parseCOP(countedCashInput);
     try {
       const res = await fetch(`${API_URL}/api/shifts/close`, { 
@@ -235,6 +253,7 @@ export default function App() {
         alert('Error al cerrar: ' + (data.error || ''));
       }
     } catch (e) { alert('Error de red al cerrar el turno'); }
+    finally { setIsShiftProcessing(false); }
   };
 
   const handleDeleteShift = async (id) => {
@@ -297,7 +316,6 @@ export default function App() {
     }
   };
 
-  // SISTEMA ANTI-QUIEBRE DE STOCK PARA LA CAJA (Validación de existencia)
   const addToCart = (p) => {
     if (!activeShift) { alert('⚠️ Inicie un turno para vender.'); setShowShiftModal(true); return; }
     
@@ -339,6 +357,9 @@ export default function App() {
 
   const handleProcessSale = async (saleType) => {
     if (cart.length === 0) return alert('El carrito está vacío');
+    if (isProcessing) return;
+    setIsProcessing(true);
+
     const finalDoc = customerDoc || '222222222222';
     const desc = cart.map((i) => `${i.quantity}x ${i.name}`).join(', ');
     const invNumber = `TF-${Date.now().toString().slice(-6)}`;
@@ -368,11 +389,16 @@ export default function App() {
       }
       
       setLastInvoice({ number: invNumber, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
-      alert(`💾 Venta Guardada Offline. Factura #: ${invNumber}\nSe sincronizará cuando regrese el Internet.`);
-      if (saleType === 'Facturada') setTimeout(() => window.print(), 300);
       
-      setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); 
+      if (saleType === 'Facturada') {
+          setTimeout(() => window.print(), 100);
+      } else {
+          alert(`💾 Venta Guardada Offline. Factura #: ${invNumber}`);
+      }
+      
+      setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
       loadProductsLocal();
+      setIsProcessing(false);
       return;
     }
 
@@ -385,13 +411,21 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.success) {
         setLastInvoice({ number: data.invoice_number, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
-        alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`);
-        if (saleType === 'Facturada') setTimeout(() => window.print(), 300);
         
-        setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); 
+        if (saleType === 'Facturada') {
+            setTimeout(() => window.print(), 100); 
+        } else {
+            alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`);
+        }
+        
+        setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
         loadProductsOnline(); loadTransactions();
       }
-    } catch (e) { alert('Error de red'); }
+    } catch (e) { 
+        alert('Error de red. Verifique su internet o actúe en modo Offline.'); 
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   const handleSaveNewProduct = async (e) => {
@@ -494,7 +528,9 @@ export default function App() {
           {loginError && <div style={{ background: '#f87171', color: '#7f1d1d', padding: '0.5rem', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.85rem' }}>{loginError}</div>}
           <input type="text" placeholder="Usuario" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', margin: '0.5rem 0 1rem 0', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: '#fff' }} required />
           <input type="password" placeholder="Contraseña" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', margin: '0.5rem 0 1.5rem 0', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: '#fff' }} required />
-          <button type="submit" style={{ width: '100%', padding: '0.85rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🔑 INICIAR SESIÓN</button>
+          <button type="submit" disabled={isLoggingIn} style={{ width: '100%', padding: '0.85rem', background: isLoggingIn ? '#475569' : '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+            {isLoggingIn ? 'Conectando nube...' : '🔑 INICIAR SESIÓN'}
+          </button>
         </form>
       </div>
     );
@@ -556,6 +592,7 @@ export default function App() {
         }
       `}</style>
 
+      {/* COMPROBANTE DE IMPRESIÓN ACTUALIZADO PARA REPORTES Y FACTURAS */}
       <div id="print-receipt" className="print-only">
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -648,7 +685,22 @@ export default function App() {
           {activeTab === 'pos' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
-                <input type="text" placeholder="🔍 Buscar en caja local..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+                <input 
+                  type="text" 
+                  placeholder="🔍 Buscar o Escanear Código de Barras aquí..." 
+                  value={search} 
+                  onChange={(e) => setSearch(e.target.value)} 
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const matched = products.find((p) => p.barcode === search.trim() || p.barcode === search.trim().toUpperCase());
+                      if (matched) {
+                        addToCart(matched);
+                        setSearch('');
+                      }
+                    }
+                  }}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} 
+                />
                 <div className="products-grid">
                   {products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search)).map((p) => (
                     <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -710,8 +762,12 @@ export default function App() {
                   </select>
                   
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button onClick={() => handleProcessSale('Registrada')} style={{ flex: 1, padding: '1rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>Registrar</button>
-                    <button onClick={() => handleProcessSale('Facturada')} style={{ flex: 1, padding: '1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>Facturar</button>
+                    <button disabled={isProcessing} onClick={() => handleProcessSale('Registrada')} style={{ flex: 1, padding: '1rem', background: isProcessing ? '#475569' : '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
+                      {isProcessing ? 'Procesando...' : 'Registrar'}
+                    </button>
+                    <button disabled={isProcessing} onClick={() => handleProcessSale('Facturada')} style={{ flex: 1, padding: '1rem', background: isProcessing ? '#475569' : '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
+                      {isProcessing ? 'Procesando...' : 'Facturar'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -994,8 +1050,10 @@ export default function App() {
             <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8' }}>☀️ Abrir Turno Local</h3>
             <input type="text" value={formatCOP(shiftBaseInput)} onChange={(e) => setShiftBaseInput(e.target.value.replace(/\D/g, ''))} placeholder="Base en Caja ($)" style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', margin: '0.5rem 0 1rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={handleOpenShift} style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Iniciar</button>
-              <button onClick={() => setShowShiftModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
+              <button disabled={isShiftProcessing} onClick={handleOpenShift} style={{ flex: 1, padding: '0.8rem', background: isShiftProcessing ? '#475569' : '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+                {isShiftProcessing ? 'Conectando...' : 'Iniciar'}
+              </button>
+              <button disabled={isShiftProcessing} onClick={() => setShowShiftModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
             </div>
           </div>
         </div>
@@ -1009,8 +1067,10 @@ export default function App() {
             <label style={{ fontSize: '0.85rem' }}>Efectivo Físico Contado ($):</label>
             <input type="text" value={formatCOP(countedCashInput)} onChange={(e) => setCountedCashInput(e.target.value.replace(/\D/g, ''))} placeholder="Efectivo en caja" style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', margin: '0.5rem 0 1rem 0', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} />
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={handleCloseShift} style={{ flex: 1, padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Cerrar Turno</button>
-              <button onClick={() => setShowCloseShiftModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+              <button disabled={isShiftProcessing} onClick={handleCloseShift} style={{ flex: 1, padding: '0.8rem', background: isShiftProcessing ? '#475569' : '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+                {isShiftProcessing ? 'Conectando...' : 'Cerrar Turno'}
+              </button>
+              <button disabled={isShiftProcessing} onClick={() => setShowCloseShiftModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
             </div>
           </div>
         </div>
