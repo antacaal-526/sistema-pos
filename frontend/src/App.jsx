@@ -309,10 +309,10 @@ export default function App() {
   const handleDeletePreventaProduct = async (barcode) => { if (window.confirm('¿Eliminar producto de fábrica?')) { await fetch(`${API_URL}/api/preventa-products/${barcode}`, { method: 'DELETE' }); loadPreventaProductsOnline(); } };
 
   const handleSaveTransaction = async (e) => { e.preventDefault(); const numericAmount = parseCOP(newTx.amount); if (numericAmount <= 0) return alert('Monto inválido'); try { const res = await fetch(`${API_URL}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newTx, amount: numericAmount, user_name: currentUser.name }) }); if (res.ok) { alert(`✅ ${newTx.type} registrado`); setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' }); setShowTxModal(false); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
-  const handleDeleteTransaction = async (id, description, category) => { if (!window.confirm(`¿Está seguro de eliminar el registro contable "${description}"?`)) return; try { const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑️️ Registro eliminado'); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
+  const handleDeleteTransaction = async (id, description, category) => { if (!window.confirm(`¿Está seguro de eliminar el registro contable "${description}"?`)) return; try { const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑 Registro eliminado'); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
 
   const handleSaveUser = async (e) => { e.preventDefault(); try { const res = await fetch(`${API_URL}/api/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) }); if (res.ok) { alert('👤 Empleado creado'); setNewUser({ name: '', username: '', password: '', role: 'Cajero' }); setShowUserModal(false); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
-  const handleDeleteUser = async (id, name) => { if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual'); if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return; try { const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑️ Usuario eliminado'); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
+  const handleDeleteUser = async (id, name) => { if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual'); if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return; try { const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑️️ Usuario eliminado'); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
 
   const handleSaveConfig = async (e) => { e.preventDefault(); await fetch(`${API_URL}/api/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(storeConfig) }); alert('Configuración guardada'); };
   const handlePrintShiftReport = (shift) => { setPrintShiftData(shift); setTimeout(() => window.print(), 300); };
@@ -379,6 +379,30 @@ export default function App() {
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
         
+        /* REGLAS DE IMPRESIÓN TÉRMICA - ALTO CONTRASTE Y NEGRITA */
+        @media print {
+          @page {
+            size: 58mm auto;
+            margin: 0;
+          }
+          .no-print {
+            display: none !important;
+          }
+          #print-receipt, #print-receipt * {
+            display: block !important;
+            font-family: 'Courier New', Courier, monospace !important;
+            font-size: 11px !important;
+            font-weight: 900 !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body {
+            background: #ffffff !important;
+            color: #000000 !important;
+          }
+        }
+        
         @media (max-width: 768px) {
           .pos-layout { flex-direction: column; height: auto; display: block; }
           .pos-sidebar { width: 100%; box-sizing: border-box; border-right: none; border-bottom: 1px solid #334155; padding: 1rem; position: relative; }
@@ -395,51 +419,51 @@ export default function App() {
         }
       `}</style>
 
-      <div id="print-receipt" className="print-only">
+      <div id="print-receipt" className="print-only" style={{ display: 'none' }}>
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
-            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px' }}>🌱 {storeConfig.razon_social}</h3>
-            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '9px', fontWeight: 'bold' }}>REPORTE DE TURNO #{printShiftData.id || printShiftData.shift_id}</p>
-            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <p style={{ margin: '1px 0' }}>Empleado: <strong>{printShiftData.user_name}</strong></p>
-            <p style={{ margin: '1px 0' }}>Apertura: {printShiftData.opened_at}</p>
-            <p style={{ margin: '1px 0' }}>Cierre: {printShiftData.closed_at || 'En curso'}</p>
-            <p style={{ margin: '1px 0' }}>Ventas Totales: {printShiftData.sales_count || 0}</p>
-            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Base Inicial:</span><span>${getShiftValFormatted(printShiftData.start_amount)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Efectivo:</span><span>${getShiftValFormatted(printShiftData.cash_sales)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Ventas Transferencia:</span><span>${getShiftValFormatted(printShiftData.transfer_sales)}</span></div>
-            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}><span>TOTAL VENDIDO:</span><span>${getShiftValFormatted(printShiftData.total_sales)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginTop: '2px' }}><span>EFECTIVO ESPERADO:</span><span>${getShiftValFormatted(printShiftData.expected_cash || (printShiftData.start_amount + printShiftData.cash_sales))}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}><span>EFECTIVO CONTADO:</span><span>${getShiftValFormatted(printShiftData.counted_cash ?? printShiftData.end_amount)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', marginTop: '2px' }}><span>DIFERENCIA:</span><span>${getShiftValFormatted(printShiftData.difference || 0)}</span></div>
-            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px', fontWeight: '900' }}>🌱 {storeConfig.razon_social}</h3>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '9px', fontWeight: '900' }}>REPORTE DE TURNO #{printShiftData.id || printShiftData.shift_id}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
+            <p style={{ margin: '1px 0', fontWeight: '900' }}>Empleado: <strong>{printShiftData.user_name}</strong></p>
+            <p style={{ margin: '1px 0', fontWeight: '900' }}>Apertura: {printShiftData.opened_at}</p>
+            <p style={{ margin: '1px 0', fontWeight: '900' }}>Cierre: {printShiftData.closed_at || 'En curso'}</p>
+            <p style={{ margin: '1px 0', fontWeight: '900' }}>Ventas Totales: {printShiftData.sales_count || 0}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}><span>Base Inicial:</span><span>${getShiftValFormatted(printShiftData.start_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}><span>Ventas Efectivo:</span><span>${getShiftValFormatted(printShiftData.cash_sales)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}><span>Ventas Transferencia:</span><span>${getShiftValFormatted(printShiftData.transfer_sales)}</span></div>
+            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px' }}><span>TOTAL VENDIDO:</span><span>${getShiftValFormatted(printShiftData.total_sales)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px', marginTop: '2px' }}><span>EFECTIVO ESPERADO:</span><span>${getShiftValFormatted(printShiftData.expected_cash || (printShiftData.start_amount + printShiftData.cash_sales))}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px', marginTop: '2px' }}><span>EFECTIVO CONTADO:</span><span>${getShiftValFormatted(printShiftData.counted_cash ?? printShiftData.end_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px', marginTop: '2px' }}><span>DIFERENCIA:</span><span>${getShiftValFormatted(printShiftData.difference || 0)}</span></div>
+            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
           </div>
         ) : lastInvoice ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
-            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px' }}>🌱 {storeConfig.razon_social}</h3>
-            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px' }}>NIT: {storeConfig.nit}</p>
-            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <p style={{ margin: '1px 0' }}>Factura #: <strong>{lastInvoice.number}</strong></p>
-            <p style={{ margin: '1px 0' }}>Fecha: {lastInvoice.date}</p>
-            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px' }}>
+            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px', fontWeight: '900' }}>🌱 {storeConfig.razon_social}</h3>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px', fontWeight: '900' }}>NIT: {storeConfig.nit}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
+            <p style={{ margin: '1px 0', fontWeight: '900' }}>Factura #: <strong>{lastInvoice.number}</strong></p>
+            <p style={{ margin: '1px 0', fontWeight: '900' }}>Fecha: {lastInvoice.date}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', fontWeight: '900' }}>
               <tbody>
                 {lastInvoice.items.map((it, idx) => (
                   <tr key={idx}>
-                    <td style={{ verticalAlign: 'top', padding: '1px 0' }}>{it.quantity}x {it.name.substring(0, 16)}</td>
-                    <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '1px 0', fontWeight: 'bold' }}>${(it.quantity * it.sale_price).toLocaleString('es-CO')}</td>
+                    <td style={{ verticalAlign: 'top', padding: '1px 0', fontWeight: '900' }}>{it.quantity}x {it.name.substring(0, 16)}</td>
+                    <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '1px 0', fontWeight: '900' }}>${(it.quantity * it.sale_price).toLocaleString('es-CO')}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}><span>TOTAL:</span><span>${lastInvoice.total.toLocaleString('es-CO')}</span></div>
-            <p style={{ margin: '1px 0', fontSize: '9px' }}>Pago: {lastInvoice.paymentMethod}</p>
-            <p style={{ margin: '1px 0', fontSize: '9px'} }>Recibido: ${lastInvoice.received.toLocaleString('es-CO')}</p>
-            <p style={{ margin: '1px 0', fontSize: '9px' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString('es-CO')}</p>
-            <p style={{ textAlign: 'center', margin: '4px 0 0 0', fontSize: '9px' }}>{storeConfig.footer_msg}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px' }}><span>TOTAL:</span><span>${lastInvoice.total.toLocaleString('es-CO')}</span></div>
+            <p style={{ margin: '1px 0', fontSize: '9px', fontWeight: '900' }}>Pago: {lastInvoice.paymentMethod}</p>
+            <p style={{ margin: '1px 0', fontSize: '9px', fontWeight: '900' }}>Recibido: ${lastInvoice.received.toLocaleString('es-CO')}</p>
+            <p style={{ margin: '1px 0', fontSize: '9px', fontWeight: '900' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString('es-CO')}</p>
+            <p style={{ textAlign: 'center', margin: '4px 0 0 0', fontSize: '9px', fontWeight: '900' }}>{storeConfig.footer_msg}</p>
           </div>
         ) : null}
       </div>
@@ -792,7 +816,7 @@ export default function App() {
                 <input type="text" value={storeConfig.razon_social} onChange={(e) => setStoreConfig({ ...storeConfig, razon_social: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Razón Social" />
                 <input type="text" value={storeConfig.nit} onChange={(e) => setStoreConfig({ ...storeConfig, nit: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="NIT" />
                 <input type="text" value={storeConfig.direccion} onChange={(e) => setStoreConfig({ ...storeConfig, direccion: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Dirección" />
-                <input type="text" value={storeConfig.telefono} onChange&&(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Teléfono" />
+                <input type="text" value={storeConfig.telefono} onChange={(e) => setStoreConfig({ ...storeConfig, telefono: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Teléfono" />
                 <button type="submit" style={{ padding: '1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>💾 Guardar Cambios</button>
               </form>
 
@@ -952,7 +976,7 @@ export default function App() {
 
       {showTxModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
-          <form onSubmit={handleTest => handleSaveTransaction} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+          <form onSubmit={handleSaveTransaction} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '340px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
             <h3 style={{ margin: 0, color: '#38bdf8' }}>➕ Registro Contable</h3>
             <select value={newTx.type} onChange={(e) => setNewTx({ ...newTx, type: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}>
               <option value="Ingreso">🟢 Ingreso</option>
