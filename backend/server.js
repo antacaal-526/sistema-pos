@@ -240,12 +240,17 @@ app.delete('/api/orders/:id', async (req, res) => {
   try {
     const order = await new Promise((resolve, reject) => db.get('SELECT * FROM orders WHERE id = ?', [req.params.id], (err, row) => err ? reject(err) : resolve(row)));
     if (!order) return res.status(404).json({ error: 'No encontrado' });
-    if (order.status !== 'PENDING') return res.status(400).json({ error: 'Sólo se pueden eliminar pedidos PENDIENTES. Los demás deben anularse.' });
     
     const items = await new Promise((resolve, reject) => db.all('SELECT product_barcode, quantity FROM order_items WHERE order_id = ?', [order.id], (err, rows) => err ? reject(err) : resolve(rows || [])));
-    for (const item of items) await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], (err) => err ? reject(err) : resolve()));
     
-    // Primero borramos dependencias por Foreign Key constraints
+    if (order.status === 'PENDING') {
+        for (const item of items) await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET reserved_stock = reserved_stock - ? WHERE barcode = ?', [item.quantity, item.product_barcode], (err) => err ? reject(err) : resolve()));
+    } else if (order.status === 'DELIVERED' || order.status === 'PAID') {
+        for (const item of items) await new Promise((resolve, reject) => db.run('UPDATE preventa_products SET stock = stock + ? WHERE barcode = ?', [item.quantity, item.product_barcode], (err) => err ? reject(err) : resolve()));
+    }
+    
+    await new Promise((resolve, reject) => db.run(`DELETE FROM transactions WHERE description LIKE ?`, [`%${order.id.substring(0, 8)}%`], (err) => err ? reject(err) : resolve()));
+    await new Promise((resolve, reject) => db.run(`DELETE FROM sales WHERE invoice_number LIKE ?`, [`%${order.id.substring(0, 6)}%`], (err) => err ? reject(err) : resolve()));
     await new Promise((resolve, reject) => db.run('DELETE FROM payments WHERE order_id = ?', [order.id], (err) => err ? reject(err) : resolve()));
     await new Promise((resolve, reject) => db.run('DELETE FROM order_items WHERE order_id = ?', [order.id], (err) => err ? reject(err) : resolve()));
     await new Promise((resolve, reject) => db.run('DELETE FROM orders WHERE id = ?', [order.id], (err) => err ? reject(err) : resolve()));
@@ -389,20 +394,12 @@ app.delete('/api/shifts/:id', async (req, res) => {
   }
 });
 
-// AQUI SE CORRIGE EL FOREIGN KEY CONSTRAINT PARA EL CIERRE DE MES
 app.post('/api/clean-history', async (req, res) => {
   try {
-    // 1. Borrar todas las transacciones (Ingresos y Egresos sueltos)
     await new Promise((r, rej) => db.run("DELETE FROM transactions", [], (e) => e ? rej(e) : r()));
-    
-    // 2. Borrar las ventas POS (Requiere borrar primero el detalle de la venta)
     await new Promise((r, rej) => db.run("DELETE FROM sale_items", [], (e) => e ? rej(e) : r()));
     await new Promise((r, rej) => db.run("DELETE FROM sales", [], (e) => e ? rej(e) : r()));
-    
-    // 3. Borrar turnos cerrados de la base
     await new Promise((r, rej) => db.run("DELETE FROM shifts WHERE status = 'cerrado'", [], (e) => e ? rej(e) : r()));
-    
-    // 4. Borrar pedidos cobrados respetando el ORDEN de las claves foráneas
     const paidOrders = await new Promise((r, rej) => db.all("SELECT id FROM orders WHERE status = 'PAID'", [], (e, rows) => e ? rej(e) : r(rows || [])));
     for(let o of paidOrders) {
        await new Promise(r => db.run("DELETE FROM payments WHERE order_id = ?", [o.id], r));
@@ -489,6 +486,24 @@ app.post('/api/config', (req, res) => {
       completed++; if (completed === Object.keys(config).length) res.json({ success: true });
     });
   });
+});
+
+app.post('/api/restock-local', async (req, res) => {
+  const { items, user_name } = req.body;
+  const horaCol = getColombiaTimestamp();
+  try {
+    for (const item of items) {
+      const localProd = await new Promise((resolve, reject) => db.get('SELECT * FROM products WHERE barcode = ?', [item.barcode], (err, row) => err ? reject(err) : resolve(row)));
+      if (localProd) {
+        await new Promise((r, rej) => db.run('UPDATE products SET stock = stock + ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => err ? rej(err) : r()));
+      } else {
+        await new Promise((r, rej) => db.run('INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)', [item.barcode, item.name, item.price || item.sale_price || 0, item.quantity, item.min_stock || 3], (err) => err ? rej(err) : r()));
+      }
+    }
+    const itemsDesc = items.map(i => `${i.quantity}x ${i.name}`).join(', ');
+    await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Movimiento', 'Abastecimiento Local', ?, 0, ?, ?)`, [`Ingreso Mercancía Local | ${itemsDesc}`, user_name, horaCol], r));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.use(express.static(path.join(__dirname, '../frontend/dist')));

@@ -17,7 +17,7 @@ body {
   display: none !important;
 }
 
-/* REGLAS DE IMPRESIÓN PARA TICKET TÉRMICO DE 58MM */
+/* REGLAS DE IMPRESIÓN PARA TICKET TÉRMICO DE 58MM - ALTO CONTRASTE Y OSCURIDAD */
 @media print {
   @page {
     size: 58mm auto;
@@ -29,30 +29,29 @@ body {
     display: none !important;
   }
 
-  /* Mostrar únicamente el contenedor del ticket */
+  /* Mostrar únicamente el contenedor del ticket con negrita y negro absoluto */
   .print-only {
     display: block !important;
     width: 48mm; /* Ancho imprimible efectivo para papel de 58mm */
     margin: 0 auto;
     padding: 2mm 0;
     font-family: 'Courier New', Courier, monospace;
-    font-size: 11px;
-    line-height: 1.2;
+    font-size: 12px;
+    font-weight: 800 !important; /* Fuerza una negrita fuerte para que el cabezal queme más oscuro */
+    line-height: 1.25;
+    color: #000000 !important; /* Negro absoluto */
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Forzar que cualquier texto dentro del ticket salga totalmente negro y negrito */
+  .print-only * {
+    font-weight: 800 !important;
     color: #000000 !important;
   }
 
   body {
     background: #ffffff !important;
     color: #000000 !important;
-  }
-}
-@media print {
-  @page {
-    margin: 0;
-    size: auto;
-  }
-  body {
-    margin: 0;
-    padding: 0;
   }
 }
