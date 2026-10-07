@@ -517,7 +517,52 @@ app.post('/api/transactions', (req, res) => {
   const { type, category, description, amount, user_name } = req.body;
   db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`, [type, category, description, amount, user_name, getColombiaTimestamp()], () => res.json({ success: true }));
 });
-app.delete('/api/transactions/:id', (req, res) => { db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], () => res.json({ success: true })); });
+
+// ==========================================================
+// CORRECCIÓN CONTABLE: AL ELIMINAR UNA VENTA, SE DESCUENTA DEL TURNO
+// ==========================================================
+app.delete('/api/transactions/:id', async (req, res) => {
+  try {
+    const txId = req.params.id;
+    // 1. Buscamos la transacción antes de borrarla para saber su descripción y monto
+    db.get('SELECT * FROM transactions WHERE id = ?', [txId], async (err, tx) => {
+      if (err || !tx) {
+        db.run('DELETE FROM transactions WHERE id = ?', [txId], () => {});
+        return res.json({ success: true });
+      }
+
+      // Si es una Venta POS (ej: "Venta POS #TF-123456 | ...")
+      if (tx.category === 'Venta POS' && tx.description.includes('Venta POS #')) {
+        const parts = tx.description.split('|')[0]; // "Venta POS #TF-123456 "
+        const invMatch = parts.match(/#([A-Za-z0-9\-]+)/);
+        if (invMatch && invMatch[1]) {
+          const invNum = invMatch[1].trim();
+          
+          // Buscamos la venta en la tabla sales para ver a qué shift_id pertenecía y su método de pago
+          db.get('SELECT * FROM sales WHERE invoice_number = ?', [invNum], (errSale, sale) => {
+            if (sale && sale.shift_id) {
+              // Restamos el monto del total y del método de pago correspondiente en el turno
+              const fieldToSubtract = sale.payment_method === 'Efectivo' ? 'cash_sales' : 'transfer_sales';
+              db.run(`UPDATE shifts SET total_sales = total_sales - ?, ${fieldToSubtract} = ${fieldToSubtract} - ? WHERE id = ?`, 
+                [sale.total, sale.total, sale.shift_id], () => {});
+              // Borramos el registro de la venta
+              db.run('DELETE FROM sales WHERE id = ?', [sale.id], () => {});
+            }
+          });
+        }
+      }
+
+      // Finalmente borramos la transacción de contabilidad
+      db.run('DELETE FROM transactions WHERE id = ?', [txId], (errDel) => {
+        if (errDel) return res.status(500).json({ error: errDel.message });
+        res.json({ success: true });
+      });
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/config', (req, res) => {
   db.all('SELECT * FROM config', [], (err, rows) => {
     const configObj = { razon_social: 'TERRA FRUTOS SECOS', nit: '40044029-8', direccion: 'Cra 7 #15-63, Tunja, Boyacá', telefono: '3183142180', actividad: 'VENTA DE FRUTOS SECOS, MANÍ, HABAS, PATACÓN, AL DETAL Y POR MAYOR', footer_msg: '¡Gracias por su compra!' };
@@ -535,7 +580,6 @@ app.post('/api/config', (req, res) => {
 
 /* ==========================================================
    MÓDULO DE ABASTECIMIENTO LOCAL (CON CANASTAS Y RUTAS)
-   SIN TOCAR EL INVENTARIO DE LA FÁBRICA (preventa_products)
    ========================================================== */
 
 app.get('/api/restock-requests', (req, res) => {
@@ -546,7 +590,6 @@ app.get('/api/restock-requests', (req, res) => {
   });
 });
 
-// 1. Armar Despacho (Estado: PENDING)
 app.post('/api/restock-requests', (req, res) => {
   const { items, notes, user_name } = req.body;
   const id = generateUUID();
@@ -571,8 +614,6 @@ app.put('/api/restock-requests/:id', (req, res) => {
   );
 });
 
-// 2. Despachar a Ruta (Estado: DISPATCHED)
-// SOLO CREA LA RUTA, NO RESTA INVENTARIO DE NINGÚN LADO.
 app.post('/api/restock-requests/:id/dispatch', async (req, res) => {
   const { user_name, delivery_person } = req.body;
   const horaCol = getColombiaTimestamp();
@@ -586,10 +627,8 @@ app.post('/api/restock-requests/:id/dispatch', async (req, res) => {
     const allItems = flattenBasketItems(JSON.parse(request.items || '[]'));
     const itemsDesc = allItems.map(i => `${i.quantity}x ${i.name}`).join(', ');
     
-    // Registrar el movimiento logístico en transacciones (meramente informativo)
     await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Salida', 'Despacho a Local', ?, 0, ?, ?)`, [`Despacho armado y enviado a Local (Ruta) | ${itemsDesc}`, user_name || 'Admin', horaCol], r));
 
-    // Cambiar estado a DISPATCHED y asignar entregador
     await new Promise((resolve, reject) => {
       db.run("UPDATE restock_requests SET status = 'DISPATCHED', dispatched_at = ?, dispatched_by = ?, delivery_person = ? WHERE id = ?", [horaCol, user_name || 'Admin', delivery_person || 'Repartidor', req.params.id], (err) => err ? reject(err) : resolve());
     });
@@ -600,7 +639,6 @@ app.post('/api/restock-requests/:id/dispatch', async (req, res) => {
   }
 });
 
-// 3. Confirmar Entrega en Local (Estado: CONFIRMED) -> SUMA INVENTARIO LOCAL (products)
 app.post('/api/restock-requests/:id/confirm', async (req, res) => {
   const { user_name } = req.body;
   const horaCol = getColombiaTimestamp();
@@ -612,7 +650,6 @@ app.post('/api/restock-requests/:id/confirm', async (req, res) => {
 
     const allItems = flattenBasketItems(JSON.parse(request.items || '[]'));
 
-    // SUMAR al inventario del Local (products)
     for (const item of allItems) {
       const localProd = await new Promise((resolve, reject) => db.get('SELECT * FROM products WHERE barcode = ?', [item.barcode], (err, row) => err ? reject(err) : resolve(row)));
       if (localProd) {
@@ -625,7 +662,6 @@ app.post('/api/restock-requests/:id/confirm', async (req, res) => {
     const itemsDesc = allItems.map(i => `${i.quantity}x ${i.name}`).join(', ');
     await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Movimiento', 'Abastecimiento Local Aprobado', ?, 0, ?, ?)`, [`Ingreso al Local Confirmado | ${itemsDesc}`, user_name || 'Cajero', horaCol], r));
 
-    // Cerrar el proceso marcando como CONFIRMED
     await new Promise((resolve, reject) => {
       db.run("UPDATE restock_requests SET status = 'CONFIRMED', confirmed_at = ?, confirmed_by = ? WHERE id = ?", [horaCol, user_name || 'Cajero', req.params.id], (err) => err ? reject(err) : resolve());
     });
@@ -636,13 +672,11 @@ app.post('/api/restock-requests/:id/confirm', async (req, res) => {
   }
 });
 
-// Eliminar o Cancelar Despacho
 app.delete('/api/restock-requests/:id', async (req, res) => {
   try {
     const request = await new Promise((resolve, reject) => db.get("SELECT * FROM restock_requests WHERE id = ?", [req.params.id], (err, row) => err ? reject(err) : resolve(row)));
     if (!request || request.status === 'CONFIRMED') return res.status(400).json({ error: 'No se puede eliminar un pedido ya entregado al local.' });
 
-    // Como no restamos nada de ningún lado al despachar, simplemente eliminamos el registro.
     await new Promise((resolve, reject) => db.run("DELETE FROM restock_requests WHERE id = ?", [req.params.id], (err) => err ? reject(err) : resolve()));
     res.json({ success: true });
   } catch (err) {
