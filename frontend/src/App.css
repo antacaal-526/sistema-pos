@@ -17,61 +17,18 @@ body {
   display: none !important;
 }
 
-/* REGLAS DE IMPRESIÓN PARA TICKET TÉRMICO DE 58MM - ALTO CONTRASTE Y OSCURIDAD */
-@media print {
-  @page {
-    size: 58mm auto;
-    margin: 0;
-  }
-
-  /* Ocultar toda la interfaz del sistema */
-  .no-print {
-    display: none !important;
-  }
-
-  /* Mostrar únicamente el contenedor del ticket con negrita y negro absoluto */
-  .print-only {
-    display: block !important;
-    width: 48mm; /* Ancho imprimible efectivo para papel de 58mm */
-    margin: 0 auto;
-    padding: 2mm 0;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 12px;
-    font-weight: 800 !important; /* Fuerza una negrita fuerte para que el cabezal queme más oscuro */
-    line-height: 1.25;
-    color: #000000 !important; /* Negro absoluto */
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-
-  /* Forzar que cualquier texto dentro del ticket salga totalmente negro y negrito */
-  .print-only * {
-    font-weight: 800 !important;
-    color: #000000 !important;
-  }
-
-  body {
-    background: #ffffff !important;
-    color: #000000 !important;
-  }
-}
-/* Reset general de la aplicación */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* Contenedor responsivo para el módulo de canastas en móviles y PC */
+.restock-responsive-container {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+  overflow-y: auto;
 }
 
-body {
-  background-color: #0f172a;
-  color: #ffffff;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  overflow: hidden;
-}
-
-/* Ocultar elementos de impresión en pantalla */
-.print-only {
-  display: none !important;
+@media (max-width: 768px) {
+  .restock-responsive-container {
+    flex-direction: column !important;
+  }
 }
 
 /* REGLAS DE IMPRESIÓN PARA TICKET TÉRMICO DE 58MM - ALTO CONTRASTE Y OSCURIDAD */
