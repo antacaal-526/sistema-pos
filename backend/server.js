@@ -463,7 +463,7 @@ app.post('/api/sales', async (req, res) => {
         } catch (mailErr) { console.error('Error enviando correo POS:', mailErr.message); }
       })();
     }
-    return res.json({ success: true, invoice_number: invNumber });
+    return res.json({ success: true, invoice_number: invNumber, open_drawer: true });
   } catch (err) { return res.status(500).json({ error: err.message }); }
 });
 
@@ -488,10 +488,48 @@ app.post('/api/config', (req, res) => {
   });
 });
 
-app.post('/api/restock-local', async (req, res) => {
-  const { items, user_name } = req.body;
+app.get('/api/restock-requests', (req, res) => {
+  db.all('SELECT * FROM restock_requests ORDER BY created_at DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const parsed = (rows || []).map(r => ({ ...r, items: JSON.parse(r.items || '[]') }));
+    res.json(parsed);
+  });
+});
+
+app.post('/api/restock-requests', (req, res) => {
+  const { items, notes, user_name } = req.body;
+  const id = generateUUID();
+  const horaCol = getColombiaTimestamp();
+  db.run(`INSERT INTO restock_requests (id, admin_user, status, items, notes, created_at) VALUES (?, ?, 'PENDING', ?, ?, ?)`,
+    [id, user_name, JSON.stringify(items || []), notes || '', horaCol],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, requestId: id });
+    }
+  );
+});
+
+app.put('/api/restock-requests/:id', (req, res) => {
+  const { items, notes } = req.body;
+  db.run(`UPDATE restock_requests SET items = ?, notes = ? WHERE id = ? AND status = 'PENDING'`,
+    [JSON.stringify(items || []), notes || '', req.params.id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/api/restock-requests/:id/confirm', async (req, res) => {
+  const { user_name } = req.body;
   const horaCol = getColombiaTimestamp();
   try {
+    const request = await new Promise((resolve, reject) => {
+      db.get("SELECT * FROM restock_requests WHERE id = ? AND status = 'PENDING'", [req.params.id], (err, row) => err ? reject(err) : resolve(row));
+    });
+    if (!request) return res.status(404).json({ error: 'Solicitud no encontrada o ya procesada' });
+
+    const items = JSON.parse(request.items || '[]');
     for (const item of items) {
       const localProd = await new Promise((resolve, reject) => db.get('SELECT * FROM products WHERE barcode = ?', [item.barcode], (err, row) => err ? reject(err) : resolve(row)));
       if (localProd) {
@@ -500,10 +538,25 @@ app.post('/api/restock-local', async (req, res) => {
         await new Promise((r, rej) => db.run('INSERT INTO products (barcode, name, sale_price, stock, min_stock) VALUES (?, ?, ?, ?, ?)', [item.barcode, item.name, item.price || item.sale_price || 0, item.quantity, item.min_stock || 3], (err) => err ? rej(err) : r()));
       }
     }
+
     const itemsDesc = items.map(i => `${i.quantity}x ${i.name}`).join(', ');
-    await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Movimiento', 'Abastecimiento Local', ?, 0, ?, ?)`, [`Ingreso Mercancía Local | ${itemsDesc}`, user_name, horaCol], r));
+    await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Movimiento', 'Abastecimiento Local Aprobado', ?, 0, ?, ?)`, [`Ingreso Local Confirmado | ${itemsDesc}`, user_name || 'Cajero', horaCol], r));
+
+    await new Promise((resolve, reject) => {
+      db.run("UPDATE restock_requests SET status = 'CONFIRMED', confirmed_at = ?, confirmed_by = ? WHERE id = ?", [horaCol, user_name || 'Cajero', req.params.id], (err) => err ? reject(err) : resolve());
+    });
+
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/restock-requests/:id', (req, res) => {
+  db.run("DELETE FROM restock_requests WHERE id = ? AND status = 'PENDING'", [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
 });
 
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
