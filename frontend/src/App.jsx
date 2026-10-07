@@ -680,29 +680,29 @@ export default function App() {
                 </button>
               </div>
 
-              {/* VISTA 1: ARMAR CANASTAS EN FÁBRICA */}
+              {/* VISTA 1: ARMAR CANASTAS PARA EL LOCAL */}
               {subTabRestock === 'armar' && (
                 <div style={{ display: 'flex', gap: '1rem', height: '100%' }}>
                   
                   {/* Lado Izquierdo: Productos */}
                   <div style={{ flex: '2', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column' }}>
-                    <h3 style={{ margin: '0 0 0.5rem 0', color: '#10b981' }}>Seleccionar Mercancía (Inventario FÁBRICA)</h3>
+                    <h3 style={{ margin: '0 0 0.5rem 0', color: '#10b981' }}>Seleccionar Mercancía (Catálogo del Local)</h3>
                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
-                      Agrega productos a las canastas. Se descontará del inventario de fábrica solo cuando le des a DESPACHAR.
+                      Agrega productos a las canastas. Este proceso es totalmente independiente a la fábrica, solo ingresará al local al entregarse.
                     </p>
                     <input
                       type="text"
-                      placeholder="🔍 Buscar producto en fábrica..."
+                      placeholder="🔍 Buscar producto del local..."
                       value={restockSearch}
                       onChange={(e) => setRestockSearch(e.target.value)}
                       style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #10b981', background: '#0f172a', color: '#fff', marginBottom: '1rem' }}
                     />
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem', overflowY: 'auto' }}>
-                      {preventaProducts.filter((p) => p.name.toLowerCase().includes(restockSearch.toLowerCase()) || p.barcode.includes(restockSearch)).map((p) => (
+                      {products.filter((p) => p.name.toLowerCase().includes(restockSearch.toLowerCase()) || p.barcode.includes(restockSearch)).map((p) => (
                         <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', border: `1px solid ${activeBasketId ? '#3b82f6' : '#334155'}`, cursor: activeBasketId ? 'pointer' : 'not-allowed', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
                           <strong style={{ fontSize: '0.95rem', margin: '0.5rem 0' }}>{p.name}</strong>
-                          <span style={{ fontSize: '0.8rem', color: '#38bdf8' }}>Stock Fábrica: {p.stock || '0'}</span>
+                          <span style={{ fontSize: '0.8rem', color: '#38bdf8' }}>Stock Actual Local: {p.stock || '0'}</span>
                         </div>
                       ))}
                     </div>
