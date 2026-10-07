@@ -65,14 +65,16 @@ export default function App() {
   const [customerName, setCustomerName] = useState('Consumidor Final');
   const [customerEmail, setCustomerEmail] = useState('');
   
-  // NUEVOS ESTADOS PARA LOGÍSTICA DE CANASTAS Y RUTAS
-  const [restockCart, setRestockCart] = useState([]);
+  // ==========================================
+  // NUEVOS ESTADOS PARA LOGÍSTICA DE CANASTAS
+  // ==========================================
+  const [baskets, setBaskets] = useState([{ id: generateUUID(), name: 'Caja 1', items: [] }]);
+  const [activeBasketId, setActiveBasketId] = useState(null);
   const [restockSearch, setRestockSearch] = useState('');
   const [isRestocking, setIsRestocking] = useState(false);
+  const [deliveryPerson, setDeliveryPerson] = useState('');
   const [restockRequests, setRestockRequests] = useState([]);
-  const [activeRestockTab, setActiveRestockTab] = useState('armar');
-  const [currentBasket, setCurrentBasket] = useState('Canasta 1');
-  const [deliveryPersonInput, setDeliveryPersonInput] = useState('');
+  const [subTabRestock, setSubTabRestock] = useState('armar'); // 'armar' o 'recibir'
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -119,9 +121,12 @@ export default function App() {
         loadProductsLocal();
       }
     }
+    if (baskets.length > 0 && !activeBasketId) {
+      setActiveBasketId(baskets[0].id);
+    }
     window.addEventListener('sync-completed', handleSyncCompleted);
     return () => window.removeEventListener('sync-completed', handleSyncCompleted);
-  }, [currentUser]);
+  }, [currentUser, baskets, activeBasketId]);
 
   const handleSyncCompleted = () => { 
     loadTransactions(); 
@@ -246,101 +251,6 @@ export default function App() {
   
   const removeFromCart = (barcode) => setCart(cart.filter((x) => x.barcode !== barcode));
 
-  /* LOGICA DE CANASTAS (REEMPLAZO TOTAL DE ABASTECIMIENTO) */
-  const addToRestockCart = (p) => {
-    let newCart = [...restockCart];
-    const basketIndex = newCart.findIndex(b => b.canasta === currentBasket);
-    if (basketIndex >= 0) {
-      const itemIndex = newCart[basketIndex].items.findIndex(i => i.barcode === p.barcode);
-      if (itemIndex >= 0) {
-        newCart[basketIndex].items[itemIndex].quantity += 1;
-      } else {
-        newCart[basketIndex].items.push({ ...p, quantity: 1 });
-      }
-    } else {
-      newCart.push({ canasta: currentBasket, items: [{ ...p, quantity: 1 }] });
-    }
-    setRestockCart(newCart);
-  };
-
-  const updateRestockQty = (basketName, barcode, qty) => {
-    let newCart = [...restockCart];
-    const basketIndex = newCart.findIndex(b => b.canasta === basketName);
-    if (basketIndex >= 0) {
-      if (qty <= 0) {
-        newCart[basketIndex].items = newCart[basketIndex].items.filter(i => i.barcode !== barcode);
-        if (newCart[basketIndex].items.length === 0) newCart = newCart.filter(b => b.canasta !== basketName);
-      } else {
-        const itemIndex = newCart[basketIndex].items.findIndex(i => i.barcode === barcode);
-        if (itemIndex >= 0) newCart[basketIndex].items[itemIndex].quantity = qty;
-      }
-      setRestockCart(newCart);
-    }
-  };
-
-  const handleSaveDraftRestock = async () => {
-    if (restockCart.length === 0) return alert('No hay canastas con productos');
-    if (!window.confirm('¿Guardar este armado como PENDIENTE en Fábrica?')) return;
-    setIsRestocking(true);
-    try {
-      const res = await fetch(`${API_URL}/api/restock-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: restockCart, user_name: currentUser.name }) });
-      if (res.ok) { 
-        alert('✅ Despacho armado correctamente y guardado como Pendiente.'); 
-        setRestockCart([]); 
-        setCurrentBasket('Canasta 1'); 
-        loadRestockRequests(); 
-        setActiveRestockTab('activos'); 
-      }
-    } catch(e) { alert('Error de red al guardar el despacho.'); }
-    setIsRestocking(false);
-  };
-
-  const handleDispatchRestock = async (id, delivery_person) => {
-    if (!delivery_person) return alert('Por favor, ingrese el nombre del entregador o ruta.');
-    if (!window.confirm(`¿Enviar a ruta con ${delivery_person}? Esto descontará automáticamente el inventario de la Fábrica.`)) return;
-    try {
-      const res = await fetch(`${API_URL}/api/restock-requests/${id}/dispatch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_name: currentUser.name, delivery_person }) });
-      if (res.ok) { 
-        alert('🚚 Despachado a Ruta exitosamente.'); 
-        loadRestockRequests(); 
-        loadPreventaProductsOnline(); 
-        setDeliveryPersonInput(''); 
-      } else { 
-        const err = await res.json(); alert('Error: ' + err.error); 
-      }
-    } catch(e) { alert('Error de red'); }
-  };
-
-  const handleConfirmRestock = async (id) => {
-    if (!window.confirm('¿Confirmar que la caja RECIBIÓ físicamente las canastas? Esto aumentará el inventario del local comercial.')) return;
-    try {
-      const res = await fetch(`${API_URL}/api/restock-requests/${id}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_name: currentUser.name }) });
-      if (res.ok) { 
-        alert('✅ Entrega Confirmada y agregada al inventario del local.'); 
-        loadRestockRequests(); 
-        loadProductsOnline(); 
-        loadTransactions(); 
-      } else { 
-        const err = await res.json(); alert('Error: ' + err.error); 
-      }
-    } catch(e) { alert('Error de red'); }
-  };
-
-  const handleDeleteRestock = async (id) => {
-    if (!window.confirm('¿Desea eliminar o cancelar este despacho? Si estaba en ruta, la mercancía regresará a la fábrica.')) return;
-    try {
-      const res = await fetch(`${API_URL}/api/restock-requests/${id}`, { method: 'DELETE' });
-      if (res.ok) { 
-        alert('🗑️ Despacho cancelado.'); 
-        loadRestockRequests(); 
-        loadPreventaProductsOnline(); 
-      } else { 
-        const err = await res.json(); alert('Error: ' + err.error); 
-      }
-    } catch(e) { alert('Error de red'); }
-  };
-  /* FIN LÓGICA DE CANASTAS */
-
   const totalCart = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
   const numericAmountPaid = parseCOP(amountPaid);
   const changeGiven = numericAmountPaid > totalCart ? numericAmountPaid - totalCart : 0;
@@ -374,6 +284,141 @@ export default function App() {
     } catch (e) { alert('Error de red. Verifique su internet o actúe en modo Offline.'); } 
     finally { setIsProcessing(false); }
   };
+
+  // ==========================================
+  // LÓGICA LOGÍSTICA DE CANASTAS Y RUTAS
+  // ==========================================
+  
+  const handleAddBasket = () => {
+    const newId = generateUUID();
+    setBaskets([...baskets, { id: newId, name: `Caja ${baskets.length + 1}`, items: [] }]);
+    setActiveBasketId(newId);
+  };
+
+  const handleDeleteBasket = (basketId) => {
+    if (baskets.length === 1) return alert('Debe haber al menos una caja/canasta.');
+    const updated = baskets.filter(b => b.id !== basketId);
+    setBaskets(updated);
+    if (activeBasketId === basketId) setActiveBasketId(updated[0].id);
+  };
+
+  const addToRestockCart = (p) => {
+    if (!activeBasketId) return alert('Seleccione una caja primero');
+    const updatedBaskets = baskets.map(basket => {
+      if (basket.id === activeBasketId) {
+        const exist = basket.items.find((x) => x.barcode === p.barcode);
+        if (exist) {
+          return { ...basket, items: basket.items.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)) };
+        } else {
+          return { ...basket, items: [...basket.items, { ...p, quantity: 1 }] };
+        }
+      }
+      return basket;
+    });
+    setBaskets(updatedBaskets);
+  };
+
+  const updateRestockQty = (basketId, barcode, qty) => {
+    const updatedBaskets = baskets.map(basket => {
+      if (basket.id === basketId) {
+        if (qty <= 0) return { ...basket, items: basket.items.filter((x) => x.barcode !== barcode) };
+        return { ...basket, items: basket.items.map((x) => (x.barcode === barcode ? { ...x, quantity: qty } : x)) };
+      }
+      return basket;
+    });
+    setBaskets(updatedBaskets);
+  };
+
+  const handleDispatchToRoute = async () => {
+    const hasItems = baskets.some(b => b.items.length > 0);
+    if (!hasItems) return alert('Las canastas están vacías. No hay nada que despachar.');
+    if (!deliveryPerson.trim()) return alert('Debe indicar el nombre del Entregador o Ruta.');
+    
+    if (!window.confirm("¿Confirmar despacho a ruta? Se enviará la orden pero NO se sumará al inventario del local hasta que el entregador lo marque como recibido.")) return;
+    
+    if (isRestocking) return;
+    setIsRestocking(true);
+
+    try {
+      const payloadFormat = baskets.filter(b => b.items.length > 0).map(b => ({
+        canasta: b.name,
+        items: b.items
+      }));
+
+      const createRes = await fetch(`${API_URL}/api/restock-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          items: payloadFormat, 
+          notes: `Despacho armado por: ${currentUser.name}`,
+          user_name: currentUser.name 
+        })
+      });
+      const createData = await createRes.json();
+      
+      if (!createRes.ok || !createData.success) throw new Error(createData.error || 'Error al crear el despacho');
+
+      const dispatchRes = await fetch(`${API_URL}/api/restock-requests/${createData.requestId}/dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          user_name: currentUser.name,
+          delivery_person: deliveryPerson
+        })
+      });
+      const dispatchData = await dispatchRes.json();
+
+      if (dispatchRes.ok && dispatchData.success) {
+        alert('🚚 ¡Despacho creado y en ruta! Pendiente por entrega.');
+        setBaskets([{ id: generateUUID(), name: 'Caja 1', items: [] }]);
+        setDeliveryPerson('');
+        setRestockSearch('');
+        loadRestockRequests();
+        setSubTabRestock('recibir'); // Pasamos a la pestaña de ver rutas
+      } else {
+        alert(`Error al enviar a ruta: ${dispatchData.error || 'Desconocido'}`);
+      }
+    } catch (e) {
+      alert(`Error de red al intentar despachar: ${e.message}`);
+    } finally {
+      setIsRestocking(false);
+    }
+  };
+
+  const handleConfirmDelivery = async (id) => {
+    if (!window.confirm('✅ ¿Seguro que el Local ya recibió las canastas físicamente? Al confirmar, estos productos SE SUMARÁN al inventario de la tienda.')) return;
+    
+    try {
+      const res = await fetch(`${API_URL}/api/restock-requests/${id}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_name: currentUser.name })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert('🎉 ¡Mercancía Ingresada! El inventario del Local se ha actualizado exitosamente.');
+        loadRestockRequests();
+        loadProductsOnline();
+      } else {
+        alert(`Error al confirmar entrega: ${data.error}`);
+      }
+    } catch (e) {
+      alert('Error de red al intentar confirmar la entrega');
+    }
+  };
+
+  const handleCancelDelivery = async (id) => {
+    if (!window.confirm('❌ ¿Deseas CANCELAR esta entrega en ruta? El pedido se eliminará.')) return;
+    try {
+      const res = await fetch(`${API_URL}/api/restock-requests/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        alert('Entrega cancelada exitosamente.');
+        loadRestockRequests();
+      }
+    } catch (e) { alert('Error al cancelar la entrega.'); }
+  };
+  // ==========================================
+
 
   const handleSaveNewProduct = async (e) => { e.preventDefault(); const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 }; await fetch(`${API_URL}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setShowAddModal(false); loadProductsOnline(); };
   const handleUpdateProduct = async (e) => { e.preventDefault(); const payload = { ...editingProduct, sale_price: parseCOP(editingProduct.sale_price), stock: parseCOP(editingProduct.stock), min_stock: parseCOP(editingProduct.min_stock) || 3 }; await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setEditingProduct(null); loadProductsOnline(); };
@@ -452,15 +497,10 @@ export default function App() {
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
         
-        /* REGLAS DE IMPRESIÓN TÉRMICA - ALTO CONTRASTE Y NEGRITA */
+        /* REGLAS DE IMPRESIÓN TÉRMICA */
         @media print {
-          @page {
-            size: 58mm auto;
-            margin: 0;
-          }
-          .no-print {
-            display: none !important;
-          }
+          @page { size: 58mm auto; margin: 0; }
+          .no-print { display: none !important; }
           #print-receipt, #print-receipt * {
             display: block !important;
             font-family: 'Courier New', Courier, monospace !important;
@@ -470,10 +510,7 @@ export default function App() {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          body {
-            background: #ffffff !important;
-            color: #000000 !important;
-          }
+          body { background: #ffffff !important; color: #000000 !important; }
         }
         
         @media (max-width: 768px) {
@@ -564,8 +601,8 @@ export default function App() {
                 <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
                 <button onClick={() => setActiveTab('fabrica_inventory')} className={`nav-btn ${activeTab === 'fabrica_inventory' ? 'active' : ''}`}>🏭 Inventario Fábrica</button>
                 
-                {/* BOTÓN ABASTECER LOCAL */}
-                <button onClick={() => setActiveTab('restock')} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Logística / Despachos</button>
+                {/* BOTÓN ABASTECER LOCAL ACTUALIZADO A CANASTAS */}
+                <button onClick={() => { setActiveTab('restock'); setSubTabRestock('armar'); }} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Logística / Despachos</button>
                 
                 <button onClick={() => setActiveTab('preventa_orders')} className={`nav-btn ${activeTab === 'preventa_orders' ? 'active' : ''}`}>📋 Pedidos Preventista</button>
                 <button onClick={() => setActiveTab('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
@@ -628,165 +665,184 @@ export default function App() {
           {/* NUEVO MÓDULO DE LOGÍSTICA: CANASTAS Y RUTAS                */}
           {/* ========================================================== */}
           {activeTab === 'restock' && (
-            <div>
-              <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid #334155', paddingBottom: '1rem' }}>
-                <h2 style={{ color: '#10b981', margin: '0 0 1rem 0' }}>📥 Logística y Despachos a Local</h2>
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  <button onClick={() => setActiveRestockTab('armar')} style={{ padding: '0.8rem 1.5rem', background: activeRestockTab === 'armar' ? '#10b981' : '#334155', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                    📦 1. Armar Canastas (Fábrica)
-                  </button>
-                  <button onClick={() => setActiveRestockTab('activos')} style={{ padding: '0.8rem 1.5rem', background: activeRestockTab === 'activos' ? '#0284c7' : '#334155', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                    🚚 2. Despachos y Recepción ({restockRequests.filter(r => r.status !== 'CONFIRMED').length})
-                  </button>
-                </div>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              
+              <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
+                <button 
+                  onClick={() => setSubTabRestock('armar')} 
+                  style={{ padding: '0.8rem 1.5rem', background: subTabRestock === 'armar' ? '#10b981' : 'transparent', color: subTabRestock === 'armar' ? '#fff' : '#94a3b8', border: subTabRestock === 'armar' ? 'none' : '1px solid #334155', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  📦 1. Armar Despacho (Canastas)
+                </button>
+                <button 
+                  onClick={() => setSubTabRestock('recibir')} 
+                  style={{ padding: '0.8rem 1.5rem', background: subTabRestock === 'recibir' ? '#3b82f6' : 'transparent', color: subTabRestock === 'recibir' ? '#fff' : '#94a3b8', border: subTabRestock === 'recibir' ? 'none' : '1px solid #334155', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  🚚 2. Entregas en Ruta (Recibir y Sumar)
+                </button>
               </div>
 
-              {activeRestockTab === 'armar' && (
-                <div className="pos-grid-container">
-                  <div className="pos-products-area">
-                    <div style={{ marginBottom: '1rem' }}>
-                      <p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: '0 0 0.5rem 0' }}>
-                        Seleccione los productos del <strong>Inventario de Fábrica</strong> que va a enviar al local comercial.
-                      </p>
-                    </div>
-                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                      <input type="text" placeholder="🔍 Buscar producto en fábrica..." value={restockSearch} onChange={(e) => setRestockSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const matched = preventaProducts.find((p) => p.barcode === restockSearch.trim() || p.barcode === restockSearch.trim().toUpperCase()); if (matched) { addToRestockCart(matched); setRestockSearch(''); } } }} style={{ flex: 1, minWidth: '200px', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #10b981', background: '#1e293b', color: '#fff' }} />
-                      <div style={{ display: 'flex', alignItems: 'center', background: '#1e293b', padding: '0 1rem', borderRadius: '6px', border: '1px solid #10b981' }}>
-                        <strong style={{ color: '#10b981', marginRight: '0.5rem' }}>Añadir a:</strong>
-                        <input type="text" value={currentBasket} onChange={(e) => setCurrentBasket(e.target.value)} style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: '#fff', fontWeight: 'bold' }} />
-                      </div>
-                    </div>
-                    <div className="products-grid">
-                      {/* Aquí mostramos preventaProducts (Fábrica) porque desde allá se arma */}
+              {/* VISTA 1: ARMAR CANASTAS EN FÁBRICA */}
+              {subTabRestock === 'armar' && (
+                <div style={{ display: 'flex', gap: '1rem', height: '100%' }}>
+                  
+                  {/* Lado Izquierdo: Productos */}
+                  <div style={{ flex: '2', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column' }}>
+                    <h3 style={{ margin: '0 0 0.5rem 0', color: '#10b981' }}>Seleccionar Mercancía (Inventario FÁBRICA)</h3>
+                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
+                      Agrega productos a las canastas. Se descontará del inventario de fábrica solo cuando le des a DESPACHAR.
+                    </p>
+                    <input
+                      type="text"
+                      placeholder="🔍 Buscar producto en fábrica..."
+                      value={restockSearch}
+                      onChange={(e) => setRestockSearch(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #10b981', background: '#0f172a', color: '#fff', marginBottom: '1rem' }}
+                    />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem', overflowY: 'auto' }}>
                       {preventaProducts.filter((p) => p.name.toLowerCase().includes(restockSearch.toLowerCase()) || p.barcode.includes(restockSearch)).map((p) => (
-                        <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', border: '1px solid #10b981', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', border: `1px solid ${activeBasketId ? '#3b82f6' : '#334155'}`, cursor: activeBasketId ? 'pointer' : 'not-allowed', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
-                          <h4 style={{ margin: '0.5rem 0', fontSize: '0.95rem' }}>{p.name}</h4>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.85rem', background: '#334155', padding: '0.2rem 0.4rem', borderRadius: '4px', color: '#fff' }}>Stock Fábrica: {p.stock}</span>
-                          </div>
+                          <strong style={{ fontSize: '0.95rem', margin: '0.5rem 0' }}>{p.name}</strong>
+                          <span style={{ fontSize: '0.8rem', color: '#38bdf8' }}>Stock Fábrica: {p.stock || '0'}</span>
                         </div>
                       ))}
                     </div>
                   </div>
-                  <div className="pos-cart" style={{ border: '1px solid #10b981' }}>
-                    <h3 style={{ margin: '0 0 1rem 0', color: '#10b981', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>📦 Canastas a Despachar</h3>
-                    <div className="cart-items-wrapper">
-                      {restockCart.map((basket, bIdx) => (
-                        <div key={bIdx} style={{ marginBottom: '1rem', border: '1px solid #334155', borderRadius: '6px', overflow: 'hidden' }}>
-                          <div style={{ background: '#334155', padding: '0.6rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>{basket.canasta}</span>
-                            <span style={{ fontSize: '0.8rem', background: '#0f172a', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>{basket.items.length} items</span>
-                          </div>
-                          <div style={{ padding: '0.5rem' }}>
-                            {basket.items.map((item) => (
-                              <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', background: '#0f172a', padding: '0.6rem', borderRadius: '4px' }}>
-                                <span style={{ fontSize: '0.85rem', flex: 1, paddingRight: '5px' }}>{item.name}</span>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                  <button onClick={() => updateRestockQty(basket.canasta, item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '25px', height: '25px', borderRadius: '4px', cursor: 'pointer' }}>-</button>
-                                  <span style={{ fontSize: '0.9rem', fontWeight: 'bold', width: '20px', textAlign: 'center' }}>{item.quantity}</span>
-                                  <button onClick={() => updateRestockQty(basket.canasta, item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '25px', height: '25px', borderRadius: '4px', cursor: 'pointer' }}>+</button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+
+                  {/* Lado Derecha: Gestión de Canastas */}
+                  <div style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h3 style={{ margin: 0, color: '#f8fafc' }}>📦 Canastas del Despacho</h3>
+                      <button onClick={handleAddBasket} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+ Añadir Caja</button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+                      {baskets.map(basket => (
+                        <div key={basket.id} onClick={() => setActiveBasketId(basket.id)} style={{ padding: '0.5rem 1rem', background: activeBasketId === basket.id ? '#3b82f6' : '#334155', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap', border: activeBasketId === basket.id ? '2px solid #fff' : '2px solid transparent' }}>
+                          {basket.name} ({basket.items.length})
                         </div>
                       ))}
-                      {restockCart.length === 0 && <p style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', marginTop: '2rem' }}>Agregue productos y asígnelos a una canasta para comenzar.</p>}
                     </div>
-                    <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
-                      <button disabled={isRestocking} onClick={handleSaveDraftRestock} style={{ width: '100%', padding: '1rem', background: isRestocking ? '#475569' : '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                        {isRestocking ? 'Guardando...' : '💾 GUARDAR DESPACHO PENDIENTE'}
+
+                    <div style={{ flex: 1, overflowY: 'auto', background: '#0f172a', padding: '1rem', borderRadius: '6px', border: '1px solid #334155' }}>
+                      {baskets.find(b => b.id === activeBasketId)?.items.length === 0 ? (
+                        <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: '2rem' }}>Selecciona productos a la izquierda para llenar esta caja.</p>
+                      ) : (
+                        baskets.find(b => b.id === activeBasketId)?.items.map((item) => (
+                          <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.8rem', background: '#1e293b', marginBottom: '0.5rem', borderRadius: '4px', borderLeft: '4px solid #3b82f6' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{item.name}</div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <button onClick={() => updateRestockQty(activeBasketId, item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '25px', height: '25px', borderRadius: '4px' }}>-</button>
+                              <span style={{ fontWeight: 'bold', width: '20px', textAlign: 'center' }}>{item.quantity}</span>
+                              <button onClick={() => updateRestockQty(activeBasketId, item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '25px', height: '25px', borderRadius: '4px' }}>+</button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {baskets.length > 1 && (
+                      <button onClick={() => handleDeleteBasket(activeBasketId)} style={{ width: '100%', padding: '0.5rem', marginTop: '0.5rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px' }}>🗑️ Eliminar esta caja</button>
+                    )}
+
+                    <div style={{ marginTop: '1rem', borderTop: '1px solid #334155', paddingTop: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.3rem' }}>Entregador / Ruta asignada:</label>
+                      <input type="text" placeholder="Ej: Anthony en moto..." value={deliveryPerson} onChange={(e) => setDeliveryPerson(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '1rem' }} />
+                      <button onClick={handleDispatchToRoute} disabled={isRestocking} style={{ width: '100%', padding: '1rem', background: isRestocking ? '#475569' : '#f97316', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '1.1rem', cursor: isRestocking ? 'not-allowed' : 'pointer' }}>
+                        {isRestocking ? 'Creando Ruta...' : '🚚 DESPACHAR A RUTA'}
                       </button>
                     </div>
                   </div>
                 </div>
               )}
 
-              {activeRestockTab === 'activos' && (
-                <div>
+              {/* VISTA 2: VER RUTAS Y RECIBIR EN EL LOCAL */}
+              {subTabRestock === 'recibir' && (
+                <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', border: '1px solid #334155', height: '100%', overflowY: 'auto' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <h3 style={{ color: '#38bdf8', margin: 0 }}>Despachos Activos y En Ruta</h3>
-                    <button onClick={loadRestockRequests} style={{ padding: '0.6rem 1.2rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>🔄 Actualizar Lista</button>
+                    <div>
+                      <h2 style={{ color: '#3b82f6', margin: '0 0 0.5rem 0' }}>🚚 Rutas de Entregadores (Pendientes por Recibir)</h2>
+                      <p style={{ color: '#94a3b8', margin: 0 }}>
+                        Al presionar <strong>"✅ Marcar como ENTREGADO"</strong>, el sistema SUMARÁ los productos al <strong>INVENTARIO DEL LOCAL (`products`)</strong>.
+                      </p>
+                    </div>
+                    <button onClick={loadRestockRequests} style={{ padding: '0.8rem 1.2rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🔄 Actualizar Lista</button>
                   </div>
 
-                  {restockRequests.filter(r => r.status !== 'CONFIRMED').length === 0 ? (
-                    <div style={{ background: '#1e293b', padding: '2rem', borderRadius: '8px', textAlign: 'center', color: '#94a3b8' }}>
-                      No hay despachos armados ni en ruta en este momento.
+                  {restockRequests.filter(r => r.status === 'DISPATCHED').length === 0 ? (
+                    <div style={{ background: '#0f172a', padding: '2rem', textAlign: 'center', borderRadius: '8px', border: '1px solid #334155' }}>
+                      <p style={{ color: '#f8fafc', fontSize: '1.1rem' }}>No hay despachos en ruta en este momento.</p>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
-                      {restockRequests.filter(r => r.status !== 'CONFIRMED').map(req => (
-                        <div key={req.id} style={{ background: '#1e293b', border: `2px solid ${req.status === 'PENDING' ? '#eab308' : '#38bdf8'}`, borderRadius: '8px', overflow: 'hidden' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '1rem', borderBottom: '1px solid #334155' }}>
-                            <div>
-                              <strong style={{ fontSize: '1.1rem' }}>Despacho #{req.id.substring(0,8).toUpperCase()}</strong>
-                              <span style={{ marginLeft: '1rem', padding: '0.3rem 0.8rem', borderRadius: '12px', fontSize: '0.8rem', background: req.status === 'PENDING' ? '#eab308' : '#0284c7', color: req.status === 'PENDING' ? '#000' : '#fff', fontWeight: 'bold' }}>
-                                {req.status === 'PENDING' ? '⏳ PENDIENTE EN FÁBRICA' : '🚚 EN RUTA A LOCAL'}
-                              </span>
-                            </div>
-                            <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Creado: {new Date(req.created_at).toLocaleString()}</div>
-                          </div>
-                          
-                          <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem' }}>
-                            {req.items && req.items.map((basket, bIdx) => (
-                              <div key={bIdx} style={{ background: '#0f172a', borderRadius: '6px', padding: '1rem', border: '1px solid #334155' }}>
-                                <strong style={{ display: 'block', color: '#10b981', marginBottom: '0.8rem', borderBottom: '1px dashed #334155', paddingBottom: '0.5rem', fontSize: '1.1rem' }}>{basket.canasta}</strong>
-                                <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.9rem' }}>
-                                  {basket.items.map(item => (
-                                    <li key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', borderBottom: '1px solid #1e293b', paddingBottom: '0.2rem' }}>
-                                      <span>{item.name}</span><strong style={{ color: '#38bdf8' }}>x{item.quantity}</strong>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ))}
-                          </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {restockRequests.filter(r => r.status === 'DISPATCHED').map(req => {
+                        const parsedBaskets = JSON.parse(req.items || '[]');
+                        const isNewFormat = parsedBaskets.length > 0 && parsedBaskets[0].canasta;
 
-                          <div style={{ background: '#0f172a', padding: '1rem', borderTop: '1px solid #334155' }}>
-                            {req.status === 'PENDING' && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flex: 1, minWidth: '300px' }}>
-                                  <strong style={{ color: '#eab308' }}>Asignar Entregador:</strong>
-                                  <input type="text" placeholder="Ej: Camión 1, Juan..." value={deliveryPersonInput} onChange={(e) => setDeliveryPersonInput(e.target.value)} style={{ padding: '0.8rem', borderRadius: '4px', border: '1px solid #334155', background: '#1e293b', color: '#fff', flex: 1 }} />
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                  <button onClick={() => handleDeleteRestock(req.id)} style={{ padding: '0.8rem 1.2rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🗑 Cancelar</button>
-                                  <button onClick={() => handleDispatchRestock(req.id, deliveryPersonInput)} style={{ padding: '0.8rem 1.5rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🚚 DESPACHAR A RUTA</button>
-                                </div>
+                        return (
+                          <div key={req.id} style={{ background: '#0f172a', padding: '1.5rem', borderRadius: '8px', border: '2px solid #3b82f6' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid #334155' }}>
+                              <div>
+                                <h3 style={{ margin: '0 0 0.3rem 0', color: '#f8fafc' }}>Despacho enviado por Fábrica ({req.admin_user})</h3>
+                                <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.9rem' }}>
+                                  <strong>Entregador:</strong> {req.delivery_person} | <strong>Enviado el:</strong> {new Date(req.dispatched_at).toLocaleString()}
+                                </p>
                               </div>
-                            )}
-                            {req.status === 'DISPATCHED' && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ fontSize: '0.9rem', color: '#94a3b8' }}>
-                                  Armado por: <strong style={{ color: '#fff' }}>{req.dispatched_by}</strong><br/>
-                                  Entregador asignado: <strong style={{ color: '#38bdf8', fontSize: '1.1rem' }}>{req.delivery_person}</strong>
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                  <button onClick={() => handleDeleteRestock(req.id)} style={{ padding: '0.8rem 1.2rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🚨 Devolver a Fábrica</button>
-                                  <button onClick={() => handleConfirmRestock(req.id)} style={{ padding: '0.8rem 2rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 0 10px rgba(16, 185, 129, 0.4)' }}>✅ VERIFICADO: RECIBIR EN LOCAL</button>
-                                </div>
+                              <div style={{ display: 'flex', gap: '1rem' }}>
+                                <button onClick={() => handleCancelDelivery(req.id)} style={{ background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '0.8rem 1rem', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                                  ❌ Cancelar Pedido
+                                </button>
+                                <button onClick={() => handleConfirmDelivery(req.id)} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '1rem 2rem', borderRadius: '8px', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.3)' }}>
+                                  ✅ Marcar como ENTREGADO
+                                </button>
                               </div>
-                            )}
+                            </div>
+                            
+                            <h4 style={{ margin: '0 0 1rem 0', color: '#cbd5e1' }}>Contenido que el entregador debe traer físicamente:</h4>
+                            <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
+                              {isNewFormat ? (
+                                parsedBaskets.map((basket, idx) => (
+                                  <div key={idx} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', minWidth: '220px', border: '1px solid #334155' }}>
+                                    <h4 style={{ margin: '0 0 0.8rem 0', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>📦 {basket.canasta}</h4>
+                                    <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#f8fafc', fontSize: '0.9rem', lineHeight: '1.5' }}>
+                                      {basket.items.map(i => (
+                                        <li key={i.barcode}><strong>{i.quantity}x</strong> {i.name}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ))
+                              ) : (
+                                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', minWidth: '220px', border: '1px solid #334155' }}>
+                                  <h4 style={{ margin: '0 0 0.8rem 0', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>📦 Productos (Formato Viejo)</h4>
+                                  <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#f8fafc', fontSize: '0.9rem', lineHeight: '1.5' }}>
+                                    {parsedBaskets.map(i => (
+                                      <li key={i.barcode}><strong>{i.quantity}x</strong> {i.name}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
-                  <div style={{ marginTop: '3rem', background: '#1e293b', borderRadius: '8px', padding: '1.5rem' }}>
-                    <h4 style={{ color: '#94a3b8', margin: '0 0 1rem 0', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>Historial (Últimos Entregados)</h4>
+                  <div style={{ marginTop: '3rem', background: '#0f172a', borderRadius: '8px', padding: '1.5rem', border: '1px solid #334155' }}>
+                    <h4 style={{ color: '#94a3b8', margin: '0 0 1rem 0', borderBottom: '1px solid #1e293b', paddingBottom: '0.5rem' }}>Historial (Últimos Entregados)</h4>
                     {restockRequests.filter(r => r.status === 'CONFIRMED').length === 0 ? (
                       <p style={{ color: '#64748b', fontSize: '0.9rem' }}>Aún no hay entregas confirmadas.</p>
                     ) : (
                       restockRequests.filter(r => r.status === 'CONFIRMED').slice(0, 5).map(req => (
-                        <div key={req.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '1rem', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+                        <div key={req.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '1rem', background: '#1e293b', borderRadius: '6px', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
                           <span style={{ fontWeight: 'bold' }}>#{req.id.substring(0,8).toUpperCase()}</span>
-                          <span style={{ color: '#10b981' }}>✅ Recibido en local el {new Date(req.confirmed_at).toLocaleString()} (Entregado por: {req.delivery_person})</span>
+                          <span style={{ color: '#10b981' }}>✅ Recibido el {new Date(req.confirmed_at).toLocaleString()} (Por: {req.confirmed_by})</span>
                         </div>
                       ))
                     )}
                   </div>
+
                 </div>
               )}
             </div>
