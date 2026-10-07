@@ -66,7 +66,7 @@ export default function App() {
   const [customerEmail, setCustomerEmail] = useState('');
   
   // ==========================================
-  // NUEVOS ESTADOS PARA LOGÍSTICA DE CANASTAS
+  // ESTADOS PARA LOGÍSTICA DE CANASTAS Y RUTAS
   // ==========================================
   const [baskets, setBaskets] = useState([{ id: generateUUID(), name: 'Caja 1', items: [] }]);
   const [activeBasketId, setActiveBasketId] = useState(null);
@@ -286,7 +286,7 @@ export default function App() {
   };
 
   // ==========================================
-  // LÓGICA LOGÍSTICA DE CANASTAS Y RUTAS
+  // LÓGICA LOGÍSTICA DE CANASTAS Y RUTAS (INDEPENDIENTE DE FÁBRICA)
   // ==========================================
   
   const handleAddBasket = () => {
@@ -374,7 +374,7 @@ export default function App() {
         setDeliveryPerson('');
         setRestockSearch('');
         loadRestockRequests();
-        setSubTabRestock('recibir'); // Pasamos a la pestaña de ver rutas
+        setSubTabRestock('recibir'); // Pasamos a la pestaña de ver rutas automáticamente
       } else {
         alert(`Error al enviar a ruta: ${dispatchData.error || 'Desconocido'}`);
       }
@@ -662,7 +662,7 @@ export default function App() {
           )}
 
           {/* ========================================================== */}
-          {/* NUEVO MÓDULO DE LOGÍSTICA: CANASTAS Y RUTAS                */}
+          {/* MÓDULO DE LOGÍSTICA: CANASTAS Y RUTAS (INDEPENDIENTE DE FÁBRICA) */}
           {/* ========================================================== */}
           {activeTab === 'restock' && (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -777,7 +777,7 @@ export default function App() {
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       {restockRequests.filter(r => r.status === 'DISPATCHED').map(req => {
-                        const parsedBaskets = JSON.parse(req.items || '[]');
+                        const parsedBaskets = typeof req.items === 'string' ? JSON.parse(req.items || '[]') : (req.items || []);
                         const isNewFormat = parsedBaskets.length > 0 && parsedBaskets[0].canasta;
 
                         return (
@@ -847,7 +847,7 @@ export default function App() {
               )}
             </div>
           )}
-          {/* ========================================================== */}
+          {/* ========================================== */}
 
           {activeTab === 'inventory' && (
             <div>
