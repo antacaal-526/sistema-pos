@@ -152,7 +152,7 @@ export default function App() {
     setIsLoggingIn(true);
     setLoginError('');
 
-    // 1. Intentar validar localmente en Dexie (Modo 100% Offline primero)
+    // 1. Validar localmente en Dexie (Modo 100% Offline primero)
     try {
       const localUser = await db.users.where('username').equals(loginUser.toLowerCase().trim()).first();
       if (localUser && localUser.password === loginPass.trim()) {
@@ -546,7 +546,10 @@ export default function App() {
           .pos-cart { width: 100%; box-sizing: border-box; height: auto; margin-top: 0; }
           .cart-items-wrapper { max-height: 30vh; overflow-y: auto; padding-right: 5px; }
           .stats-grid { grid-template-columns: 1fr; }
+          .restock-responsive-container { flex-direction: column !important; }
         }
+
+        .restock-responsive-container { display: flex; gap: 1rem; flex: 1; overflow-y: auto; }
       `}</style>
       
       <div id="print-receipt" className="print-only" style={{ display: 'none' }}>
@@ -702,7 +705,7 @@ export default function App() {
 
               {/* VISTA 1: ARMAR CANASTAS */}
               {subTabRestock === 'armar' && (
-                <div style={{ display: 'flex', flexDirection: window.innerWidth < 768 ? 'column' : 'row', gap: '1rem', flex: 1, overflowY: 'auto' }}>
+                <div className="restock-responsive-container">
                   
                   {/* Izquierda: Catálogo Local */}
                   <div style={{ flex: '2', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', minHeight: '350px' }}>
