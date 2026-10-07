@@ -5,7 +5,24 @@ const fs = require('fs');
 const PDFDocument = require('pdfkit');
 const db = require('./database');
 
-// Actualización automática y segura de la Base de Datos para el nuevo flujo de rutas
+// CREACIÓN Y ACTUALIZACIÓN AUTOMÁTICA DE LA BASE DE DATOS
+db.run(`CREATE TABLE IF NOT EXISTS restock_requests (
+    id TEXT PRIMARY KEY,
+    admin_user TEXT,
+    status TEXT,
+    items TEXT,
+    notes TEXT,
+    delivery_person TEXT,
+    dispatched_at TEXT,
+    dispatched_by TEXT,
+    confirmed_at TEXT,
+    confirmed_by TEXT,
+    created_at TEXT
+)`, (err) => {
+    if (err) console.error("Error creando tabla restock_requests:", err);
+});
+
+// Por si la tabla ya existía pero le faltaban las columnas nuevas (las ignora si ya existen)
 db.run("ALTER TABLE restock_requests ADD COLUMN delivery_person TEXT", () => {});
 db.run("ALTER TABLE restock_requests ADD COLUMN dispatched_at TEXT", () => {});
 db.run("ALTER TABLE restock_requests ADD COLUMN dispatched_by TEXT", () => {});
@@ -23,7 +40,6 @@ function getColombiaTimestamp() {
 // Función auxiliar para extraer productos de las canastas o del formato antiguo
 function flattenBasketItems(parsedData) {
   if (!Array.isArray(parsedData)) return [];
-  // Si el JSON viene con la nueva estructura de Canastas
   if (parsedData.length > 0 && parsedData[0].canasta && Array.isArray(parsedData[0].items)) {
     let allItems = [];
     parsedData.forEach(basket => {
@@ -33,7 +49,6 @@ function flattenBasketItems(parsedData) {
     });
     return allItems;
   }
-  // Si es el formato antiguo (lista simple) lo devuelve igual
   return parsedData;
 }
 
@@ -140,16 +155,14 @@ app.get('/api/preventa-products', (req, res) => {
 });
 app.post('/api/preventa-products', (req, res) => {
   const { barcode, name, price, discount_rules, stock, min_stock } = req.body;
-  db.run(`INSERT INTO preventa_products (barcode, name, price, discount_rules, stock, min_stock) 
-          VALUES (?, ?, ?, ?, ?, ?)`,
+  db.run(`INSERT INTO preventa_products (barcode, name, price, discount_rules, stock, min_stock) VALUES (?, ?, ?, ?, ?, ?)`,
     [barcode, name, price || 0, discount_rules || '[]', stock || 0, min_stock || 3], 
     (err) => { if (err) return res.status(500).json({ error: err.message }); res.json({ success: true }); }
   );
 });
 app.put('/api/preventa-products/:barcode', (req, res) => {
   const { name, price, discount_rules, stock, min_stock } = req.body;
-  db.run(`UPDATE preventa_products SET name = ?, price = ?, discount_rules = ?, stock = ?, min_stock = ? 
-          WHERE barcode = ?`,
+  db.run(`UPDATE preventa_products SET name = ?, price = ?, discount_rules = ?, stock = ?, min_stock = ? WHERE barcode = ?`,
     [name, price || 0, discount_rules || '[]', stock || 0, min_stock || 3, req.params.barcode], 
     (err) => { if (err) return res.status(500).json({ error: err.message }); res.json({ success: true }); }
   );
@@ -163,9 +176,7 @@ app.delete('/api/preventa-products/:barcode', (req, res) => {
 app.get('/api/orders/detailed', async (req, res) => {
   try {
     const orders = await new Promise((resolve, reject) => {
-      db.all(`SELECT o.*, c.name as customer_name_real, c.document as customer_doc_real 
-              FROM orders o LEFT JOIN customers c ON o.customer_id = c.id ORDER BY o.created_at DESC`, 
-              [], (e, d) => e ? reject(e) : resolve(d || []));
+      db.all(`SELECT o.*, c.name as customer_name_real, c.document as customer_doc_real FROM orders o LEFT JOIN customers c ON o.customer_id = c.id ORDER BY o.created_at DESC`, [], (e, d) => e ? reject(e) : resolve(d || []));
     });
     const items = await new Promise((resolve, reject) => {
       db.all('SELECT * FROM order_items', [], (e, d) => e ? reject(e) : resolve(d || []));
@@ -190,9 +201,7 @@ app.post('/api/orders', async (req, res) => {
 
     try {
       await new Promise((resolve, reject) => {
-        db.run(`INSERT INTO customers (id, document, name, email, phone, created_at) 
-                VALUES (?, ?, ?, ?, ?, ?) 
-                ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email, phone=excluded.phone`, 
+        db.run(`INSERT INTO customers (id, document, name, email, phone, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email, phone=excluded.phone`, 
         [customer_id, customer_id, customer_name, customer_email, customer_phone, horaCol], 
         (err) => err ? reject(err) : resolve());
       });
@@ -221,8 +230,7 @@ app.post('/api/orders', async (req, res) => {
       });
     } else {
       await new Promise((resolve, reject) => {
-        db.run(`INSERT INTO orders (id, customer_id, customer_name, customer_email, customer_phone, created_by, total, status, notes, created_at, updated_at) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+        db.run(`INSERT INTO orders (id, customer_id, customer_name, customer_email, customer_phone, created_by, total, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
           [id, customer_id, customer_name, customer_email, customer_phone, created_by, total, notes, created_at || horaCol, horaCol],
           (err) => err ? reject(err) : resolve()
         );
@@ -232,8 +240,7 @@ app.post('/api/orders', async (req, res) => {
     for (const item of items) {
       const itemId = generateUUID();
       await new Promise((resolve, reject) => {
-        db.run(`INSERT INTO order_items (id, order_id, product_barcode, product_name, quantity, unit_price, subtotal, discount_percent) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        db.run(`INSERT INTO order_items (id, order_id, product_barcode, product_name, quantity, unit_price, subtotal, discount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [itemId, id, item.barcode, item.name, item.quantity, item.unit_price, item.subtotal, item.discount_percent || 0],
           (err) => err ? reject(err) : resolve()
         );
@@ -318,8 +325,7 @@ app.post('/api/payments', async (req, res) => {
 
     if (shift_id) {
        await new Promise((resolve, reject) => {
-        db.run(`INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type, created_at) 
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'Facturada', ?)`,
+        db.run(`INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'Facturada', ?)`,
           [shift_id, collector_id, `COBRO-${order_id.substring(0, 6)}`, 'N/A', `Cobro Ruta #${order_id.substring(0, 6)}`, amount, amount, payment_method, amount, 0, horaCol],
           (err) => err ? reject(err) : resolve()
         );
@@ -466,8 +472,7 @@ app.post('/api/sales', async (req, res) => {
   const horaCol = getColombiaTimestamp();
   try {
     const saleRes = await new Promise((resolve, reject) => {
-      db.run(`INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type, created_at) 
-              VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'Facturada', ?)`,
+      db.run(`INSERT INTO sales (shift_id, user_name, invoice_number, customer_doc, customer_name, subtotal, tax_amount, total, payment_method, amount_paid, change_given, sale_type, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'Facturada', ?)`,
         [shift_id || null, user_name, invNumber, customer_doc, customer_name, total, total, payment_method, amount_paid, change_given, horaCol],
         function (err) { err ? reject(err) : resolve(this); }
       );
@@ -522,7 +527,7 @@ app.post('/api/config', (req, res) => {
 });
 
 /* ==========================================================
-   NUEVO MÓDULO DE ABASTECIMIENTO LOCAL (CON CANASTAS Y RUTAS)
+   MÓDULO DE ABASTECIMIENTO LOCAL (CON CANASTAS Y RUTAS)
    ========================================================== */
 
 app.get('/api/restock-requests', (req, res) => {
@@ -533,7 +538,6 @@ app.get('/api/restock-requests', (req, res) => {
   });
 });
 
-// 1. Crear el Despacho en Fábrica (Armado de Canastas - Estado: PENDING)
 app.post('/api/restock-requests', (req, res) => {
   const { items, notes, user_name } = req.body;
   const id = generateUUID();
@@ -547,7 +551,6 @@ app.post('/api/restock-requests', (req, res) => {
   );
 });
 
-// Actualizar un Despacho (Solo si está en PENDING)
 app.put('/api/restock-requests/:id', (req, res) => {
   const { items, notes } = req.body;
   db.run(`UPDATE restock_requests SET items = ?, notes = ? WHERE id = ? AND status = 'PENDING'`,
@@ -559,7 +562,6 @@ app.put('/api/restock-requests/:id', (req, res) => {
   );
 });
 
-// 2. NUEVO PASO: Despachar a Ruta (Estado: DISPATCHED) -> Resta inventario de preventa_products (Fábrica)
 app.post('/api/restock-requests/:id/dispatch', async (req, res) => {
   const { user_name, delivery_person } = req.body;
   const horaCol = getColombiaTimestamp();
@@ -572,7 +574,6 @@ app.post('/api/restock-requests/:id/dispatch', async (req, res) => {
 
     const allItems = flattenBasketItems(JSON.parse(request.items || '[]'));
 
-    // RESTAR del inventario de fábrica (preventa_products) porque ya salió en la ruta
     for (const item of allItems) {
       await new Promise((r, rej) => {
         db.run('UPDATE preventa_products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], (err) => err ? rej(err) : r());
@@ -582,7 +583,6 @@ app.post('/api/restock-requests/:id/dispatch', async (req, res) => {
     const itemsDesc = allItems.map(i => `${i.quantity}x ${i.name}`).join(', ');
     await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Salida', 'Despacho a Local', ?, 0, ?, ?)`, [`Despacho a Local (Ruta) | ${itemsDesc}`, user_name || 'Fábrica', horaCol], r));
 
-    // Cambiar estado a DISPATCHED y guardar al entregador
     await new Promise((resolve, reject) => {
       db.run("UPDATE restock_requests SET status = 'DISPATCHED', dispatched_at = ?, dispatched_by = ?, delivery_person = ? WHERE id = ?", [horaCol, user_name || 'Fábrica', delivery_person || 'Repartidor', req.params.id], (err) => err ? reject(err) : resolve());
     });
@@ -593,12 +593,10 @@ app.post('/api/restock-requests/:id/dispatch', async (req, res) => {
   }
 });
 
-// 3. Confirmar Entrega en Local (Estado: CONFIRMED) -> Suma inventario local (products)
 app.post('/api/restock-requests/:id/confirm', async (req, res) => {
   const { user_name } = req.body;
   const horaCol = getColombiaTimestamp();
   try {
-    // Permitimos PENDING (por si hay despachos viejos sin ruta) o DISPATCHED (el flujo nuevo)
     const request = await new Promise((resolve, reject) => {
       db.get("SELECT * FROM restock_requests WHERE id = ? AND status IN ('PENDING', 'DISPATCHED')", [req.params.id], (err, row) => err ? reject(err) : resolve(row));
     });
@@ -606,14 +604,12 @@ app.post('/api/restock-requests/:id/confirm', async (req, res) => {
 
     const allItems = flattenBasketItems(JSON.parse(request.items || '[]'));
 
-    // Si por alguna razón confirmamos un PENDING viejo directo sin pasar por ruta, descontamos a fábrica por seguridad
     if (request.status === 'PENDING') {
       for (const item of allItems) {
         await new Promise((r, rej) => db.run('UPDATE preventa_products SET stock = stock - ? WHERE barcode = ?', [item.quantity, item.barcode], (e) => e ? rej(e) : r()));
       }
     }
 
-    // SUMAR al inventario del Local (products)
     for (const item of allItems) {
       const localProd = await new Promise((resolve, reject) => db.get('SELECT * FROM products WHERE barcode = ?', [item.barcode], (err, row) => err ? reject(err) : resolve(row)));
       if (localProd) {
@@ -626,7 +622,6 @@ app.post('/api/restock-requests/:id/confirm', async (req, res) => {
     const itemsDesc = allItems.map(i => `${i.quantity}x ${i.name}`).join(', ');
     await new Promise((r) => db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES ('Movimiento', 'Abastecimiento Local Aprobado', ?, 0, ?, ?)`, [`Ingreso Local Confirmado | ${itemsDesc}`, user_name || 'Cajero', horaCol], r));
 
-    // Cerrar el proceso marcando como CONFIRMED
     await new Promise((resolve, reject) => {
       db.run("UPDATE restock_requests SET status = 'CONFIRMED', confirmed_at = ?, confirmed_by = ? WHERE id = ?", [horaCol, user_name || 'Cajero', req.params.id], (err) => err ? reject(err) : resolve());
     });
@@ -637,13 +632,11 @@ app.post('/api/restock-requests/:id/confirm', async (req, res) => {
   }
 });
 
-// Eliminar o Cancelar Despacho
 app.delete('/api/restock-requests/:id', async (req, res) => {
   try {
     const request = await new Promise((resolve, reject) => db.get("SELECT * FROM restock_requests WHERE id = ?", [req.params.id], (err, row) => err ? reject(err) : resolve(row)));
     if (!request || request.status === 'CONFIRMED') return res.status(400).json({ error: 'No se puede eliminar un pedido ya entregado' });
 
-    // Si ya estaba en la calle (DISPATCHED) y se cancela la entrega, devolver a la fábrica
     if (request.status === 'DISPATCHED') {
       const allItems = flattenBasketItems(JSON.parse(request.items || '[]'));
       for (const item of allItems) {
