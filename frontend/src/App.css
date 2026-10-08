@@ -5,12 +5,18 @@
   padding: 0;
 }
 
-body {
-  background-color: #0f172a;
+/* FORZAR FONDO OSCURO ABSOLUTO EN TODAS LAS CAPAS BASE */
+html, body, #root {
+  background-color: #0f172a !important; 
   color: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  overflow-y: auto !important; /* Desbloquea el scroll del body */
-  overflow-x: hidden;
+  overflow-y: auto !important; 
+  overflow-x: hidden !important;
+}
+
+/* Evitar que contenedores hereden el blanco de Vite */
+.pos-layout, .pos-content {
+  background-color: #0f172a !important;
 }
 
 /* Ocultar elementos de impresión en pantalla */
@@ -22,13 +28,6 @@ body {
 /* ======================================================= */
 /* DESBLOQUEO MAESTRO PARA PREVENTISTA Y ENTREGADOR        */
 /* ======================================================= */
-html, #root {
-  height: auto !important;
-  min-height: 100vh !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-}
-
 @media (max-width: 768px) {
   .restock-responsive-container { flex-direction: column !important; }
   
@@ -60,5 +59,11 @@ html, #root {
     print-color-adjust: exact !important;
   }
   .print-only * { font-weight: 800 !important; color: #000000 !important; }
-  body { background: #ffffff !important; color: #000000 !important; overflow: visible !important; }
+  
+  /* Aquí devolvemos el fondo blanco SOLO al momento de imprimir el ticket */
+  html, body, #root { 
+    background-color: #ffffff !important; 
+    color: #000000 !important; 
+    overflow: visible !important; 
+  }
 }
