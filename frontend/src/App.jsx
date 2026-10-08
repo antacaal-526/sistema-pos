@@ -91,6 +91,7 @@ export default function App() {
   const [printShiftData, setPrintShiftData] = useState(null);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768);
@@ -140,6 +141,12 @@ export default function App() {
     loadRestockRequests();
   };
 
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab);
+    if (tab === 'restock') setSubTabRestock('armar');
+    setIsMobileMenuOpen(false); // Cierra el menú al elegir una opción
+  };
+
   const loadProductsOnline = async () => { try { const res = await fetch(`${API_URL}/api/products`); if (res.ok) { const data = await res.json(); setProducts(data); await db.products.bulkPut(data); } } catch (e) { loadProductsLocal(); } };
   const loadProductsLocal = async () => { setProducts(await db.products.toArray()); };
   const loadPreventaProductsOnline = async () => { try { const res = await fetch(`${API_URL}/api/preventa-products`); if (res.ok) { const data = await res.json(); setPreventaProducts(data); await db.preventa_products.bulkPut(data); } } catch (e) {} };
@@ -178,9 +185,9 @@ export default function App() {
     if (!navigator.onLine) {
       const count = await db.users.count();
       if (count === 0) {
-        setLoginError('Modo Offline: Base local vacía. Ingrese con Internet al menos una vez en este PC.');
+        setLoginError('Modo Offline: Base local vacía. Debes ingresar con internet al menos una vez en este PC.');
       } else {
-        setLoginError('Modo Offline: Usuario/Clave incorrectos en la memoria local.');
+        setLoginError('Modo Offline: Usuario/Clave incorrectos según los registros locales.');
       }
       setIsLoggingIn(false);
       return;
@@ -466,7 +473,6 @@ export default function App() {
   const handleDeleteUser = async (id, name) => { if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual'); if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return; try { const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑 Usuario eliminado'); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleSaveConfig = async (e) => { e.preventDefault(); await fetch(`${API_URL}/api/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(storeConfig) }); alert('Configuración guardada'); };
   const handlePrintShiftReport = (shift) => { setPrintShiftData(shift); setTimeout(() => window.print(), 300); };
-  
   const handleExportCSV = () => { let csvContent = 'data:text/csv;charset=utf-8,FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n'; transactions.forEach((t) => { csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`; }); const link = document.createElement('a'); link.setAttribute('href', encodeURI(csvContent)); link.setAttribute('download', `Reporte_Contable_${new Date().toISOString().slice(0, 10)}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
 
   if (!currentUser) {
@@ -496,28 +502,18 @@ export default function App() {
     return matchesUser && matchesDate;
   });
   const monthlyShifts = shiftsList.filter((s) => s.opened_at && s.opened_at.startsWith(selectedMonth));
-  const monthlyCash = monthlyShifts.reduce((acc, s) => acc + (s.cash_sales || 0), 0);
-  const monthlyTransfer = monthlyShifts.reduce((acc, s) => acc + (s.transfer_sales || 0), 0);
-  const monthlyTotal = monthlyShifts.reduce((acc, s) => acc + (s.total_sales || 0), 0);
-  const getShiftValFormatted = (val) => { const num = Number(val); return isNaN(num) ? '0' : num.toLocaleString('es-CO'); };
   const totalIncomes = transactions.filter((t) => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
   const totalExpenses = transactions.filter((t) => t.type === 'Egreso').reduce((acc, t) => acc + (t.amount || 0), 0);
   const netBalance = totalIncomes - totalExpenses;
+  const getShiftValFormatted = (val) => { const num = Number(val); return isNaN(num) ? '0' : num.toLocaleString('es-CO'); };
 
   return (
     <>
       <style>{`
-        html, body, #root { height: 100%; min-height: 100vh; margin: 0; padding: 0; background: #0f172a; color: #fff; font-family: sans-serif; overflow-x: hidden; }
-        .pos-layout { display: flex; flex-direction: row; min-height: 100vh; height: 100%; }
-        .pos-sidebar { width: 260px; background: #1e293b; padding: 1.5rem 1rem; display: flex; flex-direction: column; border-right: 1px solid #334155; flex-shrink: 0; overflow-y: auto; }
-        .sidebar-top-section { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
-        .nav-buttons { display: flex; flex-direction: column; gap: 0.4rem; }
-        .nav-btn { padding: 0.9rem 1rem; text-align: left; background: transparent; color: #cbd5e1; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; transition: all 0.2s ease; }
+        .nav-btn { display: block; width: 100%; padding: 0.9rem 1rem; text-align: left; background: transparent; color: #cbd5e1; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; transition: all 0.2s ease; margin-bottom: 0.4rem; }
         .nav-btn:hover { background: #334155; color: #fff; }
         .nav-btn.active { background: #2563eb; color: #fff; font-weight: bold; }
-        .pos-content { flex: 1; padding: 1.5rem; overflow-y: auto; overflow-x: hidden; }
         
-        /* Contenedor Principal Caja */
         .pos-grid-container { display: flex; gap: 1.25rem; height: 100%; align-items: stretch; }
         .pos-products-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; overflow-y: auto; padding-right: 4px; padding-bottom: 2rem; }
@@ -528,116 +524,58 @@ export default function App() {
         .responsive-table { width: 100%; border-collapse: collapse; min-width: 600px; }
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-        
-        /* REGLAS DE IMPRESIÓN TÉRMICA */
-        @media print {
-          @page { size: 58mm auto; margin: 0; }
-          .no-print { display: none !important; }
-          #print-receipt, #print-receipt * {
-            display: block !important;
-            font-family: 'Courier New', Courier, monospace !important;
-            font-size: 11px !important;
-            font-weight: 900 !important;
-            color: #000000 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          body { background: #ffffff !important; color: #000000 !important; }
-        }
-        
-        /* ========================================================= */
-        /* CORRECCIONES MÓVILES: PREVENTISTA, ENTREGADOR Y CAJA POS  */
-        /* ========================================================= */
-        @media (max-width: 768px) {
-          .pos-layout { flex-direction: column; height: auto; display: block; }
-          .pos-sidebar { width: 100%; box-sizing: border-box; border-right: none; border-bottom: 1px solid #334155; padding: 1rem; position: relative; }
-          .sidebar-top-section { flex-direction: row; justify-content: space-between; align-items: flex-start; padding-bottom: 1rem; }
-          .nav-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding-bottom: 0.5rem; border-top: 1px solid #334155; margin-top: 0.8rem; padding-top: 0.8rem; }
-          .nav-btn { white-space: normal; text-align: center; padding: 0.6rem 0.5rem; font-size: 0.85rem; }
-          
-          /* POS CAJA: Orden Vertical Estricto */
-          .pos-content { padding: 0.8rem; overflow: visible; height: auto; }
-          .pos-grid-container { flex-direction: column; height: auto; display: flex; gap: 1.5rem; }
-          
-          /* Área Productos: Arriba y visible */
-          .pos-products-area { display: flex; flex-direction: column; height: auto; min-height: 400px; flex-shrink: 0; }
-          .products-grid { max-height: 45vh; overflow-y: auto; padding-right: 5px; border-bottom: 2px dashed #475569; padding-bottom: 1rem; }
-          
-          /* Área Carrito: Abajo y con padding bottom para no tapar botón */
-          .pos-cart { width: 100%; box-sizing: border-box; height: auto; margin-top: 0; flex-shrink: 0; padding-bottom: 60px; }
-          .cart-items-wrapper { max-height: 35vh; overflow-y: auto; padding-right: 5px; }
-          
-          .stats-grid { grid-template-columns: 1fr; }
-          
-          /* PREVENTISTA y ENTREGADOR: Tablas fluidas y apilamiento de botones */
-          .responsive-table-wrapper { overflow-x: auto; padding-bottom: 60px; } /* Padding para ver el último item */
-          .responsive-table th, .responsive-table td { white-space: normal; word-wrap: break-word; }
-          td[style*="display: flex"], td[style*="justify-content: center"], td[style*="gap: 0.4rem"] { flex-wrap: wrap !important; justify-content: flex-start !important; width: 100% !important; }
-          .action-btn-mobile, button { max-width: 100%; }
-        }
 
-        .restock-responsive-container { display: flex; gap: 1rem; flex: 1; overflow-y: auto; }
-        @media (max-width: 768px) { .restock-responsive-container { flex-direction: column !important; } }
+        @media (max-width: 768px) {
+          .pos-grid-container { flex-direction: column; height: auto; display: flex; gap: 1.5rem; }
+          .pos-products-area { min-height: 400px; flex-shrink: 0; }
+          .products-grid { max-height: 45vh; padding-bottom: 1rem; }
+          .pos-cart { width: 100%; padding-bottom: 60px; }
+          .cart-items-wrapper { max-height: 35vh; }
+          .stats-grid { grid-template-columns: 1fr; }
+          .responsive-table-wrapper { overflow-x: auto; padding-bottom: 60px; }
+          .responsive-table th, .responsive-table td { white-space: normal; word-wrap: break-word; }
+        }
       `}</style>
-      
-      <div id="print-receipt" className="print-only" style={{ display: 'none' }}>
-        {printShiftData ? (
-          <div style={{ width: '100%', boxSizing: 'border-box' }}>
-            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px', fontWeight: '900' }}>🌱 {storeConfig.razon_social}</h3>
-            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '9px', fontWeight: '900' }}>REPORTE DE TURNO #{printShiftData.id || printShiftData.shift_id}</p>
-            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
-            <p style={{ margin: '1px 0', fontWeight: '900' }}>Empleado: <strong>{printShiftData.user_name}</strong></p>
-            <p style={{ margin: '1px 0', fontWeight: '900' }}>Apertura: {printShiftData.opened_at}</p>
-            <p style={{ margin: '1px 0', fontWeight: '900' }}>Cierre: {printShiftData.closed_at || 'En curso'}</p>
-            <p style={{ margin: '1px 0', fontWeight: '900' }}>Ventas Totales: {printShiftData.sales_count || 0}</p>
-            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}><span>Base Inicial:</span><span>${getShiftValFormatted(printShiftData.start_amount)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}><span>Ventas Efectivo:</span><span>${getShiftValFormatted(printShiftData.cash_sales)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}><span>Ventas Transferencia:</span><span>${getShiftValFormatted(printShiftData.transfer_sales)}</span></div>
-            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px' }}><span>TOTAL VENDIDO:</span><span>${getShiftValFormatted(printShiftData.total_sales)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px', marginTop: '2px' }}><span>EFECTIVO ESPERADO:</span><span>${getShiftValFormatted(printShiftData.expected_cash || (printShiftData.start_amount + printShiftData.cash_sales))}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px', marginTop: '2px' }}><span>EFECTIVO CONTADO:</span><span>${getShiftValFormatted(printShiftData.counted_cash ?? printShiftData.end_amount)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px', marginTop: '2px' }}><span>DIFERENCIA:</span><span>${getShiftValFormatted(printShiftData.difference || 0)}</span></div>
-            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
-          </div>
-        ) : lastInvoice ? (
-          <div style={{ width: '100%', boxSizing: 'border-box' }}>
-            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '12px', fontWeight: '900' }}>🌱 {storeConfig.razon_social}</h3>
-            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '8px', fontWeight: '900' }}>NIT: {storeConfig.nit}</p>
-            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
-            <p style={{ margin: '1px 0', fontWeight: '900' }}>Factura #: <strong>{lastInvoice.number}</strong></p>
-            <p style={{ margin: '1px 0', fontWeight: '900' }}>Fecha: {lastInvoice.date}</p>
-            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', fontWeight: '900' }}>
-              <tbody>
-                {lastInvoice.items.map((it, idx) => (
-                  <tr key={idx}>
-                    <td style={{ verticalAlign: 'top', padding: '1px 0', fontWeight: '900' }}>{it.quantity}x {it.name.substring(0, 16)}</td>
-                    <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '1px 0', fontWeight: '900' }}>${(it.quantity * it.sale_price).toLocaleString('es-CO')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p style={{ textAlign: 'center', margin: '2px 0', fontWeight: '900' }}>--------------------------------</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', fontSize: '11px' }}><span>TOTAL:</span><span>${lastInvoice.total.toLocaleString('es-CO')}</span></div>
-            <p style={{ margin: '1px 0', fontSize: '9px', fontWeight: '900' }}>Pago: {lastInvoice.paymentMethod}</p>
-            <p style={{ margin: '1px 0', fontSize: '9px', fontWeight: '900' }}>Recibido: ${lastInvoice.received.toLocaleString('es-CO')}</p>
-            <p style={{ margin: '1px 0', fontSize: '9px', fontWeight: '900' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString('es-CO')}</p>
-            <p style={{ textAlign: 'center', margin: '4px 0 0 0', fontSize: '9px', fontWeight: '900' }}>{storeConfig.footer_msg}</p>
-          </div>
-        ) : null}
+
+      {/* HEADER MOVIL - CON BOTÓN DE HAMBURGUESA */}
+      <div className="no-print mobile-header" style={{ display: isMobile ? 'flex' : 'none', background: '#1e293b', padding: '1rem', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+           <button onClick={() => setIsMobileMenuOpen(true)} style={{ background: '#334155', border: 'none', color: 'white', padding: '0.5rem 0.8rem', fontSize: '1.2rem', borderRadius: '4px', cursor: 'pointer' }}>
+             ☰
+           </button>
+           <h3 style={{ margin: 0, color: '#38bdf8', fontSize: '1.2rem' }}>🌱 TERRA</h3>
+         </div>
+         {activeShift && <span style={{ color: '#4ade80', fontSize: '0.8rem', fontWeight: 'bold' }}>🟢 Turno Abierto</span>}
       </div>
-      
-      <div className="no-print pos-layout">
-        <div className="pos-sidebar">
-          <div className="sidebar-top-section">
-            <div>
-              <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
-              <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{currentUser.name} <br/> <span style={{ color: '#38bdf8' }}>{currentUser.role}</span></div>
+
+      <div className="no-print pos-layout" style={{ height: isMobile ? 'calc(100vh - 65px)' : '100vh', display: 'flex', flexDirection: isMobile ? 'column' : 'row', overflow: 'hidden' }}>
+        
+        {/* OVERLAY OSCURO PARA CERRAR EL MENU EN MOVIL */}
+        {isMobile && isMobileMenuOpen && (
+           <div onClick={() => setIsMobileMenuOpen(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998 }} />
+        )}
+
+        {/* SIDEBAR - Panel Lateral con clases reactivas */}
+        <div className="pos-sidebar" style={{
+           width: '260px', background: '#1e293b', padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', borderRight: '1px solid #334155', flexShrink: 0, overflowY: 'auto',
+           ...(isMobile ? {
+               position: 'fixed', top: 0, left: 0, height: '100vh', zIndex: 9999, transition: 'transform 0.3s ease',
+               transform: isMobileMenuOpen ? 'translateX(0)' : 'translateX(-100%)', boxShadow: '4px 0 15px rgba(0,0,0,0.5)'
+           } : {})
+        }}>
+          <div className="sidebar-top-section" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid #334155' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
+                <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{currentUser.name} <br/> <span style={{ color: '#38bdf8' }}>{currentUser.role}</span></div>
+              </div>
+              {isMobile && (
+                <button onClick={() => setIsMobileMenuOpen(false)} style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: '1.5rem', cursor: 'pointer' }}>✖</button>
+              )}
             </div>
             <button onClick={handleLogout} style={{ width: '100%', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
           </div>
+          
           <div style={{ marginBottom: '1.5rem' }}>
             {!activeShift ? (
               <button onClick={() => setShowShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>▶️ Iniciar Turno</button>
@@ -645,27 +583,26 @@ export default function App() {
               <button onClick={() => setShowCloseShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#166534', color: '#4ade80', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>🟢 Cerrar Turno #{activeShift.id}</button>
             )}
           </div>
+          
           <div className="nav-buttons">
-            <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local (Caja)</button>
+            <button onClick={() => handleTabSwitch('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local (Caja)</button>
             {isAdmin && (
               <>
-                <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
-                <button onClick={() => setActiveTab('fabrica_inventory')} className={`nav-btn ${activeTab === 'fabrica_inventory' ? 'active' : ''}`}>🏭 Inventario Fábrica</button>
-                
-                <button onClick={() => { setActiveTab('restock'); setSubTabRestock('armar'); }} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Logística y Despachos</button>
-                
-                <button onClick={() => setActiveTab('preventa_orders')} className={`nav-btn ${activeTab === 'preventa_orders' ? 'active' : ''}`}>📋 Pedidos Preventista</button>
-                <button onClick={() => setActiveTab('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
-                <button onClick={() => setActiveTab('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
-                <button onClick={() => setActiveTab('employees')} className={`nav-btn ${activeTab === 'employees' ? 'active' : ''}`}>👥 Empleados</button>
-                <button onClick={() => setActiveTab('reports')} className={`nav-btn ${activeTab === 'reports' ? 'active' : ''}`}>📊 Reportes</button>
-                <button onClick={() => setActiveTab('dian')} className={`nav-btn ${activeTab === 'dian' ? 'active' : ''}`}>⚙️ Config</button>
+                <button onClick={() => handleTabSwitch('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
+                <button onClick={() => handleTabSwitch('fabrica_inventory')} className={`nav-btn ${activeTab === 'fabrica_inventory' ? 'active' : ''}`}>🏭 Inventario Fábrica</button>
+                <button onClick={() => handleTabSwitch('restock')} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Logística y Despachos</button>
+                <button onClick={() => handleTabSwitch('preventa_orders')} className={`nav-btn ${activeTab === 'preventa_orders' ? 'active' : ''}`}>📋 Pedidos Preventista</button>
+                <button onClick={() => handleTabSwitch('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
+                <button onClick={() => handleTabSwitch('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
+                <button onClick={() => handleTabSwitch('employees')} className={`nav-btn ${activeTab === 'employees' ? 'active' : ''}`}>👥 Empleados</button>
+                <button onClick={() => handleTabSwitch('reports')} className={`nav-btn ${activeTab === 'reports' ? 'active' : ''}`}>📊 Reportes</button>
+                <button onClick={() => handleTabSwitch('dian')} className={`nav-btn ${activeTab === 'dian' ? 'active' : ''}`}>⚙️ Config</button>
               </>
             )}
           </div>
         </div>
         
-        <div className="pos-content">
+        <div className="pos-content" style={{ flex: 1, padding: isMobile ? '0.8rem' : '1.5rem', overflowY: 'auto', overflowX: 'hidden' }}>
           {activeTab === 'pos' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
@@ -714,12 +651,8 @@ export default function App() {
             </div>
           )}
 
-          {/* ========================================================== */}
-          {/* MÓDULO DE LOGÍSTICA Y DESPACHOS (Tipeo Manual de Cantidades) */}
-          {/* ========================================================== */}
           {activeTab === 'restock' && (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '1rem' }}>
-              
               <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                 <button 
                   onClick={() => setSubTabRestock('armar')} 
@@ -782,7 +715,6 @@ export default function App() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                               <button onClick={() => updateRestockQty(activeBasketId, item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '28px', height: '28px', borderRadius: '4px', fontWeight: 'bold' }}>-</button>
                               
-                              {/* DIGITALIZACIÓN (TIPEO) DE CANTIDADES */}
                               <input 
                                 type="number" 
                                 min="0"
@@ -868,7 +800,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Historial rápido de recibidos */}
                   <div style={{ marginTop: '2rem', background: '#0f172a', padding: '1rem', borderRadius: '6px', border: '1px solid #334155' }}>
                     <h4 style={{ color: '#94a3b8', margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Historial Reciente (Entregados)</h4>
                     {restockRequests.filter(r => r.status === 'CONFIRMED').length === 0 ? (
@@ -886,7 +817,6 @@ export default function App() {
               )}
             </div>
           )}
-          {/* ========================================== */}
 
           {activeTab === 'inventory' && (
             <div>
