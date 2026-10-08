@@ -93,6 +93,15 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [printShiftData, setPrintShiftData] = useState(null);
 
+  // ESTADO PARA DETECTAR CELULARES EN TIEMPO REAL
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   useEffect(() => {
     fetch(`${API_URL}/api/ping`).catch(() => {});
     const savedUser = localStorage.getItem('pos_user');
@@ -152,7 +161,7 @@ export default function App() {
     setIsLoggingIn(true);
     setLoginError('');
 
-    // 1. Validar localmente en Dexie (Modo 100% Offline primero)
+    // 1. Intentar validar localmente en Dexie (Modo 100% Offline primero)
     try {
       const localUser = await db.users.where('username').equals(loginUser.toLowerCase().trim()).first();
       if (localUser && localUser.password === loginPass.trim()) {
@@ -307,7 +316,7 @@ export default function App() {
   };
 
   // ==========================================
-  // LÓGICA LOGÍSTICA DE CANASTAS Y RUTAS (RESPONSIVO)
+  // LÓGICA LOGÍSTICA DE CANASTAS Y RUTAS
   // ==========================================
   
   const handleAddBasket = () => {
@@ -546,10 +555,7 @@ export default function App() {
           .pos-cart { width: 100%; box-sizing: border-box; height: auto; margin-top: 0; }
           .cart-items-wrapper { max-height: 30vh; overflow-y: auto; padding-right: 5px; }
           .stats-grid { grid-template-columns: 1fr; }
-          .restock-responsive-container { flex-direction: column !important; }
         }
-
-        .restock-responsive-container { display: flex; gap: 1rem; flex: 1; overflow-y: auto; }
       `}</style>
       
       <div id="print-receipt" className="print-only" style={{ display: 'none' }}>
@@ -705,10 +711,10 @@ export default function App() {
 
               {/* VISTA 1: ARMAR CANASTAS */}
               {subTabRestock === 'armar' && (
-                <div className="restock-responsive-container">
+                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '1rem', flex: 1, overflowY: 'auto' }}>
                   
                   {/* Izquierda: Catálogo Local */}
-                  <div style={{ flex: '2', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', minHeight: '350px' }}>
+                  <div style={{ flex: isMobile ? 'none' : '2', width: '100%', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', minHeight: '350px', boxSizing: 'border-box' }}>
                     <h3 style={{ margin: '0 0 0.5rem 0', color: '#10b981', fontSize: '1rem' }}>Seleccionar Mercancía (Catálogo del Local)</h3>
                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
                       Agrega productos a las canastas. Se sumarán al inventario del local solo al entregarse.
@@ -720,7 +726,7 @@ export default function App() {
                       onChange={(e) => setRestockSearch(e.target.value)}
                       style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid #10b981', background: '#0f172a', color: '#fff', marginBottom: '1rem' }}
                     />
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.8rem', overflowY: 'auto', flex: 1, maxHeight: '50vh' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.8rem', overflowY: 'auto', flex: 1, maxHeight: isMobile ? '300px' : '50vh' }}>
                       {products.filter((p) => p.name.toLowerCase().includes(restockSearch.toLowerCase()) || p.barcode.includes(restockSearch)).map((p) => (
                         <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: `1px solid ${activeBasketId ? '#3b82f6' : '#334155'}`, cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
@@ -732,7 +738,7 @@ export default function App() {
                   </div>
 
                   {/* Derecha: Canastas y Despacho */}
-                  <div style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', minHeight: '350px' }}>
+                  <div style={{ flex: isMobile ? 'none' : '1', width: '100%', display: 'flex', flexDirection: 'column', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', minHeight: '350px', boxSizing: 'border-box' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
                       <h3 style={{ margin: 0, fontSize: '1rem', color: '#f8fafc' }}>📦 Canastas</h3>
                       <button onClick={handleAddBasket} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>+ Añadir Caja</button>
@@ -746,7 +752,7 @@ export default function App() {
                       ))}
                     </div>
 
-                    <div style={{ flex: 1, overflowY: 'auto', background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', maxHeight: '30vh' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', maxHeight: isMobile ? '200px' : '30vh' }}>
                       {baskets.find(b => b.id === activeBasketId)?.items.length === 0 ? (
                         <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', marginTop: '1rem' }}>Caja vacía. Clic en la izquierda para agregar.</p>
                       ) : (
