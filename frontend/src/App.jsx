@@ -65,9 +65,6 @@ export default function App() {
   const [customerName, setCustomerName] = useState('Consumidor Final');
   const [customerEmail, setCustomerEmail] = useState('');
   
-  // ==========================================
-  // ESTADOS PARA LOGÍSTICA DE CANASTAS Y RUTAS
-  // ==========================================
   const [baskets, setBaskets] = useState([{ id: generateUUID(), name: 'Caja 1', items: [] }]);
   const [activeBasketId, setActiveBasketId] = useState(null);
   const [restockSearch, setRestockSearch] = useState('');
@@ -154,9 +151,6 @@ export default function App() {
   const checkActiveShift = async (userName) => { try { const res = await fetch(`${API_URL}/api/shifts/active?user_name=${encodeURIComponent(userName)}`); if (res.ok) setActiveShift(await res.json()); } catch (e) {} };
   const loadRestockRequests = async () => { try { const res = await fetch(`${API_URL}/api/restock-requests`); if (res.ok) setRestockRequests(await res.json()); } catch (e) {} };
 
-  // ==========================================
-  // BLINDAJE LOGIN OFFLINE
-  // ==========================================
   const handleLogin = async (e) => {
     e.preventDefault();
     if (isLoggingIn) return;
@@ -184,9 +178,9 @@ export default function App() {
     if (!navigator.onLine) {
       const count = await db.users.count();
       if (count === 0) {
-        setLoginError('Modo Offline: Base local vacía. Debes ingresar con internet al menos una vez en este PC.');
+        setLoginError('Modo Offline: Base local vacía. Ingrese con Internet al menos una vez en este PC.');
       } else {
-        setLoginError('Modo Offline: Usuario/Clave incorrectos según los registros locales.');
+        setLoginError('Modo Offline: Usuario/Clave incorrectos en la memoria local.');
       }
       setIsLoggingIn(false);
       return;
@@ -326,10 +320,6 @@ export default function App() {
     finally { setIsProcessing(false); }
   };
 
-  // ==========================================
-  // LÓGICA LOGÍSTICA DE CANASTAS Y RUTAS
-  // ==========================================
-  
   const handleAddBasket = () => {
     const newId = generateUUID();
     setBaskets([...baskets, { id: newId, name: `Caja ${baskets.length + 1}`, items: [] }]);
@@ -349,7 +339,6 @@ export default function App() {
       if (basket.id === activeBasketId) {
         const exist = basket.items.find((x) => x.barcode === p.barcode);
         if (exist) {
-          // Si ya existe, no sumamos autómaticamente, dejamos que el usuario lo escriba
           return basket;
         } else {
           return { ...basket, items: [...basket.items, { ...p, quantity: 1 }] };
@@ -459,7 +448,6 @@ export default function App() {
       }
     } catch (e) { alert('Error al cancelar la entrega.'); }
   };
-  // ==========================================
 
   const handleSaveNewProduct = async (e) => { e.preventDefault(); const payload = { ...newProd, sale_price: parseCOP(newProd.sale_price), stock: parseCOP(newProd.stock), min_stock: parseCOP(newProd.min_stock) || 3 }; await fetch(`${API_URL}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setShowAddModal(false); loadProductsOnline(); };
   const handleUpdateProduct = async (e) => { e.preventDefault(); const payload = { ...editingProduct, sale_price: parseCOP(editingProduct.sale_price), stock: parseCOP(editingProduct.stock), min_stock: parseCOP(editingProduct.min_stock) || 3 }; await fetch(`${API_URL}/api/products/${editingProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setEditingProduct(null); loadProductsOnline(); };
@@ -528,11 +516,14 @@ export default function App() {
         .nav-btn:hover { background: #334155; color: #fff; }
         .nav-btn.active { background: #2563eb; color: #fff; font-weight: bold; }
         .pos-content { flex: 1; padding: 1.5rem; overflow-y: auto; overflow-x: hidden; }
+        
+        /* Contenedor Principal Caja */
         .pos-grid-container { display: flex; gap: 1.25rem; height: 100%; align-items: stretch; }
         .pos-products-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; overflow-y: auto; padding-right: 4px; padding-bottom: 2rem; }
         .pos-cart { width: 400px; background: #1e293b; border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; border: 1px solid #334155; flex-shrink: 0; }
         .cart-items-wrapper { flex: 1; overflow-y: auto; padding-right: 6px; min-height: 150px; }
+        
         .responsive-table-wrapper { width: 100%; overflow-x: auto; background: #1e293b; border-radius: 8px; }
         .responsive-table { width: 100%; border-collapse: collapse; min-width: 600px; }
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
@@ -554,7 +545,9 @@ export default function App() {
           body { background: #ffffff !important; color: #000000 !important; }
         }
         
-        /* CORRECCIONES MÓVILES - ELIMINACIÓN DE SCROLL DOBLE Y BOTONES OCULTOS */
+        /* ========================================================= */
+        /* CORRECCIONES MÓVILES: PREVENTISTA, ENTREGADOR Y CAJA POS  */
+        /* ========================================================= */
         @media (max-width: 768px) {
           .pos-layout { flex-direction: column; height: auto; display: block; }
           .pos-sidebar { width: 100%; box-sizing: border-box; border-right: none; border-bottom: 1px solid #334155; padding: 1rem; position: relative; }
@@ -562,19 +555,25 @@ export default function App() {
           .nav-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding-bottom: 0.5rem; border-top: 1px solid #334155; margin-top: 0.8rem; padding-top: 0.8rem; }
           .nav-btn { white-space: normal; text-align: center; padding: 0.6rem 0.5rem; font-size: 0.85rem; }
           
-          /* POS CAJA: Alturas dinámicas y margen inferior */
-          .pos-content { padding: 0.8rem; overflow: visible; height: auto; padding-bottom: 120px !important; }
-          .pos-grid-container { flex-direction: column; height: auto; display: flex; gap: 1rem; }
-          .pos-products-area { display: flex; flex-direction: column; height: auto; }
-          .products-grid { max-height: none; overflow: visible; padding-right: 5px; border-bottom: 2px dashed #475569; padding-bottom: 1rem; }
-          .pos-cart { width: 100%; box-sizing: border-box; height: auto; margin-top: 0; }
-          .cart-items-wrapper { max-height: none; overflow: visible; padding-right: 5px; }
+          /* POS CAJA: Orden Vertical Estricto */
+          .pos-content { padding: 0.8rem; overflow: visible; height: auto; }
+          .pos-grid-container { flex-direction: column; height: auto; display: flex; gap: 1.5rem; }
+          
+          /* Área Productos: Arriba y visible */
+          .pos-products-area { display: flex; flex-direction: column; height: auto; min-height: 400px; flex-shrink: 0; }
+          .products-grid { max-height: 45vh; overflow-y: auto; padding-right: 5px; border-bottom: 2px dashed #475569; padding-bottom: 1rem; }
+          
+          /* Área Carrito: Abajo y con padding bottom para no tapar botón */
+          .pos-cart { width: 100%; box-sizing: border-box; height: auto; margin-top: 0; flex-shrink: 0; padding-bottom: 60px; }
+          .cart-items-wrapper { max-height: 35vh; overflow-y: auto; padding-right: 5px; }
+          
           .stats-grid { grid-template-columns: 1fr; }
           
-          /* Preventista y Entregador: Corrección de tablas y botones */
-          .responsive-table-wrapper { overflow-x: auto; padding-bottom: 60px; }
+          /* PREVENTISTA y ENTREGADOR: Tablas fluidas y apilamiento de botones */
+          .responsive-table-wrapper { overflow-x: auto; padding-bottom: 60px; } /* Padding para ver el último item */
           .responsive-table th, .responsive-table td { white-space: normal; word-wrap: break-word; }
-          td[style*="display: flex"], td[style*="gap: 0.4rem"] { flex-wrap: wrap !important; justify-content: flex-start !important; width: 100% !important; }
+          td[style*="display: flex"], td[style*="justify-content: center"], td[style*="gap: 0.4rem"] { flex-wrap: wrap !important; justify-content: flex-start !important; width: 100% !important; }
+          .action-btn-mobile, button { max-width: 100%; }
         }
 
         .restock-responsive-container { display: flex; gap: 1rem; flex: 1; overflow-y: auto; }
