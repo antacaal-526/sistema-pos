@@ -93,8 +93,9 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [printShiftData, setPrintShiftData] = useState(null);
 
-  // ESTADO PARA DETECTAR CELULARES EN TIEMPO REAL
+  // ESTADOS PARA CELULARES (DISEÑO APP NATIVA)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768);
@@ -144,6 +145,13 @@ export default function App() {
     loadRestockRequests();
   };
 
+  // Función unificada para navegar entre pantallas y ocultar menú en celular
+  const handleNavClick = (tabName, subTab = null) => {
+    setActiveTab(tabName);
+    if (subTab) setSubTabRestock(subTab);
+    if (isMobile) setIsSidebarOpen(false); // Cierra el menú al elegir opción
+  };
+
   const loadProductsOnline = async () => { try { const res = await fetch(`${API_URL}/api/products`); if (res.ok) { const data = await res.json(); setProducts(data); await db.products.bulkPut(data); } } catch (e) { loadProductsLocal(); } };
   const loadProductsLocal = async () => { setProducts(await db.products.toArray()); };
   const loadPreventaProductsOnline = async () => { try { const res = await fetch(`${API_URL}/api/preventa-products`); if (res.ok) { const data = await res.json(); setPreventaProducts(data); await db.preventa_products.bulkPut(data); } } catch (e) {} };
@@ -161,7 +169,6 @@ export default function App() {
     setIsLoggingIn(true);
     setLoginError('');
 
-    // 1. Intentar validar localmente en Dexie (Modo 100% Offline primero)
     try {
       const localUser = await db.users.where('username').equals(loginUser.toLowerCase().trim()).first();
       if (localUser && localUser.password === loginPass.trim()) {
@@ -170,11 +177,8 @@ export default function App() {
         setIsLoggingIn(false);
         return;
       }
-    } catch (err) {
-      console.log("Aviso base local:", err);
-    }
+    } catch (err) { console.log("Aviso base local:", err); }
 
-    // 2. Si no hay red y no se encontró localmente
     if (!navigator.onLine) {
       setLoginError('Sin conexión. Usuario/Clave local incorrectos.');
       setIsLoggingIn(false);
@@ -188,14 +192,9 @@ export default function App() {
         setCurrentUser(data.user); 
         localStorage.setItem('pos_user', JSON.stringify(data.user)); 
         processSyncQueue(); 
-      } else {
-        setLoginError(data.error || 'Credenciales incorrectas');
-      }
-    } catch (e) { 
-      setLoginError('Error de red al conectar con el servidor.'); 
-    } finally { 
-      setIsLoggingIn(false); 
-    }
+      } else { setLoginError(data.error || 'Credenciales incorrectas'); }
+    } catch (e) { setLoginError('Error de red al conectar con el servidor.'); } 
+    finally { setIsLoggingIn(false); }
   };
 
   const handleLogout = () => { localStorage.removeItem('pos_user'); setCurrentUser(null); setActiveShift(null); setCart([]); };
@@ -404,7 +403,7 @@ export default function App() {
         setDeliveryPerson('');
         setRestockSearch('');
         loadRestockRequests();
-        setSubTabRestock('recibir');
+        handleNavClick('restock', 'recibir');
       } else {
         alert(`Error al enviar a ruta: ${dispatchData.error || 'Desconocido'}`);
       }
@@ -507,25 +506,31 @@ export default function App() {
   return (
     <>
       <style>{`
-        html, body, #root { height: 100%; min-height: 100vh; margin: 0; padding: 0; background: #0f172a; color: #fff; font-family: sans-serif; overflow-x: hidden; }
-        .pos-layout { display: flex; flex-direction: row; min-height: 100vh; height: 100%; }
-        .pos-sidebar { width: 260px; background: #1e293b; padding: 1.5rem 1rem; display: flex; flex-direction: column; border-right: 1px solid #334155; flex-shrink: 0; overflow-y: auto; }
+        /* CSS CORE - ESTILO APP NATIVA */
+        html, body, #root { height: 100%; min-height: 100vh; margin: 0; padding: 0; background: #0f172a; color: #fff; font-family: sans-serif; overflow: hidden; }
+        .pos-layout { display: flex; flex-direction: row; height: 100vh; width: 100vw; overflow: hidden; }
+        
+        .pos-sidebar { width: 260px; background: #1e293b; padding: 1.5rem 1rem; display: flex; flex-direction: column; border-right: 1px solid #334155; flex-shrink: 0; overflow-y: auto; z-index: 10; }
         .sidebar-top-section { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
         .nav-buttons { display: flex; flex-direction: column; gap: 0.4rem; }
         .nav-btn { padding: 0.9rem 1rem; text-align: left; background: transparent; color: #cbd5e1; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; transition: all 0.2s ease; }
         .nav-btn:hover { background: #334155; color: #fff; }
         .nav-btn.active { background: #2563eb; color: #fff; font-weight: bold; }
-        .pos-content { flex: 1; padding: 1.5rem; overflow-y: auto; overflow-x: hidden; }
+        
+        .pos-content { flex: 1; padding: 1.5rem; overflow-y: auto; overflow-x: hidden; position: relative; }
         .pos-grid-container { display: flex; gap: 1.25rem; height: 100%; align-items: stretch; }
         .pos-products-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; overflow-y: auto; padding-right: 4px; padding-bottom: 2rem; }
         .pos-cart { width: 400px; background: #1e293b; border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; border: 1px solid #334155; flex-shrink: 0; }
         .cart-items-wrapper { flex: 1; overflow-y: auto; padding-right: 6px; min-height: 150px; }
+        
         .responsive-table-wrapper { width: 100%; overflow-x: auto; background: #1e293b; border-radius: 8px; }
         .responsive-table { width: 100%; border-collapse: collapse; min-width: 600px; }
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
-        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
         
+        .mobile-header { display: none; height: 60px; background: #1e293b; padding: 0 1rem; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; flex-shrink: 0; z-index: 20; width: 100%; }
+
         /* REGLAS DE IMPRESIÓN TÉRMICA */
         @media print {
           @page { size: 58mm auto; margin: 0; }
@@ -542,19 +547,24 @@ export default function App() {
           body { background: #ffffff !important; color: #000000 !important; }
         }
         
+        /* ========================================== */
+        /* ADAPTABILIDAD TOTAL PARA CELULARES */
+        /* ========================================== */
         @media (max-width: 768px) {
-          .pos-layout { flex-direction: column; height: auto; display: block; }
-          .pos-sidebar { width: 100%; box-sizing: border-box; border-right: none; border-bottom: 1px solid #334155; padding: 1rem; position: relative; }
-          .sidebar-top-section { flex-direction: row; justify-content: space-between; align-items: flex-start; padding-bottom: 1rem; }
-          .nav-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding-bottom: 0.5rem; border-top: 1px solid #334155; margin-top: 0.8rem; padding-top: 0.8rem; }
-          .nav-btn { white-space: normal; text-align: center; padding: 0.6rem 0.5rem; font-size: 0.85rem; }
-          .pos-content { padding: 0.8rem; overflow: visible; height: auto; }
-          .pos-grid-container { flex-direction: column; height: auto; display: flex; gap: 1rem; }
-          .pos-products-area { display: flex; flex-direction: column; }
-          .products-grid { max-height: 35vh; overflow-y: auto; padding-right: 5px; border-bottom: 2px dashed #475569; padding-bottom: 1rem; }
+          .pos-layout { flex-direction: column; }
+          .mobile-header { display: flex !important; }
+          
+          /* Menú Lateral Flotante para celular */
+          .pos-sidebar { position: absolute; top: 60px; left: 0; right: 0; bottom: 0; width: 100%; z-index: 50; border-right: none; padding-bottom: 4rem; }
+          .pos-sidebar.hidden-mobile { display: none !important; }
+          
+          .pos-content { padding: 0.8rem; padding-bottom: 5rem; } /* Margen para deslizar bien hasta abajo */
+          
+          .pos-grid-container { flex-direction: column; gap: 1rem; }
           .pos-cart { width: 100%; box-sizing: border-box; height: auto; margin-top: 0; }
-          .cart-items-wrapper { max-height: 30vh; overflow-y: auto; padding-right: 5px; }
-          .stats-grid { grid-template-columns: 1fr; }
+          
+          /* Ajuste para formularios modales en móvil */
+          input, select, button { font-size: 16px !important; } /* Evita zoom molesto en iOS/Android */
         }
       `}</style>
       
@@ -608,14 +618,36 @@ export default function App() {
       </div>
       
       <div className="no-print pos-layout">
-        <div className="pos-sidebar">
-          <div className="sidebar-top-section">
-            <div>
-              <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
-              <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{currentUser.name} <br/> <span style={{ color: '#38bdf8' }}>{currentUser.role}</span></div>
-            </div>
-            <button onClick={handleLogout} style={{ width: '100%', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
+        
+        {/* BARRA SUPERIOR MÓVIL (NUEVO) */}
+        {isMobile && (
+          <div className="mobile-header">
+            <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: 0 }}>🌱 TERRA FRUTOS SECOS</h3>
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} style={{ background: '#334155', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '1.4rem', cursor: 'pointer' }}>
+              {isSidebarOpen ? '✖' : '☰'}
+            </button>
           </div>
+        )}
+
+        {/* SIDEBAR (MENÚ LATERAL) */}
+        <div className={`pos-sidebar ${isMobile && !isSidebarOpen ? 'hidden-mobile' : ''}`}>
+          {!isMobile && (
+            <div className="sidebar-top-section">
+              <div>
+                <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
+                <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{currentUser.name} <br/> <span style={{ color: '#38bdf8' }}>{currentUser.role}</span></div>
+              </div>
+              <button onClick={handleLogout} style={{ width: '100%', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
+            </div>
+          )}
+          
+          {isMobile && (
+            <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid #334155', paddingBottom: '1rem' }}>
+              <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Hola, <strong>{currentUser.name}</strong> <span style={{ color: '#38bdf8' }}>({currentUser.role})</span></div>
+              <button onClick={handleLogout} style={{ width: '100%', marginTop: '1rem', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
+            </div>
+          )}
+
           <div style={{ marginBottom: '1.5rem' }}>
             {!activeShift ? (
               <button onClick={() => setShowShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>▶️ Iniciar Turno</button>
@@ -623,32 +655,34 @@ export default function App() {
               <button onClick={() => setShowCloseShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#166534', color: '#4ade80', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>🟢 Cerrar Turno #{activeShift.id}</button>
             )}
           </div>
+          
           <div className="nav-buttons">
-            <button onClick={() => setActiveTab('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local (Caja)</button>
+            <button onClick={() => handleNavClick('pos')} className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}>💳 POS Local (Caja)</button>
             {isAdmin && (
               <>
-                <button onClick={() => setActiveTab('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
-                <button onClick={() => setActiveTab('fabrica_inventory')} className={`nav-btn ${activeTab === 'fabrica_inventory' ? 'active' : ''}`}>🏭 Inventario Fábrica</button>
+                <button onClick={() => handleNavClick('inventory')} className={`nav-btn ${activeTab === 'inventory' ? 'active' : ''}`}>📦 Inventario Local</button>
+                <button onClick={() => handleNavClick('fabrica_inventory')} className={`nav-btn ${activeTab === 'fabrica_inventory' ? 'active' : ''}`}>🏭 Inventario Fábrica</button>
                 
                 {/* BOTÓN LOGÍSTICA / DESPACHOS */}
-                <button onClick={() => { setActiveTab('restock'); setSubTabRestock('armar'); }} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Logística / Despachos</button>
+                <button onClick={() => handleNavClick('restock', 'armar')} className={`nav-btn ${activeTab === 'restock' ? 'active' : ''}`}>📥 Logística / Despachos</button>
                 
-                <button onClick={() => setActiveTab('preventa_orders')} className={`nav-btn ${activeTab === 'preventa_orders' ? 'active' : ''}`}>📋 Pedidos Preventista</button>
-                <button onClick={() => setActiveTab('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
-                <button onClick={() => setActiveTab('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
-                <button onClick={() => setActiveTab('employees')} className={`nav-btn ${activeTab === 'employees' ? 'active' : ''}`}>👥 Empleados</button>
-                <button onClick={() => setActiveTab('reports')} className={`nav-btn ${activeTab === 'reports' ? 'active' : ''}`}>📊 Reportes</button>
-                <button onClick={() => setActiveTab('dian')} className={`nav-btn ${activeTab === 'dian' ? 'active' : ''}`}>⚙️ Config</button>
+                <button onClick={() => handleNavClick('preventa_orders')} className={`nav-btn ${activeTab === 'preventa_orders' ? 'active' : ''}`}>📋 Pedidos Preventista</button>
+                <button onClick={() => handleNavClick('out_of_stock')} className={`nav-btn ${activeTab === 'out_of_stock' ? 'active' : ''}`}>⚠️ Agotados</button>
+                <button onClick={() => handleNavClick('accounting')} className={`nav-btn ${activeTab === 'accounting' ? 'active' : ''}`}>📈 Contabilidad</button>
+                <button onClick={() => handleNavClick('employees')} className={`nav-btn ${activeTab === 'employees' ? 'active' : ''}`}>👥 Empleados</button>
+                <button onClick={() => handleNavClick('reports')} className={`nav-btn ${activeTab === 'reports' ? 'active' : ''}`}>📊 Reportes</button>
+                <button onClick={() => handleNavClick('dian')} className={`nav-btn ${activeTab === 'dian' ? 'active' : ''}`}>⚙️ Config</button>
               </>
             )}
           </div>
         </div>
         
+        {/* CONTENEDOR PRINCIPAL */}
         <div className="pos-content">
           {activeTab === 'pos' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
-                <input type="text" placeholder="🔍 Buscar o Escanear Código de Barras aquí..." value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const matched = products.find((p) => p.barcode === search.trim() || p.barcode === search.trim().toUpperCase()); if (matched) { addToCart(matched); setSearch(''); } } }} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+                <input type="text" placeholder="🔍 Buscar o Escanear Código aquí..." value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const matched = products.find((p) => p.barcode === search.trim() || p.barcode === search.trim().toUpperCase()); if (matched) { addToCart(matched); setSearch(''); } } }} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
                 <div className="products-grid">
                   {products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search)).map((p) => (
                     <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -661,7 +695,7 @@ export default function App() {
               <div className="pos-cart">
                 <h3 style={{ margin: '0 0 1rem 0', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>🛒 Carrito Local ({cart.length})</h3>
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}><input type="text" value={customerDoc} onChange={(e) => handleDocChange(e.target.value)} placeholder="NIT / CC" style={{ width: '40%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} /><input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nombre Cliente" style={{ width: '60%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} /></div>
-                <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="📧 Correo para envío de factura PDF (opcional)" style={{ width: '100%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '1rem' }} />
+                <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="📧 Correo para envío de factura PDF" style={{ width: '100%', boxSizing: 'border-box', padding: '0.6rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px', marginBottom: '1rem' }} />
                 <div className="cart-items-wrapper">
                   {cart.map((item) => (
                     <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', background: '#0f172a', padding: '0.8rem', borderRadius: '6px' }}>
@@ -700,12 +734,12 @@ export default function App() {
                 <button 
                   onClick={() => setSubTabRestock('armar')} 
                   style={{ flex: 1, minWidth: '150px', padding: '0.8rem', background: subTabRestock === 'armar' ? '#10b981' : 'transparent', color: subTabRestock === 'armar' ? '#fff' : '#94a3b8', border: subTabRestock === 'armar' ? 'none' : '1px solid #334155', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                  📦 1. Armar Despacho (Canastas)
+                  📦 1. Armar Despacho
                 </button>
                 <button 
                   onClick={() => setSubTabRestock('recibir')} 
                   style={{ flex: 1, minWidth: '150px', padding: '0.8rem', background: subTabRestock === 'recibir' ? '#3b82f6' : 'transparent', color: subTabRestock === 'recibir' ? '#fff' : '#94a3b8', border: subTabRestock === 'recibir' ? 'none' : '1px solid #334155', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                  🚚 2. Entregas en Ruta (Recibir)
+                  🚚 2. Entregas (Recibir)
                 </button>
               </div>
 
@@ -717,11 +751,11 @@ export default function App() {
                   <div style={{ flex: isMobile ? 'none' : '2', width: '100%', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', minHeight: '350px', boxSizing: 'border-box' }}>
                     <h3 style={{ margin: '0 0 0.5rem 0', color: '#10b981', fontSize: '1rem' }}>Seleccionar Mercancía (Catálogo del Local)</h3>
                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
-                      Agrega productos a las canastas. Se sumarán al inventario del local solo al entregarse.
+                      Agrega productos a las canastas. Se sumarán al local al entregarse.
                     </p>
                     <input
                       type="text"
-                      placeholder="🔍 Buscar producto del local..."
+                      placeholder="🔍 Buscar producto local..."
                       value={restockSearch}
                       onChange={(e) => setRestockSearch(e.target.value)}
                       style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid #10b981', background: '#0f172a', color: '#fff', marginBottom: '1rem' }}
@@ -731,7 +765,7 @@ export default function App() {
                         <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: `1px solid ${activeBasketId ? '#3b82f6' : '#334155'}`, cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
                           <strong style={{ fontSize: '0.85rem', margin: '0.4rem 0' }}>{p.name}</strong>
-                          <span style={{ fontSize: '0.75rem', color: '#38bdf8' }}>Stock Actual: {p.stock || '0'}</span>
+                          <span style={{ fontSize: '0.75rem', color: '#38bdf8' }}>Stock: {p.stock || '0'}</span>
                         </div>
                       ))}
                     </div>
@@ -754,7 +788,7 @@ export default function App() {
 
                     <div style={{ flex: 1, overflowY: 'auto', background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', maxHeight: isMobile ? '200px' : '30vh' }}>
                       {baskets.find(b => b.id === activeBasketId)?.items.length === 0 ? (
-                        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', marginTop: '1rem' }}>Caja vacía. Clic en la izquierda para agregar.</p>
+                        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', marginTop: '1rem' }}>Caja vacía. Clic en catálogo para agregar.</p>
                       ) : (
                         baskets.find(b => b.id === activeBasketId)?.items.map((item) => (
                           <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem', background: '#1e293b', marginBottom: '0.4rem', borderRadius: '4px' }}>
@@ -787,13 +821,13 @@ export default function App() {
               {subTabRestock === 'recibir' && (
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', flex: 1, overflowY: 'auto' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <h3 style={{ color: '#3b82f6', margin: 0, fontSize: '1.1rem' }}>🚚 Entregas en Ruta (Pendientes)</h3>
+                    <h3 style={{ color: '#3b82f6', margin: 0, fontSize: '1.1rem' }}>🚚 Entregas (Pendientes)</h3>
                     <button onClick={loadRestockRequests} style={{ padding: '0.5rem 1rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.85rem', cursor: 'pointer' }}>🔄 Actualizar</button>
                   </div>
 
                   {restockRequests.filter(r => r.status === 'DISPATCHED').length === 0 ? (
                     <div style={{ background: '#0f172a', padding: '2rem', textAlign: 'center', borderRadius: '8px', border: '1px solid #334155' }}>
-                      <p style={{ color: '#94a3b8', fontSize: '0.95rem', margin: 0 }}>No hay despachos en ruta pendientes por recibir.</p>
+                      <p style={{ color: '#94a3b8', fontSize: '0.95rem', margin: 0 }}>No hay despachos en ruta pendientes.</p>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -862,7 +896,7 @@ export default function App() {
           {activeTab === 'inventory' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Inventario Local (Caja)</h2><button onClick={() => setShowAddModal(true)} style={{ padding: '0.8rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Ingresar Producto Local</button>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📦 Inventario Local</h2><button onClick={() => setShowAddModal(true)} style={{ padding: '0.8rem 1.2rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Nuevo Local</button>
               </div>
               <input type="text" placeholder="🔍 Buscar en caja..." value={invSearch} onChange={(e) => setInvSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
@@ -884,7 +918,7 @@ export default function App() {
           {activeTab === 'fabrica_inventory' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-                <h2 style={{ color: '#eab308', margin: 0 }}>🏭 Inventario Fábrica</h2><button onClick={openAddPreventaModal} style={{ padding: '0.8rem 1.2rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Nuevo Producto Fábrica</button>
+                <h2 style={{ color: '#eab308', margin: 0 }}>🏭 Inventario Fábrica</h2><button onClick={openAddPreventaModal} style={{ padding: '0.8rem 1.2rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Nuevo Fábrica</button>
               </div>
               <input type="text" placeholder="🔍 Buscar producto en fábrica..." value={invPreventaSearch} onChange={(e) => setInvPreventaSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
@@ -904,7 +938,7 @@ export default function App() {
                           <td style={{ color: '#eab308', fontWeight: 'bold' }}>${p.price?.toLocaleString('es-CO')}</td>
                           <td style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{rulesPreview}</td>
                           <td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
-                          <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => openEditPreventaModal(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️ Configurar</button><button onClick={() => handleDeletePreventaProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
+                          <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => openEditPreventaModal(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️ Config</button><button onClick={() => handleDeletePreventaProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                         </tr>
                       );
                     })}
@@ -917,7 +951,7 @@ export default function App() {
           {activeTab === 'preventa_orders' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📋 Trazabilidad Pedidos Preventista</h2><button onClick={loadPreventaOrders} style={{ padding: '0.8rem 1.2rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>🔄 Actualizar</button>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📋 Pedidos Preventista</h2><button onClick={loadPreventaOrders} style={{ padding: '0.8rem 1.2rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>🔄 Actualizar</button>
               </div>
               <div className="responsive-table-wrapper">
                 <table className="responsive-table">
@@ -963,7 +997,7 @@ export default function App() {
           
           {activeTab === 'out_of_stock' && (
             <div>
-              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Agotados (Ambos Inventarios)</h2>
+              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Agotados</h2>
               <input type="text" placeholder="🔍 Buscar agotados..." value={outSearch} onChange={(e) => setOutSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               
               <h4 style={{color:'#38bdf8', borderBottom:'1px solid #334155', paddingBottom:'0.5rem'}}>Inventario Local (Caja)</h4>
@@ -994,7 +1028,7 @@ export default function App() {
           {activeTab === 'accounting' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-                <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Contabilidad Central</h2>
+                <h2 style={{ color: '#38bdf8', margin: 0 }}>📈 Contabilidad</h2>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button onClick={handleExportCSV} style={{ padding: '0.6rem 1rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>📥 CSV</button>
                   <button onClick={() => setShowTxModal(true)} style={{ padding: '0.6rem 1rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>➕ Ingreso/Egreso</button>
@@ -1082,7 +1116,7 @@ export default function App() {
           
           {activeTab === 'dian' && (
             <div style={{ maxWidth: '600px' }}>
-              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>⚙️ Configuración del Negocio</h2>
+              <h2 style={{ color: '#38bdf8', marginBottom: '1.5rem' }}>⚙️ Configuración</h2>
               <form onSubmit={handleSaveConfig} style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <input type="text" value={storeConfig.razon_social} onChange={(e) => setStoreConfig({ ...storeConfig, razon_social: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="Razón Social" />
                 <input type="text" value={storeConfig.nit} onChange={(e) => setStoreConfig({ ...storeConfig, nit: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} placeholder="NIT" />
@@ -1093,7 +1127,7 @@ export default function App() {
               <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', marginTop: '1.5rem' }}>
                 <h3 style={{ margin: '0 0 1rem 0', color: '#ef4444' }}>🧹 Cierre de Mes (Optimización)</h3>
                 <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
-                  Utiliza esta opción al finalizar el mes para eliminar el historial antiguo (Ventas, Turnos, Pedidos Cobrados y Contabilidad). Esto liberará espacio y hará que el sistema funcione mucho más rápido. ¡Recuerda descargar tus reportes CSV primero!
+                  Utiliza esta opción al finalizar el mes para eliminar el historial antiguo. Esto liberará espacio y hará que el sistema funcione mucho más rápido. ¡Recuerda descargar tus reportes CSV primero!
                 </p>
                 <button onClick={handleMonthClose} style={{ width: '100%', padding: '1rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
                   ⚠️ EJECUTAR CIERRE DE MES
