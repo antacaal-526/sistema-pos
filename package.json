@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "nodemailer": "^10.0.3",
-    "pdfkit": "^0.20.2"
+    "pdfkit": "^0.20.2",
+    "vite-plugin-pwa": "^2.0.0"
   }
 }
