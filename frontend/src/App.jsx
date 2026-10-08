@@ -90,14 +90,7 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [printShiftData, setPrintShiftData] = useState(null);
 
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   useEffect(() => {
     fetch(`${API_URL}/api/ping`).catch(() => {});
@@ -144,7 +137,7 @@ export default function App() {
   const handleTabSwitch = (tab) => {
     setActiveTab(tab);
     if (tab === 'restock') setSubTabRestock('armar');
-    setIsMobileMenuOpen(false); // Cierra el menú al elegir una opción
+    setIsMobileMenuOpen(false); // Cierra automáticamente el menú al escoger una opción
   };
 
   const loadProductsOnline = async () => { try { const res = await fetch(`${API_URL}/api/products`); if (res.ok) { const data = await res.json(); setProducts(data); await db.products.bulkPut(data); } } catch (e) { loadProductsLocal(); } };
@@ -345,11 +338,8 @@ export default function App() {
     const updatedBaskets = baskets.map(basket => {
       if (basket.id === activeBasketId) {
         const exist = basket.items.find((x) => x.barcode === p.barcode);
-        if (exist) {
-          return basket;
-        } else {
-          return { ...basket, items: [...basket.items, { ...p, quantity: 1 }] };
-        }
+        if (exist) { return basket; } 
+        else { return { ...basket, items: [...basket.items, { ...p, quantity: 1 }] }; }
       }
       return basket;
     });
@@ -378,31 +368,17 @@ export default function App() {
     setIsRestocking(true);
 
     try {
-      const payloadFormat = baskets.filter(b => b.items.length > 0).map(b => ({
-        canasta: b.name,
-        items: b.items
-      }));
-
+      const payloadFormat = baskets.filter(b => b.items.length > 0).map(b => ({ canasta: b.name, items: b.items }));
       const createRes = await fetch(`${API_URL}/api/restock-requests`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          items: payloadFormat, 
-          notes: `Despacho armado por: ${currentUser.name}`,
-          user_name: currentUser.name 
-        })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: payloadFormat, notes: `Despacho armado por: ${currentUser.name}`, user_name: currentUser.name })
       });
       const createData = await createRes.json();
-      
       if (!createRes.ok || !createData.success) throw new Error(createData.error || 'Error al crear el despacho');
 
       const dispatchRes = await fetch(`${API_URL}/api/restock-requests/${createData.requestId}/dispatch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          user_name: currentUser.name,
-          delivery_person: deliveryPerson
-        })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_name: currentUser.name, delivery_person: deliveryPerson })
       });
       const dispatchData = await dispatchRes.json();
 
@@ -413,46 +389,25 @@ export default function App() {
         setRestockSearch('');
         loadRestockRequests();
         setSubTabRestock('recibir');
-      } else {
-        alert(`Error al enviar a ruta: ${dispatchData.error || 'Desconocido'}`);
-      }
-    } catch (e) {
-      alert(`Error de red al intentar despachar: ${e.message}`);
-    } finally {
-      setIsRestocking(false);
-    }
+      } else { alert(`Error al enviar a ruta: ${dispatchData.error || 'Desconocido'}`); }
+    } catch (e) { alert(`Error de red al intentar despachar: ${e.message}`); } finally { setIsRestocking(false); }
   };
 
   const handleConfirmDelivery = async (id) => {
     if (!window.confirm('✅ ¿Seguro que el Local ya recibió las canastas físicamente? Al confirmar, estos productos SE SUMARÁN al inventario de la tienda.')) return;
-    
     try {
-      const res = await fetch(`${API_URL}/api/restock-requests/${id}/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_name: currentUser.name })
-      });
+      const res = await fetch(`${API_URL}/api/restock-requests/${id}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_name: currentUser.name }) });
       const data = await res.json();
-      if (res.ok && data.success) {
-        alert('🎉 ¡Mercancía Ingresada! El inventario del Local se ha actualizado exitosamente.');
-        loadRestockRequests();
-        loadProductsOnline();
-      } else {
-        alert(`Error al confirmar entrega: ${data.error}`);
-      }
-    } catch (e) {
-      alert('Error de red al intentar confirmar la entrega');
-    }
+      if (res.ok && data.success) { alert('🎉 ¡Mercancía Ingresada! El inventario del Local se ha actualizado exitosamente.'); loadRestockRequests(); loadProductsOnline(); } 
+      else { alert(`Error al confirmar entrega: ${data.error}`); }
+    } catch (e) { alert('Error de red al intentar confirmar la entrega'); }
   };
 
   const handleCancelDelivery = async (id) => {
     if (!window.confirm('❌ ¿Deseas CANCELAR esta entrega en ruta? El pedido se eliminará.')) return;
     try {
       const res = await fetch(`${API_URL}/api/restock-requests/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        alert('Entrega cancelada exitosamente.');
-        loadRestockRequests();
-      }
+      if (res.ok) { alert('Entrega cancelada exitosamente.'); loadRestockRequests(); }
     } catch (e) { alert('Error al cancelar la entrega.'); }
   };
 
@@ -525,7 +480,26 @@ export default function App() {
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
 
+        /* ESTILOS HAMBURGUESA OCULTA EN PC */
+        .mobile-header { display: none; }
+        .mobile-overlay { display: none; }
+
+        /* CORRECCIONES MOVILES CSS PURO */
         @media (max-width: 768px) {
+          /* HACK MAESTRO DE SCROLL PARA PREVENTISTA Y ENTREGADOR */
+          html, body, #root { height: auto !important; min-height: 100vh !important; overflow-y: auto !important; overflow-x: hidden !important; }
+          div[style*="height: 100vh"], div[style*="height:100vh"] { height: auto !important; min-height: 100vh !important; }
+          div[style*="overflow: hidden"], div[style*="overflow:hidden"] { overflow-y: auto !important; }
+
+          /* BARRA HAMBURGUESA */
+          .mobile-header { display: flex !important; }
+          .mobile-close-btn { display: block !important; }
+          .mobile-overlay.show { display: block !important; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9998; }
+          
+          .pos-layout { flex-direction: column; height: auto; display: block; }
+          .pos-sidebar { position: fixed !important; top: 0; left: 0; width: 280px !important; height: 100vh !important; z-index: 9999; transform: translateX(-100%); transition: transform 0.3s ease; box-shadow: 4px 0 15px rgba(0,0,0,0.5); }
+          .pos-sidebar.open { transform: translateX(0) !important; }
+
           .pos-grid-container { flex-direction: column; height: auto; display: flex; gap: 1.5rem; }
           .pos-products-area { min-height: 400px; flex-shrink: 0; }
           .products-grid { max-height: 45vh; padding-bottom: 1rem; }
@@ -537,8 +511,8 @@ export default function App() {
         }
       `}</style>
 
-      {/* HEADER MOVIL - CON BOTÓN DE HAMBURGUESA */}
-      <div className="no-print mobile-header" style={{ display: isMobile ? 'flex' : 'none', background: '#1e293b', padding: '1rem', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
+      {/* HEADER MOVIL - CON BOTÓN DE HAMBURGUESA (Se oculta en PC) */}
+      <div className="no-print mobile-header" style={{ background: '#1e293b', padding: '1rem', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
            <button onClick={() => setIsMobileMenuOpen(true)} style={{ background: '#334155', border: 'none', color: 'white', padding: '0.5rem 0.8rem', fontSize: '1.2rem', borderRadius: '4px', cursor: 'pointer' }}>
              ☰
@@ -548,30 +522,20 @@ export default function App() {
          {activeShift && <span style={{ color: '#4ade80', fontSize: '0.8rem', fontWeight: 'bold' }}>🟢 Turno Abierto</span>}
       </div>
 
-      <div className="no-print pos-layout" style={{ height: isMobile ? 'calc(100vh - 65px)' : '100vh', display: 'flex', flexDirection: isMobile ? 'column' : 'row', overflow: 'hidden' }}>
+      <div className="no-print pos-layout" style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
         
         {/* OVERLAY OSCURO PARA CERRAR EL MENU EN MOVIL */}
-        {isMobile && isMobileMenuOpen && (
-           <div onClick={() => setIsMobileMenuOpen(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998 }} />
-        )}
+        <div className={`mobile-overlay ${isMobileMenuOpen ? 'show' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
 
-        {/* SIDEBAR - Panel Lateral con clases reactivas */}
-        <div className="pos-sidebar" style={{
-           width: '260px', background: '#1e293b', padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', borderRight: '1px solid #334155', flexShrink: 0, overflowY: 'auto',
-           ...(isMobile ? {
-               position: 'fixed', top: 0, left: 0, height: '100vh', zIndex: 9999, transition: 'transform 0.3s ease',
-               transform: isMobileMenuOpen ? 'translateX(0)' : 'translateX(-100%)', boxShadow: '4px 0 15px rgba(0,0,0,0.5)'
-           } : {})
-        }}>
+        {/* SIDEBAR - Panel Lateral con clases reactivas CSS */}
+        <div className={`pos-sidebar ${isMobileMenuOpen ? 'open' : ''}`} style={{ background: '#1e293b', padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', borderRight: '1px solid #334155', flexShrink: 0, overflowY: 'auto' }}>
           <div className="sidebar-top-section" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid #334155' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
                 <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{currentUser.name} <br/> <span style={{ color: '#38bdf8' }}>{currentUser.role}</span></div>
               </div>
-              {isMobile && (
-                <button onClick={() => setIsMobileMenuOpen(false)} style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: '1.5rem', cursor: 'pointer' }}>✖</button>
-              )}
+              <button className="mobile-header" onClick={() => setIsMobileMenuOpen(false)} style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: '1.5rem', cursor: 'pointer' }}>✖</button>
             </div>
             <button onClick={handleLogout} style={{ width: '100%', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
           </div>
@@ -602,7 +566,7 @@ export default function App() {
           </div>
         </div>
         
-        <div className="pos-content" style={{ flex: 1, padding: isMobile ? '0.8rem' : '1.5rem', overflowY: 'auto', overflowX: 'hidden' }}>
+        <div className="pos-content" style={{ flex: 1, padding: '1.5rem', overflowY: 'auto', overflowX: 'hidden' }}>
           {activeTab === 'pos' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
@@ -668,7 +632,7 @@ export default function App() {
 
               {subTabRestock === 'armar' && (
                 <div className="restock-responsive-container">
-                  <div style={{ flex: isMobile ? 'none' : '2', width: '100%', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', minHeight: '350px', boxSizing: 'border-box' }}>
+                  <div style={{ flex: '2', width: '100%', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', minHeight: '350px', boxSizing: 'border-box' }}>
                     <h3 style={{ margin: '0 0 0.5rem 0', color: '#10b981', fontSize: '1rem' }}>Catálogo para Logística y Despachos</h3>
                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
                       Agrega productos a las canastas. En la caja derecha podrás <strong>escribir la cantidad</strong> exacta a enviar.
@@ -680,7 +644,7 @@ export default function App() {
                       onChange={(e) => setRestockSearch(e.target.value)}
                       style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid #10b981', background: '#0f172a', color: '#fff', marginBottom: '1rem' }}
                     />
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.8rem', overflowY: 'auto', flex: 1, maxHeight: isMobile ? '300px' : '50vh' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.8rem', overflowY: 'auto', flex: 1, maxHeight: '50vh' }}>
                       {products.filter((p) => p.name.toLowerCase().includes(restockSearch.toLowerCase()) || p.barcode.includes(restockSearch)).map((p) => (
                         <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: `1px solid ${activeBasketId ? '#3b82f6' : '#334155'}`, cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
@@ -691,7 +655,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div style={{ flex: isMobile ? 'none' : '1', width: '100%', display: 'flex', flexDirection: 'column', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', minHeight: '350px', boxSizing: 'border-box' }}>
+                  <div style={{ flex: '1', width: '100%', display: 'flex', flexDirection: 'column', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', minHeight: '350px', boxSizing: 'border-box' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
                       <h3 style={{ margin: 0, fontSize: '1rem', color: '#f8fafc' }}>📦 Canastas de Envío</h3>
                       <button onClick={handleAddBasket} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>+ Añadir Caja</button>
@@ -705,7 +669,7 @@ export default function App() {
                       ))}
                     </div>
 
-                    <div style={{ flex: 1, overflowY: 'auto', background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', maxHeight: isMobile ? '250px' : '30vh' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', maxHeight: '30vh' }}>
                       {baskets.find(b => b.id === activeBasketId)?.items.length === 0 ? (
                         <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', marginTop: '1rem' }}>Caja vacía. Clic en la izquierda para agregar.</p>
                       ) : (
@@ -714,7 +678,6 @@ export default function App() {
                             <span style={{ fontSize: '0.85rem', flex: 1 }}>{item.name}</span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                               <button onClick={() => updateRestockQty(activeBasketId, item.barcode, item.quantity - 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '28px', height: '28px', borderRadius: '4px', fontWeight: 'bold' }}>-</button>
-                              
                               <input 
                                 type="number" 
                                 min="0"
@@ -722,7 +685,6 @@ export default function App() {
                                 onChange={(e) => updateRestockQty(activeBasketId, item.barcode, e.target.value === '' ? 0 : parseInt(e.target.value, 10))} 
                                 style={{ width: '55px', textAlign: 'center', background: '#0f172a', border: '1px solid #3b82f6', color: '#fff', borderRadius: '4px', padding: '0.3rem', fontSize: '0.9rem', fontWeight: 'bold' }} 
                               />
-                              
                               <button onClick={() => updateRestockQty(activeBasketId, item.barcode, item.quantity + 1)} style={{ background: '#334155', color: '#fff', border: 'none', width: '28px', height: '28px', borderRadius: '4px', fontWeight: 'bold' }}>+</button>
                               <button onClick={() => updateRestockQty(activeBasketId, item.barcode, 0)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', marginLeft: '0.2rem' }}>❌</button>
                             </div>
