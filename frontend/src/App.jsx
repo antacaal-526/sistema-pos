@@ -303,7 +303,7 @@ export default function App() {
       await db.syncQueue.add({ type: 'PROCESS_POS_SALE', payload });
       for (const item of cart) { const p = await db.products.get(item.barcode); if (p) await db.products.update(item.barcode, { stock: p.stock - item.quantity }); }
       setLastInvoice({ number: invNumber, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
-      if (saleType === 'Facturada') { setTimeout(() => window.print(), 100); } else { alert(`💾 Venta Guardada Offline. Factura #: ${invNumber}`); }
+      if (saleType === 'Facturada') { setTimeout(() => window.print(), 250); } else { alert(`💾 Venta Guardada Offline. Factura #: ${invNumber}`); }
       setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
       loadProductsLocal(); setIsProcessing(false); return;
     }
@@ -312,7 +312,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.success) {
         setLastInvoice({ number: data.invoice_number, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
-        if (saleType === 'Facturada') { setTimeout(() => window.print(), 100); } else { alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`); }
+        if (saleType === 'Facturada') { setTimeout(() => window.print(), 250); } else { alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`); }
         setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
         loadProductsOnline(); loadTransactions();
       }
@@ -427,7 +427,7 @@ export default function App() {
   const handleSaveUser = async (e) => { e.preventDefault(); try { const res = await fetch(`${API_URL}/api/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) }); if (res.ok) { alert('👤 Empleado creado'); setNewUser({ name: '', username: '', password: '', role: 'Cajero' }); setShowUserModal(false); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleDeleteUser = async (id, name) => { if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual'); if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return; try { const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑 Usuario eliminado'); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleSaveConfig = async (e) => { e.preventDefault(); await fetch(`${API_URL}/api/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(storeConfig) }); alert('Configuración guardada'); };
-  const handlePrintShiftReport = (shift) => { setPrintShiftData(shift); setTimeout(() => window.print(), 300); };
+  const handlePrintShiftReport = (shift) => { setPrintShiftData(shift); setTimeout(() => window.print(), 250); };
   const handleExportCSV = () => { let csvContent = 'data:text/csv;charset=utf-8,FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n'; transactions.forEach((t) => { csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`; }); const link = document.createElement('a'); link.setAttribute('href', encodeURI(csvContent)); link.setAttribute('download', `Reporte_Contable_${new Date().toISOString().slice(0, 10)}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
 
   if (!currentUser) {
@@ -480,11 +480,9 @@ export default function App() {
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
 
-        /* ESTILOS HAMBURGUESA OCULTA EN PC */
         .mobile-header { display: none; }
         .mobile-overlay { display: none; }
 
-        /* CORRECCIONES MOVILES CSS PURO */
         @media (max-width: 768px) {
           html, body, #root { height: auto !important; min-height: 100vh !important; overflow-y: auto !important; overflow-x: hidden !important; }
           div[style*="height: 100vh"], div[style*="height:100vh"] { height: auto !important; min-height: 100vh !important; }
@@ -517,11 +515,61 @@ export default function App() {
           .pos-layout { display: none !important; }
           .no-print { display: none !important; }
           #print-receipt { display: block !important; }
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          /* ELIMINAMOS COLOR-ADJUST PARA EVITAR RENDERIZADO LENTO EN LA IMPRESORA */
+          body, html { margin: 0; padding: 0; background: #fff !important; }
+          @page { margin: 0; }
         }
       `}</style>
 
-      {/* HEADER MOVIL - CON BOTÓN DE HAMBURGUESA (Se oculta en PC) */}
+      <div id="print-receipt" className="print-only" style={{ display: 'none', color: '#000', fontFamily: 'Arial, sans-serif' }}>
+        {printShiftData ? (
+          <div style={{ width: '100%', boxSizing: 'border-box' }}>
+            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '14px', fontWeight: 'bold' }}>🌱 {storeConfig.razon_social}</h3>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>REPORTE DE TURNO #{printShiftData.id || printShiftData.shift_id}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Empleado: <strong>{printShiftData.user_name}</strong></p>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Apertura: {printShiftData.opened_at}</p>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Cierre: {printShiftData.closed_at || 'En curso'}</p>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Ventas Totales: {printShiftData.sales_count || 0}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}><span>Base Inicial:</span><span>${getShiftValFormatted(printShiftData.start_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}><span>Ventas Efectivo:</span><span>${getShiftValFormatted(printShiftData.cash_sales)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}><span>Ventas Transferencia:</span><span>${getShiftValFormatted(printShiftData.transfer_sales)}</span></div>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold' }}><span>TOTAL VENDIDO:</span><span>${getShiftValFormatted(printShiftData.total_sales)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '2px' }}><span>EFECTIVO ESPERADO:</span><span>${getShiftValFormatted(printShiftData.expected_cash || (printShiftData.start_amount + printShiftData.cash_sales))}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '2px' }}><span>EFECTIVO CONTADO:</span><span>${getShiftValFormatted(printShiftData.counted_cash ?? printShiftData.end_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '2px' }}><span>DIFERENCIA:</span><span>${getShiftValFormatted(printShiftData.difference || 0)}</span></div>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+          </div>
+        ) : lastInvoice ? (
+          <div style={{ width: '100%', boxSizing: 'border-box' }}>
+            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '14px', fontWeight: 'bold' }}>🌱 {storeConfig.razon_social}</h3>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>NIT: {storeConfig.nit}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Factura #: <strong>{lastInvoice.number}</strong></p>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Fecha: {lastInvoice.date}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <tbody>
+                {lastInvoice.items.map((it, idx) => (
+                  <tr key={idx}>
+                    <td style={{ verticalAlign: 'top', padding: '1px 0' }}>{it.quantity}x {it.name.substring(0, 16)}</td>
+                    <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '1px 0' }}>${(it.quantity * it.sale_price).toLocaleString('es-CO')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold' }}><span>TOTAL:</span><span>${lastInvoice.total.toLocaleString('es-CO')}</span></div>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Pago: {lastInvoice.paymentMethod}</p>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Recibido: ${lastInvoice.received.toLocaleString('es-CO')}</p>
+            <p style={{ margin: '1px 0', fontSize: '12px' }}>Devueltas: ${lastInvoice.changeGiven.toLocaleString('es-CO')}</p>
+            <p style={{ textAlign: 'center', margin: '4px 0 0 0', fontSize: '10px' }}>{storeConfig.footer_msg}</p>
+          </div>
+        ) : null}
+      </div>
+
       <div className="no-print mobile-header" style={{ background: '#1e293b', padding: '1rem', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
            <button onClick={() => setIsMobileMenuOpen(true)} style={{ background: '#334155', border: 'none', color: 'white', padding: '0.5rem 0.8rem', fontSize: '1.2rem', borderRadius: '4px', cursor: 'pointer' }}>
@@ -534,10 +582,8 @@ export default function App() {
 
       <div className="no-print pos-layout" style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
         
-        {/* OVERLAY OSCURO PARA CERRAR EL MENU EN MOVIL */}
         <div className={`mobile-overlay ${isMobileMenuOpen ? 'show' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
 
-        {/* SIDEBAR - Panel Lateral con clases reactivas CSS */}
         <div className={`pos-sidebar ${isMobileMenuOpen ? 'open' : ''}`} style={{ background: '#1e293b', padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', borderRight: '1px solid #334155', flexShrink: 0, overflowY: 'auto' }}>
           <div className="sidebar-top-section" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid #334155' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1091,7 +1137,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => { setPrintShiftData(shiftSummary); setTimeout(() => window.print(), 300); }} style={{ flex: 1, padding: '0.8rem', background: '#38bdf8', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimir</button>
+              <button onClick={() => { setPrintShiftData(shiftSummary); setTimeout(() => window.print(), 250); }} style={{ flex: 1, padding: '0.8rem', background: '#38bdf8', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimir</button>
               <button onClick={() => setShiftSummary(null)} style={{ flex: 1, padding: '0.8rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar</button>
             </div>
           </div>
