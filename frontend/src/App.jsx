@@ -506,16 +506,12 @@ export default function App() {
           .responsive-table th, .responsive-table td { white-space: normal; word-wrap: break-word; }
         }
 
-        /* ====================================================== */
-        /* BLINDAJE ABSOLUTO DE IMPRESIÓN TÉRMICA (SOLUCIÓN BUG)  */
-        /* ====================================================== */
         @media print {
           .mobile-header { display: none !important; }
           .mobile-overlay { display: none !important; }
           .pos-layout { display: none !important; }
           .no-print { display: none !important; }
           #print-receipt { display: block !important; }
-          /* ELIMINAMOS COLOR-ADJUST PARA EVITAR RENDERIZADO LENTO EN LA IMPRESORA */
           body, html { margin: 0; padding: 0; background: #fff !important; }
           @page { margin: 0; }
         }
@@ -546,6 +542,8 @@ export default function App() {
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
             <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '14px', fontWeight: 'bold' }}>🌱 {storeConfig.razon_social}</h3>
             <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>NIT: {storeConfig.nit}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>{storeConfig.direccion}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>Tel: {storeConfig.telefono}</p>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <p style={{ margin: '1px 0', fontSize: '12px' }}>Factura #: <strong>{lastInvoice.number}</strong></p>
             <p style={{ margin: '1px 0', fontSize: '12px' }}>Fecha: {lastInvoice.date}</p>
