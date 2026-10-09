@@ -423,13 +423,16 @@ app.post('/api/shifts/close', (req, res) => {
   });
 });
 
+// =========================================================================
+// CORRECCIÓN 1: Evita el error SQLITE_CONSTRAINT al borrar un turno
+// =========================================================================
 app.delete('/api/shifts/:id', async (req, res) => {
   try {
     await new Promise((resolve, reject) => {
-      db.run('DELETE FROM shifts WHERE id = ?', [req.params.id], (err) => {
-        if (err) return reject(err);
-        resolve();
-      });
+      db.run('UPDATE sales SET shift_id = NULL WHERE shift_id = ?', [req.params.id], (err) => err ? reject(err) : resolve());
+    });
+    await new Promise((resolve, reject) => {
+      db.run('DELETE FROM shifts WHERE id = ?', [req.params.id], (err) => err ? reject(err) : resolve());
     });
     res.json({ success: true });
   } catch (err) {
@@ -518,47 +521,61 @@ app.post('/api/transactions', (req, res) => {
   db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`, [type, category, description, amount, user_name, getColombiaTimestamp()], () => res.json({ success: true }));
 });
 
-// ==========================================================
-// CORRECCIÓN CONTABLE: AL ELIMINAR UNA VENTA, SE DESCUENTA DEL TURNO
-// ==========================================================
+// =========================================================================
+// CORRECCIÓN 2: Anulación perfecta de ventas con reintegro automático de stock
+// =========================================================================
 app.delete('/api/transactions/:id', async (req, res) => {
   try {
     const txId = req.params.id;
-    // 1. Buscamos la transacción antes de borrarla para saber su descripción y monto
-    db.get('SELECT * FROM transactions WHERE id = ?', [txId], async (err, tx) => {
-      if (err || !tx) {
-        db.run('DELETE FROM transactions WHERE id = ?', [txId], () => {});
-        return res.json({ success: true });
-      }
+    
+    // 1. Obtener la transacción contable
+    const tx = await new Promise((resolve, reject) => {
+      db.get('SELECT * FROM transactions WHERE id = ?', [txId], (err, row) => err ? reject(err) : resolve(row));
+    });
 
-      // Si es una Venta POS (ej: "Venta POS #TF-123456 | ...")
-      if (tx.category === 'Venta POS' && tx.description.includes('Venta POS #')) {
-        const parts = tx.description.split('|')[0]; // "Venta POS #TF-123456 "
-        const invMatch = parts.match(/#([A-Za-z0-9\-]+)/);
-        if (invMatch && invMatch[1]) {
-          const invNum = invMatch[1].trim();
-          
-          // Buscamos la venta en la tabla sales para ver a qué shift_id pertenecía y su método de pago
-          db.get('SELECT * FROM sales WHERE invoice_number = ?', [invNum], (errSale, sale) => {
-            if (sale && sale.shift_id) {
-              // Restamos el monto del total y del método de pago correspondiente en el turno
+    if (tx && tx.category === 'Venta POS' && tx.description.includes('Venta POS #')) {
+      const parts = tx.description.split('|')[0]; 
+      const invMatch = parts.match(/#([A-Za-z0-9\-]+)/);
+      
+      if (invMatch && invMatch[1]) {
+        const invNum = invMatch[1].trim();
+        
+        // 2. Buscar la venta real en la base de datos
+        const sale = await new Promise((resolve, reject) => {
+          db.get('SELECT * FROM sales WHERE invoice_number = ?', [invNum], (err, row) => err ? reject(err) : resolve(row));
+        });
+
+        if (sale) {
+          // 3. Devolver los productos automáticamente al Inventario Local (🎁)
+          const items = await new Promise((resolve) => db.all('SELECT * FROM sale_items WHERE sale_id = ?', [sale.id], (e, rows) => resolve(rows || [])));
+          for (const item of items) {
+            await new Promise((r) => db.run('UPDATE products SET stock = stock + ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
+          }
+
+          // 4. Si la venta estaba en un turno cerrado, descontamos el valor del reporte viejo
+          if (sale.shift_id) {
+            const shift = await new Promise((resolve) => db.get('SELECT status FROM shifts WHERE id = ?', [sale.shift_id], (e, r) => resolve(r)));
+            if (shift && shift.status === 'cerrado') {
               const fieldToSubtract = sale.payment_method === 'Efectivo' ? 'cash_sales' : 'transfer_sales';
-              db.run(`UPDATE shifts SET total_sales = total_sales - ?, ${fieldToSubtract} = ${fieldToSubtract} - ? WHERE id = ?`, 
-                [sale.total, sale.total, sale.shift_id], () => {});
-              // Borramos el registro de la venta
-              db.run('DELETE FROM sales WHERE id = ?', [sale.id], () => {});
+              await new Promise((r) => db.run(`UPDATE shifts SET total_sales = total_sales - ?, ${fieldToSubtract} = ${fieldToSubtract} - ? WHERE id = ?`, [sale.total, sale.total, sale.shift_id], r));
             }
-          });
+          }
+
+          // 5. Eliminar permanentemente la venta y sus productos del sistema para que no la sumen al turno activo
+          await new Promise((r) => db.run('DELETE FROM sale_items WHERE sale_id = ?', [sale.id], r));
+          await new Promise((r) => db.run('DELETE FROM sales WHERE id = ?', [sale.id], r));
         }
       }
+    }
 
-      // Finalmente borramos la transacción de contabilidad
-      db.run('DELETE FROM transactions WHERE id = ?', [txId], (errDel) => {
-        if (errDel) return res.status(500).json({ error: errDel.message });
-        res.json({ success: true });
-      });
+    // 6. Eliminar el registro contable final
+    await new Promise((resolve, reject) => {
+      db.run('DELETE FROM transactions WHERE id = ?', [txId], (err) => err ? reject(err) : resolve());
     });
+
+    res.json({ success: true });
   } catch (e) {
+    console.error("Error al anular transacción:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -579,7 +596,7 @@ app.post('/api/config', (req, res) => {
 });
 
 /* ==========================================================
-   MÓDULO DE ABASTECIMIENTO LOCAL (CON CANASTAS Y RUTAS)
+   MÓDULO DE LOGÍSTICA Y DESPACHOS
    ========================================================== */
 
 app.get('/api/restock-requests', (req, res) => {
