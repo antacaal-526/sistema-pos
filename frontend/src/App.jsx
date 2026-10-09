@@ -419,8 +419,24 @@ export default function App() {
   const addDiscountRule = () => setDiscountRules([...discountRules, { min: '', max: '', discount: '' }]);
   const removeDiscountRule = (index) => setDiscountRules(discountRules.filter((_, i) => i !== index));
   const updateDiscountRule = (index, field, value) => { const updated = [...discountRules]; updated[index][field] = value; setDiscountRules(updated); };
-  const handleSavePreventaProduct = async (e) => { e.preventDefault(); const payload = { ...newPreventaProd, price: parseCOP(newPreventaProd.price), stock: parseCOP(newPreventaProd.stock), min_stock: parseCOP(newPreventaProd.min_stock) || 3, discount_rules: JSON.stringify(discountRules) }; await fetch(`${API_URL}/api/preventa-products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setShowAddPreventaModal(false); loadPreventaProductsOnline(); };
-  const handleUpdatePreventaProduct = async (e) => { e.preventDefault(); const payload = { ...editingPreventaProduct, price: parseCOP(editingPreventaProduct.price), stock: parseCOP(editingPreventaProduct.stock), min_stock: parseCOP(editingPreventaProduct.min_stock) || 3, discount_rules: JSON.stringify(discountRules) }; await fetch(`${API_URL}/api/preventa-products/${editingPreventaProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setEditingPreventaProduct(null); loadPreventaProductsOnline(); };
+  
+  // =========================================================================
+  // AQUÍ INYECTAMOS EL STOCK 999999 AUTOMÁTICO PARA PREVENTA (FÁBRICA)
+  // =========================================================================
+  const handleSavePreventaProduct = async (e) => { 
+    e.preventDefault(); 
+    const payload = { ...newPreventaProd, price: parseCOP(newPreventaProd.price), stock: 999999, min_stock: 0, discount_rules: JSON.stringify(discountRules) }; 
+    await fetch(`${API_URL}/api/preventa-products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
+    setShowAddPreventaModal(false); loadPreventaProductsOnline(); 
+  };
+  
+  const handleUpdatePreventaProduct = async (e) => { 
+    e.preventDefault(); 
+    const payload = { ...editingPreventaProduct, price: parseCOP(editingPreventaProduct.price), stock: 999999, min_stock: 0, discount_rules: JSON.stringify(discountRules) }; 
+    await fetch(`${API_URL}/api/preventa-products/${editingPreventaProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
+    setEditingPreventaProduct(null); loadPreventaProductsOnline(); 
+  };
+  
   const handleDeletePreventaProduct = async (barcode) => { if (window.confirm('¿Eliminar producto de fábrica?')) { await fetch(`${API_URL}/api/preventa-products/${barcode}`, { method: 'DELETE' }); loadPreventaProductsOnline(); } };
   const handleSaveTransaction = async (e) => { e.preventDefault(); const numericAmount = parseCOP(newTx.amount); if (numericAmount <= 0) return alert('Monto inválido'); try { const res = await fetch(`${API_URL}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newTx, amount: numericAmount, user_name: currentUser.name }) }); if (res.ok) { alert(`✅ ${newTx.type} registrado`); setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' }); setShowTxModal(false); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleDeleteTransaction = async (id, description, category) => { if (!window.confirm(`¿Está seguro de eliminar el registro contable "${description}"?`)) return; try { const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑 Registro eliminado'); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
@@ -864,7 +880,7 @@ export default function App() {
               <input type="text" placeholder="🔍 Buscar producto en fábrica..." value={invPreventaSearch} onChange={(e) => setInvPreventaSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
                 <table className="responsive-table">
-                  <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th>Cód</th><th>Nombre</th><th>Precio Base</th><th>Descuentos por Cantidad</th><th>Stock Fábrica</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th>Cód</th><th>Nombre</th><th>Precio Base</th><th>Descuentos por Cantidad</th><th style={{ textAlign: 'center' }}>Stock Fábrica</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
                   <tbody>
                     {preventaProducts.filter((p) => p.name.toLowerCase().includes(invPreventaSearch.toLowerCase()) || p.barcode.includes(invPreventaSearch)).map((p) => {
                       let rulesPreview = "Sin descuento";
@@ -878,7 +894,7 @@ export default function App() {
                           <td style={{ minWidth: '150px' }}>{p.name}</td>
                           <td style={{ color: '#eab308', fontWeight: 'bold' }}>${p.price?.toLocaleString('es-CO')}</td>
                           <td style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{rulesPreview}</td>
-                          <td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
+                          <td style={{ fontWeight: 'bold', color: '#10b981', fontSize: '1.2rem', textAlign: 'center' }}>∞</td>
                           <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => openEditPreventaModal(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️ Configurar</button><button onClick={() => handleDeletePreventaProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                         </tr>
                       );
@@ -938,26 +954,14 @@ export default function App() {
           
           {activeTab === 'out_of_stock' && (
             <div>
-              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Agotados (Ambos Inventarios)</h2>
+              <h2 style={{ color: '#f87171', marginBottom: '1rem' }}>⚠️ Agotados (Solo Inventario Local)</h2>
               <input type="text" placeholder="🔍 Buscar agotados..." value={outSearch} onChange={(e) => setOutSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               
-              <h4 style={{color:'#38bdf8', borderBottom:'1px solid #334155', paddingBottom:'0.5rem'}}>Inventario Local (Caja)</h4>
               <div className="responsive-table-wrapper" style={{marginBottom: '2rem'}}>
                 <table className="responsive-table">
-                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Stock</th><th>Mínimo</th></tr></thead>
+                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Stock Actual</th><th>Mínimo Permitido</th></tr></thead>
                   <tbody>
                     {products.filter((p) => p.stock <= (p.min_stock || 3)).filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch)).map((p) => (
-                      <tr key={p.barcode}><td>{p.barcode}</td><td>{p.name}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td>{p.min_stock || 3}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <h4 style={{color:'#eab308', borderBottom:'1px solid #334155', paddingBottom:'0.5rem'}}>Inventario Fábrica</h4>
-              <div className="responsive-table-wrapper">
-                <table className="responsive-table">
-                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Stock</th><th>Mínimo</th></tr></thead>
-                  <tbody>
-                    {preventaProducts.filter((p) => p.stock <= (p.min_stock || 3)).filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch)).map((p) => (
                       <tr key={p.barcode}><td>{p.barcode}</td><td>{p.name}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td>{p.min_stock || 3}</td></tr>
                     ))}
                   </tbody>
@@ -1192,7 +1196,9 @@ export default function App() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock de Ruta</label>
-                  <input type="number" value={prod.stock} onChange={(e) => setProd({ ...prod, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+                  <div style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #10b981', color: '#10b981', borderRadius: '4px', textAlign: 'center', fontWeight: 'bold', fontSize: '1rem' }}>
+                     ∞ Ilimitado
+                  </div>
                 </div>
               </div>
               <div style={{ borderTop: '1px solid #334155', paddingTop: '1rem', marginTop: '0.5rem' }}>
