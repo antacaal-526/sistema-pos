@@ -419,24 +419,8 @@ export default function App() {
   const addDiscountRule = () => setDiscountRules([...discountRules, { min: '', max: '', discount: '' }]);
   const removeDiscountRule = (index) => setDiscountRules(discountRules.filter((_, i) => i !== index));
   const updateDiscountRule = (index, field, value) => { const updated = [...discountRules]; updated[index][field] = value; setDiscountRules(updated); };
-  
-  // =========================================================================
-  // AQUÍ INYECTAMOS EL STOCK 999999 AUTOMÁTICO PARA PREVENTA (FÁBRICA)
-  // =========================================================================
-  const handleSavePreventaProduct = async (e) => { 
-    e.preventDefault(); 
-    const payload = { ...newPreventaProd, price: parseCOP(newPreventaProd.price), stock: 999999, min_stock: 0, discount_rules: JSON.stringify(discountRules) }; 
-    await fetch(`${API_URL}/api/preventa-products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
-    setShowAddPreventaModal(false); loadPreventaProductsOnline(); 
-  };
-  
-  const handleUpdatePreventaProduct = async (e) => { 
-    e.preventDefault(); 
-    const payload = { ...editingPreventaProduct, price: parseCOP(editingPreventaProduct.price), stock: 999999, min_stock: 0, discount_rules: JSON.stringify(discountRules) }; 
-    await fetch(`${API_URL}/api/preventa-products/${editingPreventaProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
-    setEditingPreventaProduct(null); loadPreventaProductsOnline(); 
-  };
-  
+  const handleSavePreventaProduct = async (e) => { e.preventDefault(); const payload = { ...newPreventaProd, price: parseCOP(newPreventaProd.price), stock: 999999, min_stock: 0, discount_rules: JSON.stringify(discountRules) }; await fetch(`${API_URL}/api/preventa-products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setShowAddPreventaModal(false); loadPreventaProductsOnline(); };
+  const handleUpdatePreventaProduct = async (e) => { e.preventDefault(); const payload = { ...editingPreventaProduct, price: parseCOP(editingPreventaProduct.price), stock: 999999, min_stock: 0, discount_rules: JSON.stringify(discountRules) }; await fetch(`${API_URL}/api/preventa-products/${editingPreventaProduct.barcode}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); setEditingPreventaProduct(null); loadPreventaProductsOnline(); };
   const handleDeletePreventaProduct = async (barcode) => { if (window.confirm('¿Eliminar producto de fábrica?')) { await fetch(`${API_URL}/api/preventa-products/${barcode}`, { method: 'DELETE' }); loadPreventaProductsOnline(); } };
   const handleSaveTransaction = async (e) => { e.preventDefault(); const numericAmount = parseCOP(newTx.amount); if (numericAmount <= 0) return alert('Monto inválido'); try { const res = await fetch(`${API_URL}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newTx, amount: numericAmount, user_name: currentUser.name }) }); if (res.ok) { alert(`✅ ${newTx.type} registrado`); setNewTx({ type: 'Ingreso', category: 'Varios', description: '', amount: '' }); setShowTxModal(false); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleDeleteTransaction = async (id, description, category) => { if (!window.confirm(`¿Está seguro de eliminar el registro contable "${description}"?`)) return; try { const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑 Registro eliminado'); loadTransactions(); } } catch (e) { alert('Error conectando al servidor'); } };
@@ -858,11 +842,11 @@ export default function App() {
               <input type="text" placeholder="🔍 Buscar en caja..." value={invSearch} onChange={(e) => setInvSearch(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
               <div className="responsive-table-wrapper">
                 <table className="responsive-table">
-                  <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th>Cód</th><th>Nombre</th><th>Precio Local</th><th>Stock</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+                  <thead><tr style={{ background: '#334155', textAlign: 'left' }}><th>Cód</th><th>Nombre</th><th>Precio Local</th><th>Stock</th><th>Mínimo</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
                   <tbody>
                     {products.filter((p) => p.name.toLowerCase().includes(invSearch.toLowerCase()) || p.barcode.includes(invSearch)).map((p) => (
                       <tr key={p.barcode} style={{ borderBottom: '1px solid #334155' }}>
-                        <td>{p.barcode}</td><td style={{ minWidth: '150px' }}>{p.name}</td><td style={{ color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td><td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td>
+                        <td>{p.barcode}</td><td style={{ minWidth: '150px' }}>{p.name}</td><td style={{ color: '#22c55e', fontWeight: 'bold' }}>${p.sale_price?.toLocaleString('es-CO')}</td><td style={{ fontWeight: 'bold', color: p.stock <= (p.min_stock || 3) ? '#ef4444' : '#fff' }}>{p.stock}</td><td style={{ color: '#94a3b8' }}>{p.min_stock || 3}</td>
                         <td style={{ textAlign: 'center', minWidth: '120px' }}><button onClick={() => setEditingProduct(p)} style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px', marginRight: '0.5rem' }}>✏️</button><button onClick={() => handleDeleteProduct(p.barcode)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.5rem', borderRadius: '4px' }}>🗑️</button></td>
                       </tr>
                     ))}
@@ -959,11 +943,18 @@ export default function App() {
               
               <div className="responsive-table-wrapper" style={{marginBottom: '2rem'}}>
                 <table className="responsive-table">
-                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Stock Actual</th><th>Mínimo Permitido</th></tr></thead>
+                  <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Stock Actual</th><th>Mínimo Permitido</th><th style={{ textAlign: 'center' }}>Faltante Real</th></tr></thead>
                   <tbody>
-                    {products.filter((p) => p.stock <= (p.min_stock || 3)).filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch)).map((p) => (
-                      <tr key={p.barcode}><td>{p.barcode}</td><td>{p.name}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td>{p.min_stock || 3}</td></tr>
-                    ))}
+                    {products
+                      .filter((p) => p.stock <= (p.min_stock || 3))
+                      .filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch))
+                      .sort((a, b) => ((b.min_stock || 3) - b.stock) - ((a.min_stock || 3) - a.stock))
+                      .map((p) => {
+                        const deficit = (p.min_stock || 3) - p.stock;
+                        return (
+                          <tr key={p.barcode}><td>{p.barcode}</td><td>{p.name}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td style={{ color: '#94a3b8' }}>{p.min_stock || 3}</td><td style={{ textAlign: 'center', color: '#eab308', fontWeight: 'bold', fontSize: '1.1rem' }}>-{deficit}</td></tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -1153,7 +1144,18 @@ export default function App() {
             <input type="text" placeholder="Código de Barras" value={newProd.barcode} onChange={(e) => setNewProd({ ...newProd, barcode: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Nombre" value={newProd.name} onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Precio Local ($)" value={formatCOP(newProd.sale_price)} onChange={(e) => setNewProd({ ...newProd, sale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="number" placeholder="Stock Local Inicial" value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Inicial</label>
+                <input type="number" placeholder="Actual" value={newProd.stock} onChange={(e) => setNewProd({ ...newProd, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Mínimo Permitido</label>
+                <input type="number" placeholder="Ej: 3" value={newProd.min_stock} onChange={(e) => setNewProd({ ...newProd, min_stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Guardar</button>
               <button type="button" onClick={() => setShowAddModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
@@ -1168,7 +1170,18 @@ export default function App() {
             <h3 style={{ margin: 0, color: '#38bdf8' }}>✏️ Editar Local</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
             <input type="text" placeholder="Precio Local ($)" value={formatCOP(editingProduct.sale_price)} onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
-            <input type="number" placeholder="Stock" value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+            
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Actual</label>
+                <input type="number" value={editingProduct.stock} onChange={(e) => setEditingProduct({ ...editingProduct, stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Mínimo Permitido</label>
+                <input type="number" value={editingProduct.min_stock || 3} onChange={(e) => setEditingProduct({ ...editingProduct, min_stock: e.target.value })} style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }} required />
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button type="submit" style={{ flex: 1, padding: '0.8rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Actualizar</button>
               <button type="button" onClick={() => setEditingProduct(null)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
