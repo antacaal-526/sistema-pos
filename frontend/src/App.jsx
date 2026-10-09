@@ -137,7 +137,7 @@ export default function App() {
   const handleTabSwitch = (tab) => {
     setActiveTab(tab);
     if (tab === 'restock') setSubTabRestock('armar');
-    setIsMobileMenuOpen(false); // Cierra automáticamente el menú al escoger una opción
+    setIsMobileMenuOpen(false); 
   };
 
   const loadProductsOnline = async () => { try { const res = await fetch(`${API_URL}/api/products`); if (res.ok) { const data = await res.json(); setProducts(data); await db.products.bulkPut(data); } } catch (e) { loadProductsLocal(); } };
@@ -486,12 +486,10 @@ export default function App() {
 
         /* CORRECCIONES MOVILES CSS PURO */
         @media (max-width: 768px) {
-          /* HACK MAESTRO DE SCROLL PARA PREVENTISTA Y ENTREGADOR */
           html, body, #root { height: auto !important; min-height: 100vh !important; overflow-y: auto !important; overflow-x: hidden !important; }
           div[style*="height: 100vh"], div[style*="height:100vh"] { height: auto !important; min-height: 100vh !important; }
           div[style*="overflow: hidden"], div[style*="overflow:hidden"] { overflow-y: auto !important; }
 
-          /* BARRA HAMBURGUESA */
           .mobile-header { display: flex !important; }
           .mobile-close-btn { display: block !important; }
           .mobile-overlay.show { display: block !important; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9998; }
@@ -508,6 +506,18 @@ export default function App() {
           .stats-grid { grid-template-columns: 1fr; }
           .responsive-table-wrapper { overflow-x: auto; padding-bottom: 60px; }
           .responsive-table th, .responsive-table td { white-space: normal; word-wrap: break-word; }
+        }
+
+        /* ====================================================== */
+        /* BLINDAJE ABSOLUTO DE IMPRESIÓN TÉRMICA (SOLUCIÓN BUG)  */
+        /* ====================================================== */
+        @media print {
+          .mobile-header { display: none !important; }
+          .mobile-overlay { display: none !important; }
+          .pos-layout { display: none !important; }
+          .no-print { display: none !important; }
+          #print-receipt { display: block !important; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
       `}</style>
 
