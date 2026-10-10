@@ -295,10 +295,29 @@ export default function App() {
     if (cart.length === 0) return alert('El carrito está vacío');
     if (isProcessing) return;
     setIsProcessing(true);
+
+    // 🔴 LIMPIEZA CLAVE: Se limpia cualquier reporte de turno para garantizar que imprima la factura actual
+    setPrintShiftData(null);
+
     const finalDoc = customerDoc || '222222222222';
     const desc = cart.map((i) => `${i.quantity}x ${i.name}`).join(', ');
     const invNumber = `TF-${Date.now().toString().slice(-6)}`;
-    const payload = { shift_id: activeShift?.id || null, user_name: currentUser.name, customer_doc: finalDoc, customer_name: customerName, customer_email: customerEmail, items: cart, description: desc, total: totalCart, payment_method: paymentMethod, amount_paid: receivedToRegister, change_given: changeGiven, sale_type: saleType, invoice_number: invNumber };
+    const payload = { 
+      shift_id: activeShift?.id || null, 
+      user_name: currentUser.name, 
+      customer_doc: finalDoc, 
+      customer_name: customerName, 
+      customer_email: customerEmail, 
+      items: cart, 
+      description: desc, 
+      total: totalCart, 
+      payment_method: paymentMethod, 
+      amount_paid: receivedToRegister, 
+      change_given: changeGiven, 
+      sale_type: saleType, 
+      invoice_number: invNumber 
+    };
+
     if (!navigator.onLine) {
       await db.syncQueue.add({ type: 'PROCESS_POS_SALE', payload });
       for (const item of cart) { const p = await db.products.get(item.barcode); if (p) await db.products.update(item.barcode, { stock: p.stock - item.quantity }); }
@@ -307,6 +326,7 @@ export default function App() {
       setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
       loadProductsLocal(); setIsProcessing(false); return;
     }
+
     try {
       const res = await fetch(`${API_URL}/api/sales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
@@ -427,7 +447,7 @@ export default function App() {
   const handleSaveUser = async (e) => { e.preventDefault(); try { const res = await fetch(`${API_URL}/api/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) }); if (res.ok) { alert('👤 Empleado creado'); setNewUser({ name: '', username: '', password: '', role: 'Cajero' }); setShowUserModal(false); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleDeleteUser = async (id, name) => { if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual'); if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return; try { const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑 Usuario eliminado'); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleSaveConfig = async (e) => { e.preventDefault(); await fetch(`${API_URL}/api/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(storeConfig) }); alert('Configuración guardada'); };
-  const handlePrintShiftReport = (shift) => { setPrintShiftData(shift); setTimeout(() => window.print(), 250); };
+  const handlePrintShiftReport = (shift) => { setLastInvoice(null); setPrintShiftData(shift); setTimeout(() => window.print(), 250); };
   const handleExportCSV = () => { let csvContent = 'data:text/csv;charset=utf-8,FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n'; transactions.forEach((t) => { csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`; }); const link = document.createElement('a'); link.setAttribute('href', encodeURI(csvContent)); link.setAttribute('download', `Reporte_Contable_${new Date().toISOString().slice(0, 10)}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
 
   if (!currentUser) {
@@ -946,11 +966,11 @@ export default function App() {
                   <thead><tr style={{ background: '#334155' }}><th>Código</th><th>Nombre</th><th>Stock Actual</th><th>Mínimo Permitido</th><th style={{ textAlign: 'center' }}>Faltante Real</th></tr></thead>
                   <tbody>
                     {products
-                      .filter((p) => p.stock <= (p.min_stock || 3))
+                      .filter((p) => Number(p.stock) <= Number(p.min_stock || 3))
                       .filter((p) => p.name.toLowerCase().includes(outSearch.toLowerCase()) || p.barcode.includes(outSearch))
-                      .sort((a, b) => ((b.min_stock || 3) - b.stock) - ((a.min_stock || 3) - a.stock))
+                      .sort((a, b) => (Number(b.min_stock || 3) - Number(b.stock)) - (Number(a.min_stock || 3) - Number(a.stock)))
                       .map((p) => {
-                        const deficit = (p.min_stock || 3) - p.stock;
+                        const deficit = Number(p.min_stock || 3) - Number(p.stock);
                         return (
                           <tr key={p.barcode}><td>{p.barcode}</td><td>{p.name}</td><td style={{ color: '#f87171', fontWeight: 'bold' }}>{p.stock}</td><td style={{ color: '#94a3b8' }}>{p.min_stock || 3}</td><td style={{ textAlign: 'center', color: '#eab308', fontWeight: 'bold', fontSize: '1.1rem' }}>-{deficit}</td></tr>
                         );
@@ -1130,7 +1150,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => { setPrintShiftData(shiftSummary); setTimeout(() => window.print(), 250); }} style={{ flex: 1, padding: '0.8rem', background: '#38bdf8', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimir</button>
+              <button onClick={() => { setLastInvoice(null); setPrintShiftData(shiftSummary); setTimeout(() => window.print(), 250); }} style={{ flex: 1, padding: '0.8rem', background: '#38bdf8', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimir</button>
               <button onClick={() => setShiftSummary(null)} style={{ flex: 1, padding: '0.8rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar</button>
             </div>
           </div>
