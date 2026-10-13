@@ -89,6 +89,7 @@ export default function App() {
   const [filterDate, setFilterDate] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [printShiftData, setPrintShiftData] = useState(null);
+  const [printDetailShiftData, setPrintDetailShiftData] = useState(null);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -296,8 +297,8 @@ export default function App() {
     if (isProcessing) return;
     setIsProcessing(true);
 
-    // 🔴 LIMPIEZA CLAVE: Se limpia cualquier reporte de turno para garantizar que imprima la factura actual
     setPrintShiftData(null);
+    setPrintDetailShiftData(null);
 
     const finalDoc = customerDoc || '222222222222';
     const desc = cart.map((i) => `${i.quantity}x ${i.name}`).join(', ');
@@ -447,7 +448,27 @@ export default function App() {
   const handleSaveUser = async (e) => { e.preventDefault(); try { const res = await fetch(`${API_URL}/api/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) }); if (res.ok) { alert('👤 Empleado creado'); setNewUser({ name: '', username: '', password: '', role: 'Cajero' }); setShowUserModal(false); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleDeleteUser = async (id, name) => { if (currentUser.id === id) return alert('⚠️ No puedes eliminar tu propio usuario actual'); if (!window.confirm(`¿Está seguro de eliminar al usuario "${name}"?`)) return; try { const res = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' }); if (res.ok) { alert('🗑 Usuario eliminado'); loadUsersOnline(); } } catch (e) { alert('Error conectando al servidor'); } };
   const handleSaveConfig = async (e) => { e.preventDefault(); await fetch(`${API_URL}/api/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(storeConfig) }); alert('Configuración guardada'); };
-  const handlePrintShiftReport = (shift) => { setLastInvoice(null); setPrintShiftData(shift); setTimeout(() => window.print(), 250); };
+  
+  const handlePrintShiftReport = (shift) => { setLastInvoice(null); setPrintDetailShiftData(null); setPrintShiftData(shift); setTimeout(() => window.print(), 250); };
+  
+  const handlePrintDetailedShiftReport = async (shift) => { 
+    setLastInvoice(null); 
+    setPrintShiftData(null); 
+    try {
+      const res = await fetch(`${API_URL}/api/sales`);
+      if (res.ok) {
+        const allSales = await res.json();
+        const shiftSales = allSales.filter(s => String(s.shift_id) === String(shift.id));
+        setPrintDetailShiftData({ shift, sales: shiftSales });
+        setTimeout(() => window.print(), 250);
+      } else {
+        alert('Error al obtener el detalle de ventas.');
+      }
+    } catch (e) {
+      alert('Error de conexión al generar reporte detallado.');
+    }
+  };
+
   const handleExportCSV = () => { let csvContent = 'data:text/csv;charset=utf-8,FECHA,TIPO,CATEGORIA,DESCRIPCION,MONTO,USUARIO\n'; transactions.forEach((t) => { csvContent += `"${t.created_at}","${t.type}","${t.category}","${t.description}",${t.amount},"${t.user_name}"\n`; }); const link = document.createElement('a'); link.setAttribute('href', encodeURI(csvContent)); link.setAttribute('download', `Reporte_Contable_${new Date().toISOString().slice(0, 10)}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
 
   if (!currentUser) {
@@ -541,7 +562,7 @@ export default function App() {
         {printShiftData ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
             <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '14px', fontWeight: 'bold' }}>🌱 {storeConfig.razon_social}</h3>
-            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>REPORTE DE TURNO #{printShiftData.id || printShiftData.shift_id}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>REPORTE DE TURNO (RESUMEN) #{printShiftData.id || printShiftData.shift_id}</p>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
             <p style={{ margin: '1px 0', fontSize: '12px' }}>Empleado: <strong>{printShiftData.user_name}</strong></p>
             <p style={{ margin: '1px 0', fontSize: '12px' }}>Apertura: {printShiftData.opened_at}</p>
@@ -557,6 +578,35 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '2px' }}><span>EFECTIVO CONTADO:</span><span>${getShiftValFormatted(printShiftData.counted_cash ?? printShiftData.end_amount)}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '2px' }}><span>DIFERENCIA:</span><span>${getShiftValFormatted(printShiftData.difference || 0)}</span></div>
             <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+          </div>
+        ) : printDetailShiftData ? (
+          <div style={{ width: '100%', boxSizing: 'border-box' }}>
+            <h3 style={{ textAlign: 'center', margin: '0 0 2px 0', fontSize: '14px', fontWeight: 'bold' }}>🌱 {storeConfig.razon_social}</h3>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>REPORTE DETALLADO - TURNO #{printDetailShiftData.shift.id}</p>
+            <p style={{ textAlign: 'center', margin: '1px 0', fontSize: '10px' }}>Cajero: {printDetailShiftData.shift.user_name}</p>
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            {printDetailShiftData.sales.length === 0 ? (
+              <p style={{ textAlign: 'center', fontSize: '11px' }}>No hay ventas registradas en este turno.</p>
+            ) : (
+              printDetailShiftData.sales.map((sale, idx) => (
+                <div key={idx} style={{ marginBottom: '6px', fontSize: '11px', borderBottom: '1px dashed #000', paddingBottom: '4px' }}>
+                  <div><strong>Factura:</strong> {sale.invoice_number || `#${sale.id}`}</div>
+                  <div><strong>Hora:</strong> {sale.created_at}</div>
+                  <div><strong>Cliente:</strong> {sale.customer_name || 'Consumidor Final'}</div>
+                  <div style={{ margin: '2px 0' }}><strong>Productos:</strong></div>
+                  <div style={{ paddingLeft: '6px' }}>{sale.description}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                    <span>Pago: {sale.payment_method}</span>
+                    <strong>Total: ${getShiftValFormatted(sale.total)}</strong>
+                  </div>
+                </div>
+              ))
+            )}
+            <p style={{ textAlign: 'center', margin: '2px 0' }}>--------------------------------</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 'bold' }}>
+              <span>TOTAL ACUMULADO:</span>
+              <span>${getShiftValFormatted(printDetailShiftData.shift.total_sales)}</span>
+            </div>
           </div>
         ) : lastInvoice ? (
           <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -1051,15 +1101,16 @@ export default function App() {
                 </div>
                 <div className="responsive-table-wrapper">
                   <table className="responsive-table">
-                    <thead><tr style={{ background: '#334155', fontSize: '0.85rem' }}><th>ID</th><th>Cajero</th><th>Cierre</th><th>Efectivo</th><th>Transf.</th><th>Total</th><th style={{ textAlign: 'center' }}>Acción</th></tr></thead>
+                    <thead><tr style={{ background: '#334155', fontSize: '0.85rem' }}><th>ID</th><th>Cajero</th><th>Cierre</th><th>Efectivo</th><th>Transf.</th><th>Total</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
                     <tbody>
                       {filteredDailyShifts.map((s) => (
                         <tr key={s.id} style={{ fontSize: '0.85rem' }}>
                           <td>#{s.id}</td><td><strong>{s.user_name}</strong></td><td>{s.closed_at || 'En curso'}</td>
                           <td style={{ color: '#4ade80' }}>${getShiftValFormatted(s.cash_sales)}</td><td style={{ color: '#38bdf8' }}>${getShiftValFormatted(s.transfer_sales)}</td><td style={{ fontWeight: 'bold' }}>${getShiftValFormatted(s.total_sales)}</td>
-                          <td style={{ textAlign: 'center', display:'flex', gap:'5px', justifyContent:'center' }}>
-                            <button onClick={() => handlePrintShiftReport(s)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🖨️</button>
-                            <button onClick={() => handleDeleteShift(s.id)} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer' }}>🗑</button>
+                          <td style={{ textAlign: 'center', display:'flex', gap:'4px', justifyContent:'center', flexWrap: 'wrap' }}>
+                            <button onClick={() => handlePrintShiftReport(s)} title="Imprimir Resumen (Arqueo)" style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>🖨️ Resumen</button>
+                            <button onClick={() => handlePrintDetailedShiftReport(s)} title="Imprimir Detalle de Ventas" style={{ background: '#059669', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>📄 Detalle</button>
+                            <button onClick={() => handleDeleteShift(s.id)} title="Eliminar Turno" style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>🗑</button>
                           </td>
                         </tr>
                       ))}
@@ -1094,7 +1145,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* MODALES ADICIONALES */}
       {showShiftModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '8px', width: '100%', maxWidth: '320px', color: '#fff' }}>
@@ -1150,7 +1200,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => { setLastInvoice(null); setPrintShiftData(shiftSummary); setTimeout(() => window.print(), 250); }} style={{ flex: 1, padding: '0.8rem', background: '#38bdf8', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimir</button>
+              <button onClick={() => { setLastInvoice(null); setPrintDetailShiftData(null); setPrintShiftData(shiftSummary); setTimeout(() => window.print(), 250); }} style={{ flex: 1, padding: '0.8rem', background: '#38bdf8', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimir</button>
               <button onClick={() => setShiftSummary(null)} style={{ flex: 1, padding: '0.8rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Aceptar</button>
             </div>
           </div>
