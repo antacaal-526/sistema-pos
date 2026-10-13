@@ -423,9 +423,6 @@ app.post('/api/shifts/close', (req, res) => {
   });
 });
 
-// =========================================================================
-// CORRECCIÓN 1: Evita el error SQLITE_CONSTRAINT al borrar un turno
-// =========================================================================
 app.delete('/api/shifts/:id', async (req, res) => {
   try {
     await new Promise((resolve, reject) => {
@@ -475,6 +472,34 @@ app.put('/api/products/:barcode', (req, res) => {
 });
 app.delete('/api/products/:barcode', (req, res) => { db.run('DELETE FROM products WHERE barcode = ?', [req.params.barcode], () => res.json({ success: true })); });
 
+// =========================================================================
+// RUTA NUEVA: Obtener todas las ventas para el reporte detallado de turnos
+// =========================================================================
+app.get('/api/sales', async (req, res) => {
+  try {
+    const sales = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM sales ORDER BY id DESC', [], (err, rows) => err ? reject(err) : resolve(rows || []));
+    });
+    const items = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM sale_items', [], (err, rows) => err ? reject(err) : resolve(rows || []));
+    });
+
+    const detailedSales = sales.map(sale => {
+      const saleItems = items.filter(i => i.sale_id === sale.id);
+      const description = saleItems.map(i => `${i.quantity}x ${i.product_name}`).join(', ');
+      return {
+        ...sale,
+        description: description || 'Venta POS',
+        items: saleItems
+      };
+    });
+
+    res.json(detailedSales);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/sales', async (req, res) => {
   const { shift_id, user_name, customer_doc, customer_name, customer_email, items, total, payment_method, amount_paid, change_given, invoice_number } = req.body;
   const invNumber = invoice_number || `TF-${Date.now().toString().slice(-6)}`;
@@ -521,14 +546,9 @@ app.post('/api/transactions', (req, res) => {
   db.run(`INSERT INTO transactions (type, category, description, amount, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?)`, [type, category, description, amount, user_name, getColombiaTimestamp()], () => res.json({ success: true }));
 });
 
-// =========================================================================
-// CORRECCIÓN 2: Anulación perfecta de ventas con reintegro automático de stock
-// =========================================================================
 app.delete('/api/transactions/:id', async (req, res) => {
   try {
     const txId = req.params.id;
-    
-    // 1. Obtener la transacción contable
     const tx = await new Promise((resolve, reject) => {
       db.get('SELECT * FROM transactions WHERE id = ?', [txId], (err, row) => err ? reject(err) : resolve(row));
     });
@@ -539,20 +559,16 @@ app.delete('/api/transactions/:id', async (req, res) => {
       
       if (invMatch && invMatch[1]) {
         const invNum = invMatch[1].trim();
-        
-        // 2. Buscar la venta real en la base de datos
         const sale = await new Promise((resolve, reject) => {
           db.get('SELECT * FROM sales WHERE invoice_number = ?', [invNum], (err, row) => err ? reject(err) : resolve(row));
         });
 
         if (sale) {
-          // 3. Devolver los productos automáticamente al Inventario Local (🎁)
           const items = await new Promise((resolve) => db.all('SELECT * FROM sale_items WHERE sale_id = ?', [sale.id], (e, rows) => resolve(rows || [])));
           for (const item of items) {
             await new Promise((r) => db.run('UPDATE products SET stock = stock + ? WHERE barcode = ?', [item.quantity, item.product_barcode], r));
           }
 
-          // 4. Si la venta estaba en un turno cerrado, descontamos el valor del reporte viejo
           if (sale.shift_id) {
             const shift = await new Promise((resolve) => db.get('SELECT status FROM shifts WHERE id = ?', [sale.shift_id], (e, r) => resolve(r)));
             if (shift && shift.status === 'cerrado') {
@@ -561,14 +577,12 @@ app.delete('/api/transactions/:id', async (req, res) => {
             }
           }
 
-          // 5. Eliminar permanentemente la venta y sus productos del sistema para que no la sumen al turno activo
           await new Promise((r) => db.run('DELETE FROM sale_items WHERE sale_id = ?', [sale.id], r));
           await new Promise((r) => db.run('DELETE FROM sales WHERE id = ?', [sale.id], r));
         }
       }
     }
 
-    // 6. Eliminar el registro contable final
     await new Promise((resolve, reject) => {
       db.run('DELETE FROM transactions WHERE id = ?', [txId], (err) => err ? reject(err) : resolve());
     });
