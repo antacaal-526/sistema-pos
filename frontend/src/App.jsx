@@ -94,22 +94,58 @@ export default function App() {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Referencia para el campo de efectivo recibido (atajo con tecla Espacio)
+  const quickQtyRef = useRef(null);
+  const searchRef = useRef(null);
   const amountPaidRef = useRef(null);
 
   useEffect(() => {
+    let shiftPressed = false;
+    let shiftUsedWithAnotherKey = false;
+
     const handleKeyDown = (e) => {
-      if (e.key === ' ' && activeTab === 'pos') {
-        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+      if (e.key === 'Shift' && activeTab === 'pos' && !e.repeat) {
+        shiftPressed = true;
+        shiftUsedWithAnotherKey = false;
+        return;
+      }
+
+      if (shiftPressed) shiftUsedWithAnotherKey = true;
+
+      if (e.key === ' ' && activeTab === 'pos' && paymentMethod === 'Efectivo') {
+        const activeElement = document.activeElement;
+        const isSearch = activeElement === searchRef.current;
+        const isQuickQty = activeElement === quickQtyRef.current;
+        const isEditable = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeElement?.tagName);
+
+        if ((isEditable && !isSearch && !isQuickQty) || (isSearch && search.trim())) {
           return;
         }
         e.preventDefault();
         amountPaidRef.current?.focus();
       }
     };
+
+    const handleKeyUp = (e) => {
+      if (e.key !== 'Shift' || !shiftPressed) return;
+
+      if (!shiftUsedWithAnotherKey && activeTab === 'pos') {
+        if (document.activeElement === quickQtyRef.current) {
+          searchRef.current?.focus();
+        } else {
+          quickQtyRef.current?.focus();
+        }
+      }
+
+      shiftPressed = false;
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab]);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [activeTab, paymentMethod, search]);
 
   useEffect(() => {
     fetch(`${API_URL}/api/ping`).catch(() => {});
@@ -724,6 +760,7 @@ export default function App() {
               <div className="pos-products-area">
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
                   <input
+                    ref={quickQtyRef}
                     type="number"
                     min="1"
                     step="1"
@@ -734,6 +771,7 @@ export default function App() {
                     style={{ width: '85px', boxSizing: 'border-box', padding: '1rem 0.5rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', textAlign: 'center', fontWeight: 'bold' }}
                   />
                   <input
+                    ref={searchRef}
                     type="text"
                     placeholder="🔍 Buscar o escanear código / nombre y presiona Enter..."
                     value={search}
@@ -796,6 +834,12 @@ export default function App() {
                           value={formatCOP(amountPaid)} 
                           onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))} 
                           placeholder={`Ej: ${totalCart}`} 
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleProcessSale('Registrada');
+                            }
+                          }}
                           style={{ width: '50%', padding: '0.4rem', background: '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '4px', textAlign: 'right' }} 
                         />
                       </div>
