@@ -59,6 +59,7 @@ export default function App() {
   
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
+  const [quickQty, setQuickQty] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
   const [amountPaid, setAmountPaid] = useState('');
   const [customerDoc, setCustomerDoc] = useState('');
@@ -285,14 +286,24 @@ export default function App() {
     }
   };
 
-  const addToCart = (p) => {
+  const addToCart = (p, customQty) => {
     if (!activeShift) { alert('⚠️ Inicie un turno para vender.'); setShowShiftModal(true); return; }
+    const rawQty = customQty ?? quickQty;
+    const qtyToAdd = rawQty === '' ? 1 : Number(rawQty);
+    if (!Number.isInteger(qtyToAdd) || qtyToAdd < 1) {
+      alert('⚠️ Ingrese una cantidad entera mayor que cero.');
+      return;
+    }
     if (p.stock <= 0) { alert(`⚠️ STOCK AGOTADO: No hay inventario de ${p.name}.`); return; }
     const exist = cart.find((x) => x.barcode === p.barcode);
     if (exist) {
-      if (exist.quantity + 1 > p.stock) { alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name} disponibles.`); return; }
-      setCart(cart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + 1 } : x)));
-    } else { setCart([...cart, { ...p, quantity: 1, sale_price: p.sale_price }]); }
+      if (exist.quantity + qtyToAdd > p.stock) { alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name} disponibles.`); return; }
+      setCart(cart.map((x) => (x.barcode === p.barcode ? { ...x, quantity: x.quantity + qtyToAdd } : x)));
+    } else {
+      if (qtyToAdd > p.stock) { alert(`⚠️ LÍMITE DE INVENTARIO: Solo quedan ${p.stock} unidades de ${p.name} disponibles.`); return; }
+      setCart([...cart, { ...p, quantity: qtyToAdd, sale_price: p.sale_price }]);
+    }
+    setQuickQty('');
   };
 
   const updateQty = (barcode, qty) => {
@@ -711,7 +722,42 @@ export default function App() {
           {activeTab === 'pos' && (
             <div className="pos-grid-container">
               <div className="pos-products-area">
-                <input type="text" placeholder="🔍 Buscar o Escanear Código de Barras aquí..." value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const matched = products.find((p) => p.barcode === search.trim() || p.barcode === search.trim().toUpperCase()); if (matched) { addToCart(matched); setSearch(''); } } }} style={{ width: '100%', boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', marginBottom: '1rem' }} />
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={quickQty}
+                    onChange={(e) => setQuickQty(e.target.value)}
+                    placeholder="Cant"
+                    title="Cantidad de productos a agregar (por defecto 1)"
+                    style={{ width: '85px', boxSizing: 'border-box', padding: '1rem 0.5rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff', textAlign: 'center', fontWeight: 'bold' }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="🔍 Buscar o escanear código / nombre y presiona Enter..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return;
+                      const query = search.trim();
+                      if (!query) return;
+
+                      const normalizedQuery = query.toLocaleLowerCase();
+                      const matched = products.find((p) => p.barcode === query || p.barcode === query.toUpperCase())
+                        || products.find((p) => p.name.toLocaleLowerCase() === normalizedQuery)
+                        || products.find((p) => p.name.toLocaleLowerCase().includes(normalizedQuery) || p.barcode.includes(query));
+
+                      if (matched) {
+                        addToCart(matched);
+                        setSearch('');
+                      } else {
+                        alert('⚠️ Producto no encontrado.');
+                      }
+                    }}
+                    style={{ flex: 1, boxSizing: 'border-box', padding: '1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#fff' }}
+                  />
+                </div>
                 <div className="products-grid">
                   {products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search)).map((p) => (
                     <div key={p.barcode} onClick={() => addToCart(p)} style={{ background: '#1e293b', padding: '1rem', borderRadius: '6px', border: '1px solid #334155', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
