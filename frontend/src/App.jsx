@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { db } from './db';
 import { processSyncQueue } from './syncEngine';
@@ -92,6 +92,23 @@ export default function App() {
   const [printDetailShiftData, setPrintDetailShiftData] = useState(null);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Referencia para el campo de efectivo recibido (atajo con tecla Espacio)
+  const amountPaidRef = useRef(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === ' ' && activeTab === 'pos') {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+          return;
+        }
+        e.preventDefault();
+        amountPaidRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab]);
 
   useEffect(() => {
     fetch(`${API_URL}/api/ping`).catch(() => {});
@@ -521,21 +538,19 @@ export default function App() {
         .responsive-table th, .responsive-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
 
-        .mobile-header { display: none; }
+        /* Barra superior con menú hamburguesa habilitada de forma permanente para PC y Móvil */
+        .mobile-header { display: flex !important; }
         .mobile-overlay { display: none; }
+        .mobile-overlay.show { display: block !important; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9998; }
+        
+        .pos-layout { flex-direction: column; height: 100vh; display: flex; overflow: hidden; }
+        .pos-sidebar { position: fixed !important; top: 0; left: 0; width: 280px !important; height: 100vh !important; z-index: 9999; transform: translateX(-100%); transition: transform 0.3s ease; box-shadow: 4px 0 15px rgba(0,0,0,0.5); background: #1e293b; padding: 1.5rem 1rem; display: flex; flex-direction: column; overflow-y: auto; }
+        .pos-sidebar.open { transform: translateX(0) !important; }
 
         @media (max-width: 768px) {
           html, body, #root { height: auto !important; min-height: 100vh !important; overflow-y: auto !important; overflow-x: hidden !important; }
           div[style*="height: 100vh"], div[style*="height:100vh"] { height: auto !important; min-height: 100vh !important; }
           div[style*="overflow: hidden"], div[style*="overflow:hidden"] { overflow-y: auto !important; }
-
-          .mobile-header { display: flex !important; }
-          .mobile-close-btn { display: block !important; }
-          .mobile-overlay.show { display: block !important; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9998; }
-          
-          .pos-layout { flex-direction: column; height: auto; display: block; }
-          .pos-sidebar { position: fixed !important; top: 0; left: 0; width: 280px !important; height: 100vh !important; z-index: 9999; transform: translateX(-100%); transition: transform 0.3s ease; box-shadow: 4px 0 15px rgba(0,0,0,0.5); }
-          .pos-sidebar.open { transform: translateX(0) !important; }
 
           .pos-grid-container { flex-direction: column; height: auto; display: flex; gap: 1.5rem; }
           .pos-products-area { min-height: 400px; flex-shrink: 0; }
@@ -638,37 +653,39 @@ export default function App() {
         ) : null}
       </div>
 
-      <div className="no-print mobile-header" style={{ background: '#1e293b', padding: '1rem', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
+      {/* Cabecera superior con botón de menú hamburguesa para PC y Móvil */}
+      <div className="no-print mobile-header" style={{ background: '#1e293b', padding: '0.8rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
            <button onClick={() => setIsMobileMenuOpen(true)} style={{ background: '#334155', border: 'none', color: 'white', padding: '0.5rem 0.8rem', fontSize: '1.2rem', borderRadius: '4px', cursor: 'pointer' }}>
-             ☰
+             ☰ Menú
            </button>
-           <h3 style={{ margin: 0, color: '#38bdf8', fontSize: '1.2rem' }}>🌱 TERRA</h3>
+           <h3 style={{ margin: 0, color: '#38bdf8', fontSize: '1.2rem' }}>🌱 {storeConfig.razon_social}</h3>
          </div>
-         {activeShift && <span style={{ color: '#4ade80', fontSize: '0.8rem', fontWeight: 'bold' }}>🟢 Turno Abierto</span>}
+         {activeShift && <span style={{ color: '#4ade80', fontSize: '0.85rem', fontWeight: 'bold' }}>🟢 Turno Abierto #{activeShift.id}</span>}
       </div>
 
-      <div className="no-print pos-layout" style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
+      <div className="no-print pos-layout" style={{ height: 'calc(100vh - 55px)', display: 'flex', overflow: 'hidden' }}>
         
         <div className={`mobile-overlay ${isMobileMenuOpen ? 'show' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
 
-        <div className={`pos-sidebar ${isMobileMenuOpen ? 'open' : ''}`} style={{ background: '#1e293b', padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', borderRight: '1px solid #334155', flexShrink: 0, overflowY: 'auto' }}>
+        {/* Sidebar flotante con menú hamburguesa */}
+        <div className={`pos-sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
           <div className="sidebar-top-section" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid #334155' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <h3 style={{ color: '#38bdf8', fontSize: '1.2rem', margin: '0 0 0.5rem 0' }}>🌱 {storeConfig.razon_social}</h3>
                 <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{currentUser.name} <br/> <span style={{ color: '#38bdf8' }}>{currentUser.role}</span></div>
               </div>
-              <button className="mobile-header" onClick={() => setIsMobileMenuOpen(false)} style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: '1.5rem', cursor: 'pointer' }}>✖</button>
+              <button onClick={() => setIsMobileMenuOpen(false)} style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: '1.5rem', cursor: 'pointer' }}>✖</button>
             </div>
             <button onClick={handleLogout} style={{ width: '100%', padding: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
           </div>
           
           <div style={{ marginBottom: '1.5rem' }}>
             {!activeShift ? (
-              <button onClick={() => setShowShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>▶️ Iniciar Turno</button>
+              <button onClick={() => { setShowShiftModal(true); setIsMobileMenuOpen(false); }} style={{ width: '100%', padding: '1rem', background: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>▶️ Iniciar Turno</button>
             ) : (
-              <button onClick={() => setShowCloseShiftModal(true)} style={{ width: '100%', padding: '1rem', background: '#166534', color: '#4ade80', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>🟢 Cerrar Turno #{activeShift.id}</button>
+              <button onClick={() => { setShowCloseShiftModal(true); setIsMobileMenuOpen(false); }} style={{ width: '100%', padding: '1rem', background: '#166534', color: '#4ade80', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>🟢 Cerrar Turno #{activeShift.id}</button>
             )}
           </div>
           
@@ -725,7 +742,17 @@ export default function App() {
                   <div style={{ fontSize: '1.1rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>Total a Pagar:</span><span style={{ color: '#22c55e' }}>${totalCart.toLocaleString('es-CO')}</span></div>
                   {paymentMethod === 'Efectivo' && (
                     <div style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', marginBottom: '1rem', border: '1px solid #334155' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}><span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Efectivo Recibido:</span><input type="text" value={formatCOP(amountPaid)} onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))} placeholder={`Ej: ${totalCart}`} style={{ width: '50%', padding: '0.4rem', background: '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '4px', textAlign: 'right' }} /></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Efectivo Recibido (Espacio):</span>
+                        <input 
+                          ref={amountPaidRef}
+                          type="text" 
+                          value={formatCOP(amountPaid)} 
+                          onChange={(e) => setAmountPaid(e.target.value.replace(/\D/g, ''))} 
+                          placeholder={`Ej: ${totalCart}`} 
+                          style={{ width: '50%', padding: '0.4rem', background: '#1e293b', border: '1px solid #334155', color: '#fff', borderRadius: '4px', textAlign: 'right' }} 
+                        />
+                      </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Cambio / Vueltas:</span><strong style={{ color: changeGiven > 0 ? '#38bdf8' : '#94a3b8', fontSize: '1.1rem' }}>${changeGiven.toLocaleString('es-CO')}</strong></div>
                     </div>
                   )}
