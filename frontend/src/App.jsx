@@ -79,6 +79,8 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isShiftProcessing, setIsShiftProcessing] = useState(false);
   const [transactions, setTransactions] = useState([]);
+  const [accountingSales, setAccountingSales] = useState([]);
+  const [accountingSalesError, setAccountingSalesError] = useState('');
   const [showTxModal, setShowTxModal] = useState(false);
   const [newTx, setNewTx] = useState({ type: 'Ingreso', category: 'Varios', description: '', amount: '' });
   
@@ -209,7 +211,20 @@ export default function App() {
   const loadPreventaOrders = async () => { try { const res = await fetch(`${API_URL}/api/orders/detailed`); if (res.ok) setPreventaOrders(await res.json()); } catch (e) {} };
   const loadUsersOnline = async () => { try { const res = await fetch(`${API_URL}/api/users`); if (res.ok) { const data = await res.json(); setUsersList(data); await db.users.bulkPut(data); } } catch (e) {} };
   const loadConfig = async () => { try { const res = await fetch(`${API_URL}/api/config`); if (res.ok) { const data = await res.json(); setStoreConfig((prev) => ({ ...prev, ...data })); } } catch (e) {} };
-  const loadTransactions = async () => { try { const res = await fetch(`${API_URL}/api/transactions`); if (res.ok) setTransactions(await res.json()); } catch (e) {} };
+  const loadAccountingSales = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/sales`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error('Respuesta de ventas inválida');
+      setAccountingSales(data);
+      setAccountingSalesError('');
+    } catch (error) {
+      console.error('No se pudo cargar el desglose de ingresos:', error);
+      setAccountingSalesError('No se pudo cargar el desglose por método de pago.');
+    }
+  };
+  const loadTransactions = async () => { try { const res = await fetch(`${API_URL}/api/transactions`); if (res.ok) setTransactions(await res.json()); loadAccountingSales(); } catch (e) {} };
   const loadShifts = async () => { try { const res = await fetch(`${API_URL}/api/shifts`); if (res.ok) setShiftsList(await res.json()); } catch (e) {} };
   const checkActiveShift = async (userName) => { try { const res = await fetch(`${API_URL}/api/shifts/active?user_name=${encodeURIComponent(userName)}`); if (res.ok) setActiveShift(await res.json()); } catch (e) {} };
   const loadRestockRequests = async () => { try { const res = await fetch(`${API_URL}/api/restock-requests`); if (res.ok) setRestockRequests(await res.json()); } catch (e) {} };
@@ -573,6 +588,27 @@ export default function App() {
   const totalIncomes = transactions.filter((t) => t.type === 'Ingreso').reduce((acc, t) => acc + (t.amount || 0), 0);
   const totalExpenses = transactions.filter((t) => t.type === 'Egreso').reduce((acc, t) => acc + (t.amount || 0), 0);
   const netBalance = totalIncomes - totalExpenses;
+  const accountingSalesByInvoice = new Map(accountingSales.map((sale) => [sale.invoice_number, sale]));
+  const incomeByPaymentMethod = transactions
+    .filter((transaction) => transaction.type === 'Ingreso')
+    .reduce((totals, transaction) => {
+      const amount = Number(transaction.amount) || 0;
+      let invoiceNumber = '';
+
+      if (transaction.category === 'Venta POS') {
+        invoiceNumber = transaction.description.match(/Venta POS #([^| ]+)/)?.[1] || '';
+      } else if (transaction.category === 'Cobro Ruta') {
+        const orderId = transaction.description.match(/Cobro Ruta #([A-Za-z0-9-]+)/i)?.[1];
+        if (orderId) invoiceNumber = `COBRO-${orderId}`;
+      }
+
+      const sale = accountingSalesByInvoice.get(invoiceNumber);
+      if (sale?.payment_method === 'Efectivo') totals.cash += amount;
+      else if (sale?.payment_method === 'Transferencia') totals.transfer += amount;
+      else totals.other += amount;
+
+      return totals;
+    }, { cash: 0, transfer: 0, other: 0 });
   const getShiftValFormatted = (val) => { const num = Number(val); return isNaN(num) ? '0' : num.toLocaleString('es-CO'); };
 
   return (
@@ -1206,7 +1242,19 @@ export default function App() {
                 </div>
               </div>
               <div className="stats-grid">
-                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #22c55e' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL INGRESOS</span><h3 style={{ margin: '0.5rem 0 0 0', color: '#22c55e' }}>${totalIncomes.toLocaleString('es-CO')}</h3></div>
+                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #22c55e' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL INGRESOS</span>
+                  <h3 style={{ margin: '0.5rem 0', color: '#22c55e' }}>${totalIncomes.toLocaleString('es-CO')}</h3>
+                  {accountingSalesError ? (
+                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#fbbf24' }}>{accountingSalesError}</p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '0.25rem', fontSize: '0.75rem', color: '#cbd5e1' }}>
+                      <span>💵 Efectivo: ${incomeByPaymentMethod.cash.toLocaleString('es-CO')}</span>
+                      <span>📱 Transferencia: ${incomeByPaymentMethod.transfer.toLocaleString('es-CO')}</span>
+                      {incomeByPaymentMethod.other > 0 && <span>Otros ingresos: ${incomeByPaymentMethod.other.toLocaleString('es-CO')}</span>}
+                    </div>
+                  )}
+                </div>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #ef4444' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>TOTAL EGRESOS</span><h3 style={{ margin: '0.5rem 0 0 0', color: '#ef4444' }}>${totalExpenses.toLocaleString('es-CO')}</h3></div>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #38bdf8' }}><span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>BALANCE NETO</span><h3 style={{ margin: '0.5rem 0 0 0', color: netBalance >= 0 ? '#38bdf8' : '#ef4444' }}>${netBalance.toLocaleString('es-CO')}</h3></div>
               </div>
