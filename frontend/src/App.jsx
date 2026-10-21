@@ -103,6 +103,13 @@ export default function App() {
     let shiftUsedWithAnotherKey = false;
 
     const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && activeTab !== 'pos') {
+        e.preventDefault();
+        setActiveTab('pos');
+        setIsMobileMenuOpen(false);
+        return;
+      }
+
       if (e.key === 'Shift' && activeTab === 'pos' && !e.repeat) {
         shiftPressed = true;
         shiftUsedWithAnotherKey = false;
