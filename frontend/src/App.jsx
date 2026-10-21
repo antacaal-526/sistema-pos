@@ -72,6 +72,7 @@ export default function App() {
   const [isRestocking, setIsRestocking] = useState(false);
   const [deliveryPerson, setDeliveryPerson] = useState('');
   const [restockRequests, setRestockRequests] = useState([]);
+  const [expandedConfirmedDeliveryId, setExpandedConfirmedDeliveryId] = useState(null);
   const [subTabRestock, setSubTabRestock] = useState('armar'); 
   
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1015,12 +1016,52 @@ export default function App() {
                     {restockRequests.filter(r => r.status === 'CONFIRMED').length === 0 ? (
                       <p style={{ color: '#64748b', fontSize: '0.8rem', margin: 0 }}>Sin entregas recientes.</p>
                     ) : (
-                      restockRequests.filter(r => r.status === 'CONFIRMED').slice(0, 3).map(req => (
-                        <div key={req.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '0.4rem 0', borderBottom: '1px solid #1e293b' }}>
-                          <span>#{req.id.substring(0,6)}</span>
-                          <span style={{ color: '#10b981' }}>✅ Recibido ({req.confirmed_by})</span>
-                        </div>
-                      ))
+                      restockRequests.filter(r => r.status === 'CONFIRMED').slice(0, 3).map(req => {
+                        const parsedBaskets = typeof req.items === 'string' ? JSON.parse(req.items || '[]') : (req.items || []);
+                        const isNewFormat = parsedBaskets.length > 0 && parsedBaskets[0].canasta;
+                        const isExpanded = expandedConfirmedDeliveryId === req.id;
+
+                        return (
+                          <div key={req.id} style={{ padding: '0.5rem 0', borderBottom: '1px solid #1e293b' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.8rem' }}>
+                              <span>#{req.id.substring(0,6)}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <span style={{ color: '#10b981' }}>✅ Recibido ({req.confirmed_by})</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedConfirmedDeliveryId(isExpanded ? null : req.id)}
+                                  aria-expanded={isExpanded}
+                                  style={{ background: 'transparent', color: '#38bdf8', border: '1px solid #38bdf8', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}
+                                >
+                                  {isExpanded ? 'Ocultar detalles' : 'Detalles'}
+                                </button>
+                              </div>
+                            </div>
+                            {isExpanded && (
+                              <div style={{ marginTop: '0.6rem', padding: '0.75rem', background: '#1e293b', borderRadius: '6px' }}>
+                                {isNewFormat ? (
+                                  parsedBaskets.map((basket, idx) => (
+                                    <div key={`${req.id}-${basket.canasta}-${idx}`} style={{ marginBottom: idx < parsedBaskets.length - 1 ? '0.75rem' : 0 }}>
+                                      <strong style={{ color: '#38bdf8' }}>📦 {basket.canasta}</strong>
+                                      <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.25rem', fontSize: '0.8rem' }}>
+                                        {basket.items.map((item, itemIdx) => (
+                                          <li key={`${item.barcode || item.name}-${itemIdx}`}><strong>{item.quantity}x</strong> {item.name}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.8rem' }}>
+                                    {parsedBaskets.map((item, idx) => (
+                                      <li key={`${item.barcode || item.name}-${idx}`}><strong>{item.quantity}x</strong> {item.name}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
