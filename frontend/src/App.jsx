@@ -36,6 +36,7 @@ export default function App() {
   });
   
   const [lastInvoice, setLastInvoice] = useState(null);
+  const [showSaleReceipt, setShowSaleReceipt] = useState(false);
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -384,6 +385,7 @@ export default function App() {
     if (cart.length === 0) return alert('El carrito está vacío');
     if (isProcessing) return;
     setIsProcessing(true);
+    setShowSaleReceipt(false);
 
     setPrintShiftData(null);
     setPrintDetailShiftData(null);
@@ -410,8 +412,8 @@ export default function App() {
     if (!navigator.onLine) {
       await db.syncQueue.add({ type: 'PROCESS_POS_SALE', payload });
       for (const item of cart) { const p = await db.products.get(item.barcode); if (p) await db.products.update(item.barcode, { stock: p.stock - item.quantity }); }
-      setLastInvoice({ number: invNumber, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
-      if (saleType === 'Facturada') { setTimeout(() => window.print(), 250); } else { alert(`💾 Venta Guardada Offline. Factura #: ${invNumber}`); }
+      setLastInvoice({ number: invNumber, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name, offline: true });
+      if (saleType === 'Facturada') { setTimeout(() => window.print(), 250); } else { setShowSaleReceipt(true); }
       setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
       loadProductsLocal(); setIsProcessing(false); return;
     }
@@ -420,8 +422,8 @@ export default function App() {
       const res = await fetch(`${API_URL}/api/sales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (res.ok && data.success) {
-        setLastInvoice({ number: data.invoice_number, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name });
-        if (saleType === 'Facturada') { setTimeout(() => window.print(), 250); } else { alert(`✅ Venta Exitosa. Factura #: ${data.invoice_number}`); }
+        setLastInvoice({ number: data.invoice_number, date: new Date().toLocaleString(), customerDoc: finalDoc, customerName, items: [...cart], total: totalCart, paymentMethod, received: receivedToRegister, changeGiven, seller: currentUser.name, offline: false });
+        if (saleType === 'Facturada') { setTimeout(() => window.print(), 250); } else { setShowSaleReceipt(true); }
         setCart([]); setAmountPaid(''); setCustomerDoc(''); setCustomerName('Consumidor Final'); setCustomerEmail(''); setSearch('');
         loadProductsOnline(); loadTransactions();
       }
@@ -1584,6 +1586,62 @@ export default function App() {
               <button type="button" onClick={() => setShowUserModal(false)} style={{ flex: 1, padding: '0.8rem', background: '#334155', color: '#fff', border: 'none', borderRadius: '4px' }}>Cancelar</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {showSaleReceipt && lastInvoice && (
+        <div
+          className="no-print"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sale-receipt-title"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000, padding: '1rem' }}
+        >
+          <div style={{ background: '#1e293b', color: '#fff', width: '100%', maxWidth: '460px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '10px', border: '1px solid #334155', padding: '1.5rem', boxShadow: '0 12px 32px rgba(0,0,0,0.5)' }}>
+            <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+              <h2 id="sale-receipt-title" style={{ margin: '0 0 0.4rem', color: '#4ade80' }}>✅ Venta registrada</h2>
+              <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>{lastInvoice.offline ? 'Guardada sin conexión' : 'Recibo de venta'}</p>
+            </div>
+            <div style={{ borderTop: '1px dashed #64748b', borderBottom: '1px dashed #64748b', padding: '0.8rem 0', marginBottom: '0.8rem', fontSize: '0.9rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}><span>Factura:</span><strong>{lastInvoice.number}</strong></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.3rem' }}><span>Fecha:</span><span>{lastInvoice.date}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.3rem' }}><span>Cliente:</span><span>{lastInvoice.customerName}</span></div>
+              {lastInvoice.customerDoc !== '222222222222' && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.3rem' }}><span>Documento:</span><span>{lastInvoice.customerDoc}</span></div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.3rem' }}><span>Vendedor:</span><span>{lastInvoice.seller}</span></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.4rem' }}>
+              <span>PRODUCTO</span><span style={{ textAlign: 'right' }}>CANT. / TOTAL</span>
+            </div>
+            <div style={{ maxHeight: '30vh', overflowY: 'auto', marginBottom: '0.8rem' }}>
+              {lastInvoice.items.map((item, index) => (
+                <div key={`${item.barcode}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', padding: '0.55rem 0', borderBottom: '1px solid #334155' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 'bold', overflowWrap: 'anywhere' }}>{item.name}</div>
+                    <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>{item.quantity} × ${Number(item.sale_price).toLocaleString('es-CO')}</div>
+                  </div>
+                  <strong style={{ whiteSpace: 'nowrap' }}>${(item.quantity * item.sale_price).toLocaleString('es-CO')}</strong>
+                </div>
+              ))}
+            </div>
+            <div style={{ borderTop: '1px dashed #64748b', paddingTop: '0.8rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
+                <span>TOTAL</span><span style={{ color: '#4ade80' }}>${lastInvoice.total.toLocaleString('es-CO')}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', color: '#cbd5e1' }}><span>Forma de pago:</span><span>{lastInvoice.paymentMethod}</span></div>
+              {lastInvoice.paymentMethod === 'Efectivo' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', color: '#cbd5e1', marginTop: '0.3rem' }}><span>Recibido:</span><span>${lastInvoice.received.toLocaleString('es-CO')}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', color: '#cbd5e1', marginTop: '0.3rem' }}><span>Cambio:</span><span>${lastInvoice.changeGiven.toLocaleString('es-CO')}</span></div>
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1.2rem' }}>
+              <button onClick={() => { setShowSaleReceipt(false); window.print(); }} style={{ flex: 1, padding: '0.8rem', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🖨️ Imprimir</button>
+              <button onClick={() => setShowSaleReceipt(false)} style={{ flex: 1, padding: '0.8rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Continuar venta</button>
+            </div>
+          </div>
         </div>
       )}
     </>
