@@ -69,6 +69,7 @@ export default function App() {
   const [baskets, setBaskets] = useState([{ id: generateUUID(), name: 'Caja 1', items: [] }]);
   const [activeBasketId, setActiveBasketId] = useState(null);
   const [restockSearch, setRestockSearch] = useState('');
+  const [restockQty, setRestockQty] = useState('1');
   const [isRestocking, setIsRestocking] = useState(false);
   const [deliveryPerson, setDeliveryPerson] = useState('');
   const [restockRequests, setRestockRequests] = useState([]);
@@ -442,12 +443,26 @@ export default function App() {
   };
 
   const addToRestockCart = (p) => {
+    const qtyToAdd = Number(restockQty);
+    if (!Number.isInteger(qtyToAdd) || qtyToAdd < 1) {
+      alert('⚠️ Ingrese una cantidad entera mayor que cero.');
+      return;
+    }
     if (!activeBasketId) return alert('Seleccione una caja primero');
     const updatedBaskets = baskets.map(basket => {
       if (basket.id === activeBasketId) {
         const exist = basket.items.find((x) => x.barcode === p.barcode);
-        if (exist) { return basket; } 
-        else { return { ...basket, items: [...basket.items, { ...p, quantity: 1 }] }; }
+        if (exist) {
+          return {
+            ...basket,
+            items: basket.items.map((item) => (
+              item.barcode === p.barcode
+                ? { ...item, quantity: item.quantity + qtyToAdd }
+                : item
+            ))
+          };
+        }
+        return { ...basket, items: [...basket.items, { ...p, quantity: qtyToAdd }] };
       }
       return basket;
     });
@@ -920,8 +935,18 @@ export default function App() {
                   <div style={{ flex: '2', width: '100%', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', minHeight: '350px', boxSizing: 'border-box' }}>
                     <h3 style={{ margin: '0 0 0.5rem 0', color: '#10b981', fontSize: '1rem' }}>Catálogo para Logística y Despachos</h3>
                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
-                      Agrega productos a las canastas. En la caja derecha podrás <strong>escribir la cantidad</strong> exacta a enviar.
+                      Indica la cantidad y luego selecciona o busca el producto para agregarla a la canasta activa.
                     </p>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={restockQty}
+                      onChange={(e) => setRestockQty(e.target.value)}
+                      placeholder="Cantidad"
+                      aria-label="Cantidad a despachar por producto"
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#fff', marginBottom: '0.6rem' }}
+                    />
                     <input
                       type="text"
                       placeholder="🔍 Buscar producto a despachar..."
