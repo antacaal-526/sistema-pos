@@ -24,12 +24,38 @@ html, body, #root {
 
 /* Contenedor responsivo para el módulo de canastas */
 .restock-responsive-container { display: flex; gap: 1rem; flex: 1; overflow-y: auto; }
+.restock-entry-controls { display: grid; grid-template-columns: minmax(110px, 0.3fr) minmax(0, 1fr); gap: 0.75rem; margin-bottom: 0.25rem; }
+.restock-field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; color: #cbd5e1; font-size: 0.8rem; font-weight: 600; }
+.restock-field input { width: 100%; min-height: 46px; box-sizing: border-box; padding: 0.75rem; border: 1px solid #475569; border-radius: 6px; background: #0f172a; color: #fff; font: inherit; font-size: 1rem; }
+.restock-field input[type="search"] { border-color: #10b981; }
+.restock-keyboard-hint { margin: 0 0 0.75rem; color: #94a3b8; font-size: 0.75rem; line-height: 1.45; }
+.restock-product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.65rem; overflow-y: auto; flex: 1; max-height: 50vh; align-content: start; }
+.restock-product-button { min-width: 0; min-height: 92px; padding: 0.75rem; border: 1px solid #334155; border-radius: 8px; background: #0f172a; color: #f8fafc; text-align: left; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 0.4rem; overflow-wrap: anywhere; }
+.restock-product-button:hover, .restock-product-button:focus-visible { border-color: #10b981; outline: 2px solid #10b981; outline-offset: 1px; }
+.restock-product-code, .restock-product-stock { color: #94a3b8; font-size: 0.72rem; }
+.restock-product-stock { color: #38bdf8; }
+.restock-empty-results { grid-column: 1 / -1; margin: 0; padding: 1rem; color: #94a3b8; text-align: center; }
+.restock-basket-tabs { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.5rem; margin-bottom: 0.8rem; }
+.restock-basket-tab { min-height: 42px; padding: 0.55rem 0.85rem; border: 1px solid transparent; border-radius: 6px; background: #334155; color: #f8fafc; cursor: pointer; white-space: nowrap; font-size: 0.85rem; }
+.restock-basket-tab.is-active { border-color: #fff; background: #3b82f6; }
+.delivery-history-entry { padding: 0.75rem 0; border-bottom: 1px solid #1e293b; }
+.delivery-history-summary, .delivery-history-info, .delivery-history-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.delivery-history-info { align-items: flex-start; flex-direction: column; color: #cbd5e1; font-size: 0.82rem; }
+.delivery-history-info > span { color: #94a3b8; font-size: 0.75rem; }
+.delivery-history-actions { flex-wrap: wrap; justify-content: flex-end; }
+.delivery-history-received { color: #10b981; font-size: 0.78rem; }
+.delivery-history-details { min-height: 40px; padding: 0.45rem 0.7rem; border: 1px solid #38bdf8; border-radius: 5px; background: transparent; color: #38bdf8; cursor: pointer; }
 
 /* ======================================================= */
 /* DESBLOQUEO MAESTRO PARA PREVENTISTA Y ENTREGADOR        */
 /* ======================================================= */
 @media (max-width: 768px) {
   .restock-responsive-container { flex-direction: column !important; }
+  .restock-entry-controls { grid-template-columns: minmax(85px, 0.3fr) minmax(0, 1fr); gap: 0.5rem; }
+  .restock-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 40vh; }
+  .restock-product-button { min-height: 100px; padding: 0.65rem; }
+  .delivery-history-summary { align-items: flex-start; flex-direction: column; }
+  .delivery-history-actions { width: 100%; justify-content: space-between; }
   
   /* Si Entregador o Preventista tienen estilos internos que bloquean la pantalla, esto los anula a la fuerza */
   div[style*="height: 100vh"], div[style*="height:100vh"] {

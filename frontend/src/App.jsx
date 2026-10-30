@@ -14,6 +14,18 @@ const formatCOP = (val) => {
   return parseInt(cleanNum, 10).toLocaleString('es-CO');
 };
 
+const formatDeliveryDate = (value) => {
+  if (!value) return 'Fecha no disponible';
+  const timestamp = String(value).trim().replace(' ', 'T');
+  const date = new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(timestamp) ? timestamp : `${timestamp}-05:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+};
+
 const parseCOP = (val) => {
   if (!val) return 0;
   const cleanNum = String(val).replace(/\D/g, '');
@@ -67,8 +79,9 @@ export default function App() {
   const [customerName, setCustomerName] = useState('Consumidor Final');
   const [customerEmail, setCustomerEmail] = useState('');
   
-  const [baskets, setBaskets] = useState([{ id: generateUUID(), name: 'Caja 1', items: [] }]);
-  const [activeBasketId, setActiveBasketId] = useState(null);
+  const [initialBasketId] = useState(generateUUID);
+  const [baskets, setBaskets] = useState([{ id: initialBasketId, name: 'Caja 1', items: [] }]);
+  const [activeBasketId, setActiveBasketId] = useState(initialBasketId);
   const [restockSearch, setRestockSearch] = useState('');
   const [restockQty, setRestockQty] = useState('1');
   const [isRestocking, setIsRestocking] = useState(false);
@@ -76,7 +89,9 @@ export default function App() {
   const [restockRequests, setRestockRequests] = useState([]);
   const [expandedConfirmedDeliveryId, setExpandedConfirmedDeliveryId] = useState(null);
   const [subTabRestock, setSubTabRestock] = useState('armar'); 
-  
+  const restockQtyRef = useRef(null);
+  const restockSearchRef = useRef(null);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isShiftProcessing, setIsShiftProcessing] = useState(false);
@@ -448,11 +463,15 @@ export default function App() {
     const qtyToAdd = Number(restockQty);
     if (!Number.isInteger(qtyToAdd) || qtyToAdd < 1) {
       alert('⚠️ Ingrese una cantidad entera mayor que cero.');
-      return;
+      return false;
     }
-    if (!activeBasketId) return alert('Seleccione una caja primero');
+    const targetBasketId = activeBasketId || baskets[0]?.id;
+    if (!targetBasketId) {
+      alert('Seleccione o cree una caja primero.');
+      return false;
+    }
     const updatedBaskets = baskets.map(basket => {
-      if (basket.id === activeBasketId) {
+      if (basket.id === targetBasketId) {
         const exist = basket.items.find((x) => x.barcode === p.barcode);
         if (exist) {
           return {
@@ -469,6 +488,36 @@ export default function App() {
       return basket;
     });
     setBaskets(updatedBaskets);
+    setActiveBasketId(targetBasketId);
+    return true;
+  };
+
+  const handleRestockProductSearchKeyDown = (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (event.shiftKey) {
+      restockQtyRef.current?.focus();
+      return;
+    }
+
+    const query = restockSearch.trim().toLocaleLowerCase();
+    if (!query) return;
+    const matchingProducts = products.filter((product) => (
+      product.name.toLocaleLowerCase().includes(query)
+      || String(product.barcode).toLocaleLowerCase().includes(query)
+    ));
+    const selectedProduct = matchingProducts.find((product) => (
+      String(product.barcode).toLocaleLowerCase() === query
+      || product.name.toLocaleLowerCase() === query
+    )) || matchingProducts[0];
+    if (selectedProduct) {
+      if (addToRestockCart(selectedProduct)) {
+        setRestockSearch('');
+        setRestockQty('1');
+      }
+    } else {
+      alert('⚠️ Producto no encontrado.');
+    }
   };
 
   const updateRestockQty = (basketId, barcode, qty) => {
@@ -509,7 +558,9 @@ export default function App() {
 
       if (dispatchRes.ok && dispatchData.success) {
         alert('🚚 ¡Despacho creado y en ruta! Pendiente por entrega.');
-        setBaskets([{ id: generateUUID(), name: 'Caja 1', items: [] }]);
+        const newBasket = { id: generateUUID(), name: 'Caja 1', items: [] };
+        setBaskets([newBasket]);
+        setActiveBasketId(newBasket.id);
         setDeliveryPerson('');
         setRestockSearch('');
         loadRestockRequests();
@@ -936,34 +987,68 @@ export default function App() {
                 <div className="restock-responsive-container">
                   <div style={{ flex: '2', width: '100%', background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', minHeight: '350px', boxSizing: 'border-box' }}>
                     <h3 style={{ margin: '0 0 0.5rem 0', color: '#10b981', fontSize: '1rem' }}>Catálogo para Logística y Despachos</h3>
-                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
-                      Indica la cantidad y luego selecciona o busca el producto para agregarla a la canasta activa.
+                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 1rem' }}>
+                      Elige una canasta, indica la cantidad y busca o escanea el producto. Pulsa Enter para agregarlo.
                     </p>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={restockQty}
-                      onChange={(e) => setRestockQty(e.target.value)}
-                      placeholder="Cantidad"
-                      aria-label="Cantidad a despachar por producto"
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#fff', marginBottom: '0.6rem' }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="🔍 Buscar producto a despachar..."
-                      value={restockSearch}
-                      onChange={(e) => setRestockSearch(e.target.value)}
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid #10b981', background: '#0f172a', color: '#fff', marginBottom: '1rem' }}
-                    />
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.8rem', overflowY: 'auto', flex: 1, maxHeight: '50vh' }}>
-                      {products.filter((p) => p.name.toLowerCase().includes(restockSearch.toLowerCase()) || p.barcode.includes(restockSearch)).map((p) => (
-                        <div key={p.barcode} onClick={() => addToRestockCart(p)} style={{ background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: `1px solid ${activeBasketId ? '#3b82f6' : '#334155'}`, cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                          <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CÓD: {p.barcode}</span>
-                          <strong style={{ fontSize: '0.85rem', margin: '0.4rem 0' }}>{p.name}</strong>
-                          <span style={{ fontSize: '0.75rem', color: '#38bdf8' }}>Stock Actual: {p.stock || '0'}</span>
-                        </div>
-                      ))}
+                    <div className="restock-entry-controls">
+                      <label className="restock-field">
+                        <span>Cantidad</span>
+                        <input
+                          ref={restockQtyRef}
+                          type="number"
+                          min="1"
+                          step="1"
+                          inputMode="numeric"
+                          value={restockQty}
+                          onChange={(e) => setRestockQty(e.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              restockSearchRef.current?.focus();
+                            }
+                          }}
+                          aria-label="Cantidad a despachar por producto"
+                        />
+                      </label>
+                      <label className="restock-field">
+                        <span>Código o nombre del producto</span>
+                        <input
+                          ref={restockSearchRef}
+                          type="search"
+                          placeholder="Buscar o escanear código..."
+                          value={restockSearch}
+                          onChange={(e) => setRestockSearch(e.target.value)}
+                          onKeyDown={handleRestockProductSearchKeyDown}
+                          aria-label="Buscar producto para despacho"
+                        />
+                      </label>
+                    </div>
+                    <p className="restock-keyboard-hint">Enter en cantidad: ir al código · Enter en búsqueda: agregar producto · Shift+Enter: volver a cantidad</p>
+                    <div className="restock-product-grid">
+                      {products
+                        .filter((p) => p.name.toLocaleLowerCase().includes(restockSearch.trim().toLocaleLowerCase()) || String(p.barcode).toLocaleLowerCase().includes(restockSearch.trim().toLocaleLowerCase()))
+                        .slice(0, 40)
+                        .map((p) => (
+                          <button
+                            type="button"
+                            key={p.barcode}
+                            onClick={() => {
+                              if (addToRestockCart(p)) {
+                                setRestockSearch('');
+                                setRestockQty('1');
+                              }
+                            }}
+                            className="restock-product-button"
+                            aria-label={`Agregar ${p.name}, código ${p.barcode}`}
+                          >
+                            <span className="restock-product-code">CÓD: {p.barcode}</span>
+                            <strong>{p.name}</strong>
+                            <span className="restock-product-stock">Stock actual: {p.stock || '0'}</span>
+                          </button>
+                        ))}
+                      {products.filter((p) => p.name.toLocaleLowerCase().includes(restockSearch.trim().toLocaleLowerCase()) || String(p.barcode).toLocaleLowerCase().includes(restockSearch.trim().toLocaleLowerCase())).length === 0 && (
+                        <p className="restock-empty-results">No se encontraron productos.</p>
+                      )}
                     </div>
                   </div>
 
@@ -973,19 +1058,19 @@ export default function App() {
                       <button onClick={handleAddBasket} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>+ Añadir Caja</button>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.5rem', marginBottom: '0.8rem' }}>
+                    <div className="restock-basket-tabs">
                       {baskets.map(basket => (
-                        <div key={basket.id} onClick={() => setActiveBasketId(basket.id)} style={{ padding: '0.4rem 0.8rem', background: activeBasketId === basket.id ? '#3b82f6' : '#334155', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.85rem', border: activeBasketId === basket.id ? '1px solid #fff' : 'none' }}>
+                        <button type="button" key={basket.id} onClick={() => setActiveBasketId(basket.id)} aria-pressed={activeBasketId === basket.id || (!activeBasketId && basket.id === baskets[0]?.id)} className={`restock-basket-tab${activeBasketId === basket.id || (!activeBasketId && basket.id === baskets[0]?.id) ? ' is-active' : ''}`}>
                           {basket.name} ({basket.items.length})
-                        </div>
+                        </button>
                       ))}
                     </div>
 
                     <div style={{ flex: 1, overflowY: 'auto', background: '#0f172a', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', maxHeight: '30vh' }}>
-                      {baskets.find(b => b.id === activeBasketId)?.items.length === 0 ? (
+                      {(baskets.find(b => b.id === activeBasketId) || baskets[0])?.items.length === 0 ? (
                         <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', marginTop: '1rem' }}>Caja vacía. Clic en la izquierda para agregar.</p>
                       ) : (
-                        baskets.find(b => b.id === activeBasketId)?.items.map((item) => (
+                        (baskets.find(b => b.id === activeBasketId) || baskets[0])?.items.map((item) => (
                           <div key={item.barcode} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem', background: '#1e293b', marginBottom: '0.4rem', borderRadius: '4px' }}>
                             <span style={{ fontSize: '0.85rem', flex: 1 }}>{item.name}</span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
@@ -1085,16 +1170,19 @@ export default function App() {
                         const isExpanded = expandedConfirmedDeliveryId === req.id;
 
                         return (
-                          <div key={req.id} style={{ padding: '0.5rem 0', borderBottom: '1px solid #1e293b' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.8rem' }}>
-                              <span>#{req.id.substring(0,6)}</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                <span style={{ color: '#10b981' }}>✅ Recibido ({req.confirmed_by})</span>
+                          <div key={req.id} className="delivery-history-entry">
+                            <div className="delivery-history-summary">
+                              <div className="delivery-history-info">
+                                <strong>{formatDeliveryDate(req.confirmed_at || req.dispatched_at || req.created_at)}</strong>
+                                <span>Armado por: {req.admin_user || req.dispatched_by || 'Usuario no disponible'}</span>
+                              </div>
+                              <div className="delivery-history-actions">
+                                <span className="delivery-history-received">✅ Recibido ({req.confirmed_by || 'Usuario no disponible'})</span>
                                 <button
                                   type="button"
                                   onClick={() => setExpandedConfirmedDeliveryId(isExpanded ? null : req.id)}
                                   aria-expanded={isExpanded}
-                                  style={{ background: 'transparent', color: '#38bdf8', border: '1px solid #38bdf8', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}
+                                  className="delivery-history-details"
                                 >
                                   {isExpanded ? 'Ocultar detalles' : 'Detalles'}
                                 </button>
