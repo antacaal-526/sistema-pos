@@ -614,7 +614,7 @@ app.post('/api/config', (req, res) => {
    ========================================================== */
 
 app.get('/api/restock-requests', (req, res) => {
-  db.all('SELECT * FROM restock_requests ORDER BY created_at DESC', [], (err, rows) => {
+  db.all('SELECT * FROM restock_requests ORDER BY COALESCE(confirmed_at, created_at) DESC, created_at DESC, id DESC', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     const parsed = (rows || []).map(r => ({ ...r, items: JSON.parse(r.items || '[]') }));
     res.json(parsed);

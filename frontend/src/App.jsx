@@ -1075,11 +1075,11 @@ export default function App() {
                   )}
 
                   <div style={{ marginTop: '2rem', background: '#0f172a', padding: '1rem', borderRadius: '6px', border: '1px solid #334155' }}>
-                    <h4 style={{ color: '#94a3b8', margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Historial Reciente (Entregados)</h4>
+                    <h4 style={{ color: '#94a3b8', margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Historial de Entregas (Entregados)</h4>
                     {restockRequests.filter(r => r.status === 'CONFIRMED').length === 0 ? (
                       <p style={{ color: '#64748b', fontSize: '0.8rem', margin: 0 }}>Sin entregas recientes.</p>
                     ) : (
-                      restockRequests.filter(r => r.status === 'CONFIRMED').slice(0, 3).map(req => {
+                      restockRequests.filter(r => r.status === 'CONFIRMED').map(req => {
                         const parsedBaskets = typeof req.items === 'string' ? JSON.parse(req.items || '[]') : (req.items || []);
                         const isNewFormat = parsedBaskets.length > 0 && parsedBaskets[0].canasta;
                         const isExpanded = expandedConfirmedDeliveryId === req.id;
