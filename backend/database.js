@@ -1,12 +1,14 @@
-const { createClient } = require('@libsql/client');
+const { createClient } = require('@libsql/client/web');
 
 const url = process.env.TURSO_DATABASE_URL ? process.env.TURSO_DATABASE_URL.trim() : '';
 const authToken = process.env.TURSO_AUTH_TOKEN ? process.env.TURSO_AUTH_TOKEN.trim() : '';
 
-console.log("Configuración Turso URL:", url ? url.substring(0, 30) + "..." : "¡URL VACÍA O NO DETECTADA!");
+if (!url || !authToken) {
+  throw new Error('TURSO_DATABASE_URL y TURSO_AUTH_TOKEN son obligatorios; no se usará la base local.');
+}
 
 const turso = createClient({
-  url: url || "file:pos.db",
+  url,
   authToken: authToken,
   concurrency: 10,
 });

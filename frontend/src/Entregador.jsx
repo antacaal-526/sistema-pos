@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from './db';
 import { processSyncQueue } from './syncEngine';
 
-const API_URL = 'https://terra-pos-backend-526.onrender.com';
+const API_URL = '';
 
 const formatCOP = (val) => {
   if (!val) return '0';

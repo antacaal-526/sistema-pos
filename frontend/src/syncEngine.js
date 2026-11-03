@@ -1,6 +1,6 @@
 import { db } from './db';
 
-const API_URL = 'https://terra-pos-backend-526.onrender.com';
+const API_URL = '';
 
 const waitForServer = async () => {
   for (let i = 0; i < 5; i++) {
